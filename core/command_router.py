@@ -136,12 +136,16 @@ def _handle_config_command(command):
         error_sound = get_setting("sounds.error", True)
         initial_timeout = get_setting("initial_timeout", 15)
         active_timeout = get_setting("active_timeout", 60)
+        reminder_monitor = get_setting("notifications.reminder_monitor_enabled", True)
+        reminder_interval = get_setting("notifications.reminder_check_interval_minutes", 15)
         return (
             f"Current settings: wake word is {wake_word}. "
             f"Voice mode is {voice_mode}. "
             f"Initial timeout is {initial_timeout} seconds. "
             f"Active timeout is {active_timeout} seconds. "
             f"Tray startup is {'on' if tray_mode else 'off'}. "
+            f"Reminder monitor is {'on' if reminder_monitor else 'off'}. "
+            f"Reminder interval is {reminder_interval} minutes. "
             f"Sounds are {'on' if sounds_enabled else 'off'}. "
             f"Start sound is {'on' if start_sound else 'off'}. "
             f"Success sound is {'on' if success_sound else 'off'}. "
@@ -187,6 +191,22 @@ def _handle_config_command(command):
     if command in ["disable tray startup", "turn off tray startup"]:
         update_setting("startup.tray_mode", False)
         return "Tray startup disabled."
+
+    if command in ["enable reminder monitor", "turn on reminder monitor", "enable notification monitor"]:
+        update_setting("notifications.reminder_monitor_enabled", True)
+        return "Reminder monitor enabled."
+
+    if command in ["disable reminder monitor", "turn off reminder monitor", "disable notification monitor"]:
+        update_setting("notifications.reminder_monitor_enabled", False)
+        return "Reminder monitor disabled."
+
+    interval_match = re.match(
+        r"^(?:set|change|update)\s+reminder popup interval\s+to\s+(\d+)$", command
+    )
+    if interval_match:
+        interval_value = max(1, int(interval_match.group(1)))
+        update_setting("notifications.reminder_check_interval_minutes", interval_value)
+        return f"Reminder popup interval updated to {interval_value} minutes."
 
     if command in [
         "enable noise cancel mode",

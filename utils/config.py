@@ -31,6 +31,10 @@ DEFAULT_SETTINGS = {
     "startup": {
         "tray_mode": False,
     },
+    "notifications": {
+        "reminder_monitor_enabled": True,
+        "reminder_check_interval_minutes": 15,
+    },
 }
 
 APP_ALIASES = {

@@ -1,10 +1,17 @@
 import datetime
 import threading
+import time
 
 import win32com.client
 
 from modules.health_module import get_system_status
 from modules.task_module import get_task_data
+from utils.config import get_setting
+
+
+_monitor_thread = None
+_monitor_stop_event = threading.Event()
+_last_monitor_message = None
 
 
 def _parse_date(date_str):
@@ -114,3 +121,66 @@ def show_health_popup():
     if _show_popup("System Health", message, timeout=10):
         return "System health popup shown."
     return "I could not show the system health popup right now."
+
+
+def _build_due_monitor_message():
+    data = get_task_data()
+    today = datetime.date.today()
+    due_items = []
+
+    for reminder in data.get("reminders", []):
+        due_date = _parse_date(reminder.get("due_date"))
+        if due_date is None:
+            continue
+        if due_date <= today:
+            due_items.append(reminder.get("title", "Untitled reminder"))
+
+    pending_tasks = [
+        task.get("title", "Untitled task")
+        for task in data.get("tasks", [])
+        if not task.get("completed")
+    ]
+
+    parts = []
+    if due_items:
+        parts.append("Due reminders: " + ", ".join(due_items[:3]))
+    if pending_tasks:
+        parts.append("Pending tasks: " + ", ".join(pending_tasks[:3]))
+
+    return " | ".join(parts) if parts else None
+
+
+def _monitor_worker():
+    global _last_monitor_message
+
+    while not _monitor_stop_event.is_set():
+        if get_setting("notifications.reminder_monitor_enabled", True):
+            message = _build_due_monitor_message()
+            if message and message != _last_monitor_message:
+                _show_popup("Grandpa Reminder Monitor", message, timeout=10)
+                _last_monitor_message = message
+
+        interval = max(1, int(get_setting("notifications.reminder_check_interval_minutes", 15)))
+        sleep_seconds = interval * 60
+
+        for _ in range(sleep_seconds):
+            if _monitor_stop_event.is_set():
+                return
+            time.sleep(1)
+
+
+def start_notification_monitor():
+    global _monitor_thread
+
+    if _monitor_thread and _monitor_thread.is_alive():
+        return False
+
+    _monitor_stop_event.clear()
+    _monitor_thread = threading.Thread(target=_monitor_worker, daemon=True)
+    _monitor_thread.start()
+    return True
+
+
+def stop_notification_monitor():
+    _monitor_stop_event.set()
+    return True
