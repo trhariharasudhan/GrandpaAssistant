@@ -58,6 +58,31 @@ def _extract_event_date(command):
     return date_obj.isoformat()
 
 
+def _extract_event_time(command):
+    match = re.search(
+        r"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b",
+        command,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    hour = int(match.group(1))
+    minute = int(match.group(2) or 0)
+    meridiem = (match.group(3) or "").lower()
+
+    if meridiem:
+        if hour == 12:
+            hour = 0
+        if meridiem == "pm":
+            hour += 12
+
+    if hour > 23 or minute > 59:
+        return None
+
+    return f"{hour:02d}:{minute:02d}"
+
+
 def _remove_date_phrases(text):
     patterns = [
         r"\b(today|tomorrow|yesterday|next week|last week|next month|last month|next year|last year)\b",
@@ -70,6 +95,13 @@ def _remove_date_phrases(text):
     cleaned = text
     for pattern in patterns:
         cleaned = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE)
+
+    cleaned = re.sub(
+        r"\bat\s+\d{1,2}(?::\d{2})?\s*(am|pm)?\b",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
 
     return _clean_text(cleaned)
 
@@ -84,8 +116,34 @@ def _format_date(date_str):
         return date_str
 
 
+def _format_time(time_str):
+    if not time_str:
+        return "No time"
+
+    try:
+        return datetime.datetime.strptime(time_str, "%H:%M").strftime("%I:%M %p")
+    except ValueError:
+        return time_str
+
+
+def _sort_key(event):
+    date_value = event.get("date") or "9999-12-31"
+    time_value = event.get("time") or "23:59"
+    return (date_value, time_value)
+
+
+def _format_event_line(index, event):
+    title = event.get("title", "Untitled event")
+    date_text = _format_date(event.get("date"))
+    time_text = event.get("time")
+    if time_text:
+        return f"{index}. {title} - {date_text} at {_format_time(time_text)}"
+    return f"{index}. {title} - {date_text}"
+
+
 def add_event(command):
     date_value = _extract_event_date(command)
+    time_value = _extract_event_time(command)
     title = command
 
     prefixes = [
@@ -108,11 +166,14 @@ def add_event(command):
         {
             "title": title,
             "date": date_value,
+            "time": time_value,
             "created_at": datetime.datetime.now().isoformat(),
         }
     )
     _save_data(data)
 
+    if date_value and time_value:
+        return f"Event added for {_format_date(date_value)} at {_format_time(time_value)}: {title}"
     if date_value:
         return f"Event added for {_format_date(date_value)}: {title}"
     return f"Event added: {title}"
@@ -125,10 +186,10 @@ def list_events():
     if not events:
         return "You do not have any saved events right now."
 
-    events = sorted(events, key=lambda item: item.get("date") or "9999-12-31")
+    events = sorted(events, key=_sort_key)
     lines = []
     for index, event in enumerate(events[:10], start=1):
-        lines.append(f"{index}. {event.get('title', 'Untitled event')} - {_format_date(event.get('date'))}")
+        lines.append(_format_event_line(index, event))
 
     return "Your events are: " + " | ".join(lines)
 
@@ -136,12 +197,21 @@ def list_events():
 def today_events():
     today = datetime.date.today().isoformat()
     data = _load_data()
-    events = [event.get("title", "Untitled event") for event in data["events"] if event.get("date") == today]
+    events = [event for event in data["events"] if event.get("date") == today]
 
     if not events:
         return "You do not have any events for today."
 
-    return "Today's events are: " + " | ".join(events)
+    events = sorted(events, key=_sort_key)
+    lines = []
+    for event in events[:10]:
+        title = event.get("title", "Untitled event")
+        if event.get("time"):
+            lines.append(f"{title} at {_format_time(event.get('time'))}")
+        else:
+            lines.append(title)
+
+    return "Today's events are: " + " | ".join(lines)
 
 
 def upcoming_events():
@@ -155,13 +225,18 @@ def upcoming_events():
         except Exception:
             continue
         if event_date >= today:
-            upcoming.append((event_date, event.get("title", "Untitled event")))
+            upcoming.append((event_date, event.get("time") or "23:59", event.get("title", "Untitled event")))
 
     if not upcoming:
         return "You do not have any upcoming events right now."
 
-    upcoming.sort(key=lambda item: item[0])
-    lines = [f"{title} on {date.strftime('%d %B %Y')}" for date, title in upcoming[:5]]
+    upcoming.sort(key=lambda item: (item[0], item[1]))
+    lines = []
+    for date, time_value, title in upcoming[:5]:
+        if time_value and time_value != "23:59":
+            lines.append(f"{title} on {date.strftime('%d %B %Y')} at {_format_time(time_value)}")
+        else:
+            lines.append(f"{title} on {date.strftime('%d %B %Y')}")
     return "Upcoming events: " + " | ".join(lines)
 
 
@@ -172,7 +247,7 @@ def delete_event(command):
 
     index = int(raw) - 1
     data = _load_data()
-    events = sorted(data["events"], key=lambda item: item.get("date") or "9999-12-31")
+    events = sorted(data["events"], key=_sort_key)
 
     if index < 0 or index >= len(events):
         return "That event number does not exist."
@@ -196,8 +271,16 @@ def get_due_event_titles(days_ahead=1):
 
         title = event.get("title", "Untitled event")
         if event_date == today:
-            due_events["today"].append(title)
+            if event.get("time"):
+                due_events["today"].append(f"{title} at {_format_time(event.get('time'))}")
+            else:
+                due_events["today"].append(title)
         elif today < event_date <= end_date:
-            due_events["upcoming"].append(f"{title} on {event_date.strftime('%d %B %Y')}")
+            if event.get("time"):
+                due_events["upcoming"].append(
+                    f"{title} on {event_date.strftime('%d %B %Y')} at {_format_time(event.get('time'))}"
+                )
+            else:
+                due_events["upcoming"].append(f"{title} on {event_date.strftime('%d %B %Y')}")
 
     return due_events
