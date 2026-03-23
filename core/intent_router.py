@@ -18,6 +18,12 @@ from modules.event_module import (
     today_events,
     upcoming_events,
 )
+from modules.file_intelligence_module import (
+    find_file,
+    open_found_file,
+    recent_files,
+    summarize_found_file,
+)
 from modules.health_module import (
     get_battery_status,
     get_cpu_status,
@@ -246,6 +252,38 @@ COMMAND_REGISTRY = [
         "handler": delete_event,
         "category": "events",
         "confidence": 0.98,
+    },
+    {
+        "intent": "files.find",
+        "patterns": ["find file", "search file", "locate file"],
+        "type": "startswith",
+        "handler": find_file,
+        "category": "file_intelligence",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "files.open",
+        "patterns": ["open file named", "open found file"],
+        "type": "startswith",
+        "handler": open_found_file,
+        "category": "file_intelligence",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "files.recent",
+        "patterns": ["recent files", "show recent files", "latest files"],
+        "type": "exact",
+        "handler": lambda command: recent_files(),
+        "category": "file_intelligence",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "files.summary",
+        "patterns": ["summarize file", "read file summary", "what is in file"],
+        "type": "startswith",
+        "handler": summarize_found_file,
+        "category": "file_intelligence",
+        "confidence": 0.97,
     },
     {
         "intent": "health.system",
