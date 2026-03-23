@@ -206,6 +206,19 @@ def _handle_config_command(command):
         return "Voice mode changed to sensitive. Soft voice detection should improve."
 
     if command in [
+        "enable ultra sensitive voice mode",
+        "turn on ultra sensitive voice mode",
+        "set voice mode to ultra sensitive",
+        "set voice mode to ultra_sensitive",
+        "very soft voice mode",
+    ]:
+        apply_voice_profile("ultra_sensitive")
+        return (
+            "Voice mode changed to ultra sensitive. "
+            "This should catch softer speech, but it may also react to room noise."
+        )
+
+    if command in [
         "set voice mode to normal",
         "enable normal voice mode",
         "turn on normal voice mode",

@@ -89,6 +89,87 @@ def _wake_word_detected(command, wake_word):
     return SequenceMatcher(None, normalized_command, normalized_wake_word).ratio() >= 0.72
 
 
+def _strip_wake_word(command, wake_word):
+    normalized_command = _normalize_phrase(command)
+    normalized_wake_word = _normalize_phrase(wake_word)
+
+    if not normalized_command or not normalized_wake_word:
+        return ""
+
+    if normalized_command.startswith(normalized_wake_word):
+        return normalized_command[len(normalized_wake_word):].strip()
+
+    return ""
+
+
+def _looks_like_direct_command(command):
+    direct_prefixes = [
+        "what ",
+        "who ",
+        "tell me ",
+        "open ",
+        "close ",
+        "read ",
+        "find ",
+        "click ",
+        "weather",
+        "forecast",
+        "dashboard",
+        "status ",
+        "show ",
+        "list ",
+        "add ",
+        "delete ",
+        "start ",
+        "stop ",
+        "take ",
+        "summarize ",
+        "background mode",
+        "mute ",
+        "unmute ",
+        "enable ",
+        "disable ",
+        "set ",
+        "update ",
+    ]
+    return any(command.startswith(prefix) for prefix in direct_prefixes)
+
+
+def _process_voice_command(command, current_timeout):
+    if command == "exit assistant":
+        stop_dictation()
+        speak("Goodbye Captain!")
+        return {"exit": True, "timeout": current_timeout}
+
+    sys.stdout.write("\r" + " " * 60 + "\r")
+    print(f"You said: {command}")
+
+    if command == "stop speaking":
+        stop_speaking()
+        return {"exit": False, "timeout": current_timeout}
+
+    if is_dictation_active():
+        if command in [
+            "stop dictation",
+            "stop detection",
+            "stop typing mode",
+            "exit dictation",
+        ]:
+            stop_dictation()
+            speak("Dictation mode stopped.")
+            return {"exit": False, "timeout": ACTIVE_TIMEOUT}
+
+        typed = handle_dictation_text(command)
+        if typed:
+            play_sound("success")
+            return {"exit": False, "timeout": ACTIVE_TIMEOUT}
+
+    process_command(command, INSTALLED_APPS, input_mode="voice")
+    play_sound("success")
+    print()
+    return {"exit": False, "timeout": ACTIVE_TIMEOUT}
+
+
 def main(start_in_tray=False):
     global INSTALLED_APPS
     global WAKE_WORD, INITIAL_TIMEOUT, ACTIVE_TIMEOUT
@@ -214,12 +295,31 @@ def voice_mode():
                 command = command.lower().strip()
 
                 if _wake_word_detected(command, WAKE_WORD):
+                    trailing_command = _strip_wake_word(command, WAKE_WORD)
                     play_sound("start")
-                    speak("Yes Captain?")
-                    time.sleep(0.5)
-                    active_mode = True
+                    if trailing_command:
+                        last_active_time = time.time()
+                        result = _process_voice_command(trailing_command, ACTIVE_TIMEOUT)
+                        if result["exit"]:
+                            break
+                        active_mode = True
+                        current_timeout = result["timeout"]
+                    else:
+                        speak("Yes Captain?")
+                        time.sleep(0.5)
+                        active_mode = True
+                        last_active_time = time.time()
+                        current_timeout = INITIAL_TIMEOUT
+
+                elif _looks_like_direct_command(command):
+                    # Practical fallback when wake word recognition is weak.
+                    play_sound("start")
                     last_active_time = time.time()
-                    current_timeout = INITIAL_TIMEOUT
+                    result = _process_voice_command(command, ACTIVE_TIMEOUT)
+                    if result["exit"]:
+                        break
+                    active_mode = True
+                    current_timeout = result["timeout"]
 
                 continue
 
@@ -266,39 +366,10 @@ def voice_mode():
             command = command.lower().strip()
             last_active_time = time.time()
 
-            if command == "exit assistant":
-                stop_dictation()
-                speak("Goodbye Captain!")
+            result = _process_voice_command(command, current_timeout)
+            current_timeout = result["timeout"]
+            if result["exit"]:
                 break
-
-            sys.stdout.write("\r" + " " * 60 + "\r")
-            print(f"You said: {command}")
-
-            if command == "stop speaking":
-                stop_speaking()
-                continue
-
-            if is_dictation_active():
-                if command in [
-                    "stop dictation",
-                    "stop detection",
-                    "stop typing mode",
-                    "exit dictation",
-                ]:
-                    stop_dictation()
-                    speak("Dictation mode stopped.")
-                    continue
-
-                typed = handle_dictation_text(command)
-                if typed:
-                    play_sound("success")
-                    current_timeout = ACTIVE_TIMEOUT
-                    continue
-
-            process_command(command, INSTALLED_APPS, input_mode="voice")
-            play_sound("success")
-            current_timeout = ACTIVE_TIMEOUT
-            print()
 
     except KeyboardInterrupt:
         print()

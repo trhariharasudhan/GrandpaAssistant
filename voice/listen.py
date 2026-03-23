@@ -3,37 +3,53 @@ import speech_recognition as sr
 from utils.config import get_setting, update_setting
 
 recognizer = sr.Recognizer()
+_last_calibration_mode = None
+_last_calibration_at = 0.0
 
 VOICE_PROFILES = {
     "normal": {
-        "ambient_duration": 0.8,
-        "listen_timeout": 2,
-        "phrase_time_limit": 4,
-        "pause_threshold": 0.8,
-        "non_speaking_duration": 0.35,
-        "dynamic_energy_threshold": True,
-        "energy_threshold": 220,
-        "dynamic_energy_adjustment_ratio": 1.3,
-    },
-    "sensitive": {
-        "ambient_duration": 1.0,
+        "ambient_duration": 0.35,
         "listen_timeout": 3,
         "phrase_time_limit": 5,
-        "pause_threshold": 1.0,
-        "non_speaking_duration": 0.45,
+        "pause_threshold": 0.9,
+        "non_speaking_duration": 0.35,
         "dynamic_energy_threshold": True,
-        "energy_threshold": 160,
-        "dynamic_energy_adjustment_ratio": 1.15,
+        "energy_threshold": 180,
+        "dynamic_energy_adjustment_ratio": 1.2,
+        "recalibrate_interval": 20,
+    },
+    "sensitive": {
+        "ambient_duration": 0.25,
+        "listen_timeout": 4,
+        "phrase_time_limit": 6,
+        "pause_threshold": 1.1,
+        "non_speaking_duration": 0.5,
+        "dynamic_energy_threshold": True,
+        "energy_threshold": 110,
+        "dynamic_energy_adjustment_ratio": 1.08,
+        "recalibrate_interval": 30,
+    },
+    "ultra_sensitive": {
+        "ambient_duration": 0.2,
+        "listen_timeout": 5,
+        "phrase_time_limit": 7,
+        "pause_threshold": 1.15,
+        "non_speaking_duration": 0.55,
+        "dynamic_energy_threshold": True,
+        "energy_threshold": 90,
+        "dynamic_energy_adjustment_ratio": 1.02,
+        "recalibrate_interval": 45,
     },
     "noise_cancel": {
-        "ambient_duration": 1.2,
-        "listen_timeout": 2,
+        "ambient_duration": 0.45,
+        "listen_timeout": 3,
         "phrase_time_limit": 4,
         "pause_threshold": 0.65,
         "non_speaking_duration": 0.25,
         "dynamic_energy_threshold": True,
         "energy_threshold": 320,
         "dynamic_energy_adjustment_ratio": 1.6,
+        "recalibrate_interval": 20,
     },
 }
 
@@ -59,6 +75,9 @@ def _active_voice_settings():
             "voice.dynamic_energy_adjustment_ratio",
             base["dynamic_energy_adjustment_ratio"],
         ),
+        "recalibrate_interval": get_setting(
+            "voice.recalibrate_interval", base["recalibrate_interval"]
+        ),
     }
 
 
@@ -78,6 +97,27 @@ def current_voice_mode():
     return get_setting("voice.mode", "normal")
 
 
+def _should_recalibrate(settings):
+    import time
+
+    global _last_calibration_mode, _last_calibration_at
+
+    interval = settings["recalibrate_interval"]
+    now = time.time()
+    if _last_calibration_mode != settings["mode"]:
+        return True
+    return (now - _last_calibration_at) >= interval
+
+
+def _mark_calibrated(settings):
+    import time
+
+    global _last_calibration_mode, _last_calibration_at
+
+    _last_calibration_mode = settings["mode"]
+    _last_calibration_at = time.time()
+
+
 def listen():
     settings = _active_voice_settings()
 
@@ -91,9 +131,13 @@ def listen():
 
     with sr.Microphone() as source:
         try:
-            recognizer.adjust_for_ambient_noise(
-                source, duration=settings["ambient_duration"]
-            )
+            # Avoid recalibrating on every loop; otherwise quick speech can be
+            # learned as ambient noise and the wake word gets missed.
+            if _should_recalibrate(settings):
+                recognizer.adjust_for_ambient_noise(
+                    source, duration=settings["ambient_duration"]
+                )
+                _mark_calibrated(settings)
 
             audio = recognizer.listen(
                 source,

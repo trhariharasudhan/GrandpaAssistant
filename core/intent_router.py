@@ -73,7 +73,15 @@ def _year_reply(_command):
 COMMAND_REGISTRY = [
     {
         "intent": "time.current",
-        "patterns": ["time now", "current time", "what time", "what is time"],
+        "patterns": [
+            "time now",
+            "current time",
+            "what time",
+            "what is time",
+            "what is the time",
+            "what is the time now",
+            "tell me the time",
+        ],
         "type": "contains_any",
         "handler": _time_reply,
         "category": "date_time",
@@ -81,7 +89,13 @@ COMMAND_REGISTRY = [
     },
     {
         "intent": "date.current",
-        "patterns": ["today date", "current date", "what is date"],
+        "patterns": [
+            "today date",
+            "current date",
+            "what is date",
+            "what is the date",
+            "what is today's date",
+        ],
         "type": "contains_any",
         "handler": _date_reply,
         "category": "date_time",
