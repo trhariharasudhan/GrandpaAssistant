@@ -12,6 +12,7 @@ from core.tray_manager import set_tray_exit_callback, start_tray, stop_tray
 from modules.app_scan_module import categorize_apps, get_all_apps, scan_store_apps
 from modules.briefing_module import build_daily_brief, build_due_reminder_alert
 from modules.dictation_module import handle_dictation_text, is_dictation_active, stop_dictation
+from modules.notification_module import show_startup_notifications
 from modules.profile_module import build_proactive_nudge
 from utils.config import get_setting
 from utils.sound import play_sound
@@ -197,6 +198,7 @@ def main(start_in_tray=False):
     if urgent_alert != "No urgent reminders right now.":
         speak(urgent_alert)
     speak(build_proactive_nudge())
+    show_startup_notifications()
     play_sound("start")
 
     if get_setting("startup.tray_mode", False):

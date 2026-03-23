@@ -15,7 +15,14 @@ from modules.messaging_automation_module import (
     draft_gmail,
     open_gmail_and_type,
     open_whatsapp_and_type,
+    smart_gmail_draft,
     type_in_whatsapp,
+    whatsapp_message_contact,
+)
+from modules.notification_module import (
+    show_notification_summary,
+    show_reminder_popup,
+    show_task_popup,
 )
 from modules.notes_module import (
     add_note,
@@ -210,12 +217,28 @@ COMMAND_REGISTRY = [
         "confidence": 0.97,
     },
     {
+        "intent": "messaging.gmail.smart_draft",
+        "patterns": ["draft gmail to", "gmail draft to", "compose gmail to"],
+        "type": "startswith",
+        "handler": smart_gmail_draft,
+        "category": "messaging_automation",
+        "confidence": 0.98,
+    },
+    {
         "intent": "messaging.gmail.draft",
         "patterns": ["draft gmail"],
         "type": "startswith",
         "handler": draft_gmail,
         "category": "messaging_automation",
         "confidence": 0.97,
+    },
+    {
+        "intent": "messaging.whatsapp.contact_message",
+        "patterns": ["message on whatsapp", "send whatsapp message to", "open whatsapp and message"],
+        "type": "startswith",
+        "handler": whatsapp_message_contact,
+        "category": "messaging_automation",
+        "confidence": 0.98,
     },
     {
         "intent": "notes.add",
@@ -506,6 +529,30 @@ COMMAND_REGISTRY = [
         "handler": lambda command: build_due_reminder_alert(),
         "category": "briefing",
         "confidence": 0.98,
+    },
+    {
+        "intent": "notifications.summary",
+        "patterns": ["show notification", "show desktop notification", "notification summary", "desktop notification"],
+        "type": "exact",
+        "handler": lambda command: show_notification_summary(),
+        "category": "notifications",
+        "confidence": 0.96,
+    },
+    {
+        "intent": "notifications.reminders",
+        "patterns": ["show reminder popup", "reminder popup", "popup reminders"],
+        "type": "exact",
+        "handler": lambda command: show_reminder_popup(),
+        "category": "notifications",
+        "confidence": 0.96,
+    },
+    {
+        "intent": "notifications.tasks",
+        "patterns": ["show task popup", "task popup", "popup tasks"],
+        "type": "exact",
+        "handler": lambda command: show_task_popup(),
+        "category": "notifications",
+        "confidence": 0.96,
     },
     {
         "intent": "tasks.add",
