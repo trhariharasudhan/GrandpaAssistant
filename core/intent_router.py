@@ -11,6 +11,13 @@ from modules.browser_automation_module import (
 )
 from modules.calendar_module import get_date, get_day, get_period, get_time
 from modules.dashboard_module import build_dashboard_report
+from modules.health_module import (
+    get_battery_status,
+    get_cpu_status,
+    get_disk_status,
+    get_ram_status,
+    get_system_status,
+)
 from modules.messaging_automation_module import (
     draft_gmail,
     open_gmail_and_type,
@@ -20,6 +27,7 @@ from modules.messaging_automation_module import (
     whatsapp_message_contact,
 )
 from modules.notification_module import (
+    show_health_popup,
     show_notification_summary,
     show_reminder_popup,
     show_task_popup,
@@ -191,6 +199,46 @@ COMMAND_REGISTRY = [
         "handler": lambda command: build_dashboard_report(),
         "category": "dashboard",
         "confidence": 0.98,
+    },
+    {
+        "intent": "health.system",
+        "patterns": ["system status", "health status", "system health", "pc health"],
+        "type": "exact",
+        "handler": lambda command: get_system_status(),
+        "category": "system_health",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "health.cpu",
+        "patterns": ["cpu usage", "cpu status"],
+        "type": "exact",
+        "handler": lambda command: get_cpu_status(),
+        "category": "system_health",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "health.ram",
+        "patterns": ["ram usage", "memory usage", "ram status", "memory status"],
+        "type": "exact",
+        "handler": lambda command: get_ram_status(),
+        "category": "system_health",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "health.disk",
+        "patterns": ["disk usage", "disk status", "storage status"],
+        "type": "exact",
+        "handler": lambda command: get_disk_status(),
+        "category": "system_health",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "health.battery",
+        "patterns": ["battery status", "battery health"],
+        "type": "exact",
+        "handler": lambda command: get_battery_status(),
+        "category": "system_health",
+        "confidence": 0.97,
     },
     {
         "intent": "messaging.whatsapp.open_and_type",
@@ -551,6 +599,14 @@ COMMAND_REGISTRY = [
         "patterns": ["show task popup", "task popup", "popup tasks"],
         "type": "exact",
         "handler": lambda command: show_task_popup(),
+        "category": "notifications",
+        "confidence": 0.96,
+    },
+    {
+        "intent": "notifications.health",
+        "patterns": ["show health popup", "health popup", "system health popup"],
+        "type": "exact",
+        "handler": lambda command: show_health_popup(),
         "category": "notifications",
         "confidence": 0.96,
     },

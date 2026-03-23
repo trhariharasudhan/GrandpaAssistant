@@ -3,6 +3,7 @@ import threading
 
 import win32com.client
 
+from modules.health_module import get_system_status
 from modules.task_module import get_task_data
 
 
@@ -106,3 +107,10 @@ def show_startup_notifications():
 
     _show_popup("Grandpa Assistant", summary, timeout=10)
     return summary
+
+
+def show_health_popup():
+    message = get_system_status()
+    if _show_popup("System Health", message, timeout=10):
+        return "System health popup shown."
+    return "I could not show the system health popup right now."
