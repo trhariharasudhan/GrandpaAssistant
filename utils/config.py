@@ -34,6 +34,8 @@ DEFAULT_SETTINGS = {
     "notifications": {
         "reminder_monitor_enabled": True,
         "reminder_check_interval_minutes": 15,
+        "event_monitor_enabled": True,
+        "event_check_interval_minutes": 15,
     },
 }
 

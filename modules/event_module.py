@@ -39,6 +39,10 @@ def _save_data(data):
         json.dump(data, file, indent=4)
 
 
+def get_event_data():
+    return _load_data()
+
+
 def _clean_text(value):
     return re.sub(r"\s+", " ", value).strip(" ,.-")
 
@@ -177,3 +181,23 @@ def delete_event(command):
     data["events"] = events
     _save_data(data)
     return f"Deleted event: {removed.get('title', 'Untitled event')}"
+
+
+def get_due_event_titles(days_ahead=1):
+    today = datetime.date.today()
+    end_date = today + datetime.timedelta(days=days_ahead)
+    due_events = {"today": [], "upcoming": []}
+
+    for event in _load_data().get("events", []):
+        try:
+            event_date = datetime.date.fromisoformat(event.get("date"))
+        except Exception:
+            continue
+
+        title = event.get("title", "Untitled event")
+        if event_date == today:
+            due_events["today"].append(title)
+        elif today < event_date <= end_date:
+            due_events["upcoming"].append(f"{title} on {event_date.strftime('%d %B %Y')}")
+
+    return due_events

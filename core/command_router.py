@@ -138,6 +138,8 @@ def _handle_config_command(command):
         active_timeout = get_setting("active_timeout", 60)
         reminder_monitor = get_setting("notifications.reminder_monitor_enabled", True)
         reminder_interval = get_setting("notifications.reminder_check_interval_minutes", 15)
+        event_monitor = get_setting("notifications.event_monitor_enabled", True)
+        event_interval = get_setting("notifications.event_check_interval_minutes", 15)
         return (
             f"Current settings: wake word is {wake_word}. "
             f"Voice mode is {voice_mode}. "
@@ -146,6 +148,8 @@ def _handle_config_command(command):
             f"Tray startup is {'on' if tray_mode else 'off'}. "
             f"Reminder monitor is {'on' if reminder_monitor else 'off'}. "
             f"Reminder interval is {reminder_interval} minutes. "
+            f"Event monitor is {'on' if event_monitor else 'off'}. "
+            f"Event interval is {event_interval} minutes. "
             f"Sounds are {'on' if sounds_enabled else 'off'}. "
             f"Start sound is {'on' if start_sound else 'off'}. "
             f"Success sound is {'on' if success_sound else 'off'}. "
@@ -200,6 +204,14 @@ def _handle_config_command(command):
         update_setting("notifications.reminder_monitor_enabled", False)
         return "Reminder monitor disabled."
 
+    if command in ["enable event monitor", "turn on event monitor", "enable calendar monitor"]:
+        update_setting("notifications.event_monitor_enabled", True)
+        return "Event monitor enabled."
+
+    if command in ["disable event monitor", "turn off event monitor", "disable calendar monitor"]:
+        update_setting("notifications.event_monitor_enabled", False)
+        return "Event monitor disabled."
+
     interval_match = re.match(
         r"^(?:set|change|update)\s+reminder popup interval\s+to\s+(\d+)$", command
     )
@@ -207,6 +219,14 @@ def _handle_config_command(command):
         interval_value = max(1, int(interval_match.group(1)))
         update_setting("notifications.reminder_check_interval_minutes", interval_value)
         return f"Reminder popup interval updated to {interval_value} minutes."
+
+    event_interval_match = re.match(
+        r"^(?:set|change|update)\s+event popup interval\s+to\s+(\d+)$", command
+    )
+    if event_interval_match:
+        interval_value = max(1, int(event_interval_match.group(1)))
+        update_setting("notifications.event_check_interval_minutes", interval_value)
+        return f"Event popup interval updated to {interval_value} minutes."
 
     if command in [
         "enable noise cancel mode",

@@ -4,6 +4,7 @@ import time
 
 import win32com.client
 
+from modules.event_module import get_due_event_titles
 from modules.health_module import get_system_status
 from modules.task_module import get_task_data
 from utils.config import get_setting
@@ -38,6 +39,7 @@ def _show_popup(title, message, timeout=8):
 def build_notification_summary():
     data = get_task_data()
     today = datetime.date.today()
+    due_events = get_due_event_titles(days_ahead=1)
 
     pending_tasks = [task for task in data.get("tasks", []) if not task.get("completed")]
     overdue = []
@@ -59,9 +61,13 @@ def build_notification_summary():
         parts.append("Overdue reminders: " + ", ".join(overdue[:3]))
     if due_today:
         parts.append("Today's reminders: " + ", ".join(due_today[:3]))
+    if due_events["today"]:
+        parts.append("Today's events: " + ", ".join(due_events["today"][:3]))
+    if due_events["upcoming"]:
+        parts.append("Upcoming events: " + ", ".join(due_events["upcoming"][:2]))
 
     if not parts:
-        return "You do not have any urgent reminders or pending tasks right now."
+        return "You do not have any urgent reminders, pending tasks, or upcoming events right now."
 
     return " | ".join(parts)
 
@@ -109,7 +115,7 @@ def show_task_popup():
 
 def show_startup_notifications():
     summary = build_notification_summary()
-    if summary == "You do not have any urgent reminders or pending tasks right now.":
+    if summary == "You do not have any urgent reminders, pending tasks, or upcoming events right now.":
         return None
 
     _show_popup("Grandpa Assistant", summary, timeout=10)
@@ -123,9 +129,28 @@ def show_health_popup():
     return "I could not show the system health popup right now."
 
 
+def show_event_popup():
+    due_events = get_due_event_titles(days_ahead=1)
+    parts = []
+
+    if due_events["today"]:
+        parts.append("Today's events:\n" + "\n".join(due_events["today"][:5]))
+    if due_events["upcoming"]:
+        parts.append("Upcoming events:\n" + "\n".join(due_events["upcoming"][:5]))
+
+    if not parts:
+        return "You do not have any event popups right now."
+
+    message = "\n\n".join(parts)
+    if _show_popup("Event Alert", message, timeout=10):
+        return "Event popup shown."
+    return "I could not show the event popup right now."
+
+
 def _build_due_monitor_message():
     data = get_task_data()
     today = datetime.date.today()
+    due_events = get_due_event_titles(days_ahead=1)
     due_items = []
 
     for reminder in data.get("reminders", []):
@@ -146,6 +171,11 @@ def _build_due_monitor_message():
         parts.append("Due reminders: " + ", ".join(due_items[:3]))
     if pending_tasks:
         parts.append("Pending tasks: " + ", ".join(pending_tasks[:3]))
+    if get_setting("notifications.event_monitor_enabled", True):
+        if due_events["today"]:
+            parts.append("Today's events: " + ", ".join(due_events["today"][:3]))
+        if due_events["upcoming"]:
+            parts.append("Upcoming events: " + ", ".join(due_events["upcoming"][:2]))
 
     return " | ".join(parts) if parts else None
 
@@ -154,13 +184,21 @@ def _monitor_worker():
     global _last_monitor_message
 
     while not _monitor_stop_event.is_set():
-        if get_setting("notifications.reminder_monitor_enabled", True):
+        if get_setting("notifications.reminder_monitor_enabled", True) or get_setting(
+            "notifications.event_monitor_enabled", True
+        ):
             message = _build_due_monitor_message()
             if message and message != _last_monitor_message:
                 _show_popup("Grandpa Reminder Monitor", message, timeout=10)
                 _last_monitor_message = message
 
-        interval = max(1, int(get_setting("notifications.reminder_check_interval_minutes", 15)))
+        reminder_interval = max(
+            1, int(get_setting("notifications.reminder_check_interval_minutes", 15))
+        )
+        event_interval = max(
+            1, int(get_setting("notifications.event_check_interval_minutes", 15))
+        )
+        interval = min(reminder_interval, event_interval)
         sleep_seconds = interval * 60
 
         for _ in range(sleep_seconds):
