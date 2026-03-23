@@ -19,6 +19,19 @@ def _open_url(url):
         return False
 
 
+def _open_gmail_draft(recipient="", subject="", body=""):
+    url = "https://mail.google.com/mail/?view=cm&fs=1&tf=1"
+
+    if recipient:
+        url += f"&to={urllib.parse.quote(recipient)}"
+    if subject:
+        url += f"&su={urllib.parse.quote(subject)}"
+    if body:
+        url += f"&body={urllib.parse.quote(body)}"
+
+    return _open_url(url)
+
+
 def _extract_known_contact(name_text):
     memory = load_memory()
     normalized = _clean_text(name_text).lower()
@@ -162,16 +175,126 @@ def smart_gmail_draft(command):
             "Example: draft gmail to someone@example.com subject Meeting body We will meet at 5 PM."
         )
 
-    url = (
-        "https://mail.google.com/mail/?view=cm&fs=1&tf=1"
-        f"&to={urllib.parse.quote(recipient)}"
-        f"&su={urllib.parse.quote(subject)}"
-        f"&body={urllib.parse.quote(body)}"
-    )
-
-    if _open_url(url):
+    if _open_gmail_draft(recipient, subject, body):
         return f"Opening Gmail draft to {recipient} with your subject and body."
     return "I could not open the smart Gmail draft right now."
+
+
+def draft_professional_email(command):
+    text = command
+    prefixes = [
+        "draft professional email to",
+        "compose professional email to",
+        "write professional mail to",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            text = command.replace(prefix, "", 1).strip()
+            break
+
+    if " about " not in text:
+        return (
+            "Use this format: draft professional email to someone@example.com about project update."
+        )
+
+    recipient_part, topic_part = text.split(" about ", 1)
+    recipient = _clean_text(recipient_part)
+    topic = _clean_text(topic_part)
+
+    if not recipient or not topic:
+        return "Tell me the recipient and the topic for the professional email."
+
+    subject = f"Regarding {topic.title()}"
+    body = (
+        "Dear Sir or Madam,\n\n"
+        f"I hope you are doing well. I am writing regarding {topic}. "
+        "Please let me know a convenient time to discuss this further.\n\n"
+        "Thank you for your time and consideration.\n\n"
+        "Best regards,\n"
+        "Hari Hara Sudhan"
+    )
+
+    if _open_gmail_draft(recipient, subject, body):
+        return f"Opening a professional Gmail draft to {recipient} about {topic}."
+    return "I could not open the professional Gmail draft right now."
+
+
+def draft_leave_email(command):
+    text = command
+    prefixes = [
+        "draft leave mail to",
+        "draft leave email to",
+        "write leave mail to",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            text = command.replace(prefix, "", 1).strip()
+            break
+
+    if " for " not in text:
+        return (
+            "Use this format: draft leave mail to manager@example.com for sick leave tomorrow."
+        )
+
+    recipient_part, reason_part = text.split(" for ", 1)
+    recipient = _clean_text(recipient_part)
+    reason = _clean_text(reason_part)
+
+    if not recipient or not reason:
+        return "Tell me the recipient and the leave reason."
+
+    subject = "Leave Request"
+    body = (
+        "Dear Sir or Madam,\n\n"
+        f"I would like to request leave for {reason}. "
+        "Kindly approve my request. I will make sure to complete or hand over any important work.\n\n"
+        "Thank you for your understanding.\n\n"
+        "Best regards,\n"
+        "Hari Hara Sudhan"
+    )
+
+    if _open_gmail_draft(recipient, subject, body):
+        return f"Opening a leave request mail draft to {recipient}."
+    return "I could not open the leave mail draft right now."
+
+
+def draft_follow_up_email(command):
+    text = command
+    prefixes = [
+        "draft follow up mail to",
+        "draft follow-up mail to",
+        "write follow up email to",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            text = command.replace(prefix, "", 1).strip()
+            break
+
+    if " about " not in text:
+        return (
+            "Use this format: draft follow up mail to someone@example.com about interview status."
+        )
+
+    recipient_part, topic_part = text.split(" about ", 1)
+    recipient = _clean_text(recipient_part)
+    topic = _clean_text(topic_part)
+
+    if not recipient or not topic:
+        return "Tell me the recipient and the follow-up topic."
+
+    subject = f"Follow-up on {topic.title()}"
+    body = (
+        "Dear Sir or Madam,\n\n"
+        f"I hope you are doing well. I am following up regarding {topic}. "
+        "I would appreciate any update when convenient.\n\n"
+        "Thank you for your time.\n\n"
+        "Best regards,\n"
+        "Hari Hara Sudhan"
+    )
+
+    if _open_gmail_draft(recipient, subject, body):
+        return f"Opening a follow-up Gmail draft to {recipient} about {topic}."
+    return "I could not open the follow-up Gmail draft right now."
 
 
 def whatsapp_message_contact(command):

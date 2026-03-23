@@ -32,7 +32,10 @@ from modules.health_module import (
     get_system_status,
 )
 from modules.messaging_automation_module import (
+    draft_follow_up_email,
     draft_gmail,
+    draft_leave_email,
+    draft_professional_email,
     open_gmail_and_type,
     open_whatsapp_and_type,
     smart_gmail_draft,
@@ -348,6 +351,42 @@ COMMAND_REGISTRY = [
         "handler": open_gmail_and_type,
         "category": "messaging_automation",
         "confidence": 0.97,
+    },
+    {
+        "intent": "messaging.gmail.professional_template",
+        "patterns": [
+            "draft professional email to",
+            "compose professional email to",
+            "write professional mail to",
+        ],
+        "type": "startswith",
+        "handler": draft_professional_email,
+        "category": "messaging_automation",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "messaging.gmail.leave_template",
+        "patterns": [
+            "draft leave mail to",
+            "draft leave email to",
+            "write leave mail to",
+        ],
+        "type": "startswith",
+        "handler": draft_leave_email,
+        "category": "messaging_automation",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "messaging.gmail.followup_template",
+        "patterns": [
+            "draft follow up mail to",
+            "draft follow-up mail to",
+            "write follow up email to",
+        ],
+        "type": "startswith",
+        "handler": draft_follow_up_email,
+        "category": "messaging_automation",
+        "confidence": 0.98,
     },
     {
         "intent": "messaging.gmail.smart_draft",
