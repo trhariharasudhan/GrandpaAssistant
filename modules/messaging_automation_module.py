@@ -297,6 +297,124 @@ def draft_follow_up_email(command):
     return "I could not open the follow-up Gmail draft right now."
 
 
+def draft_job_application_email(command):
+    text = command
+    prefixes = [
+        "draft job application mail to",
+        "draft job application email to",
+        "write job application mail to",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            text = command.replace(prefix, "", 1).strip()
+            break
+
+    if " for " not in text:
+        return (
+            "Use this format: draft job application mail to hr@example.com for technical support engineer."
+        )
+
+    recipient_part, role_part = text.split(" for ", 1)
+    recipient = _clean_text(recipient_part)
+    role = _clean_text(role_part)
+
+    if not recipient or not role:
+        return "Tell me the recipient and the role for the job application."
+
+    subject = f"Application for {role.title()}"
+    body = (
+        "Dear Hiring Team,\n\n"
+        f"I hope you are doing well. I am writing to express my interest in the {role} role. "
+        "I believe my experience in technical support, troubleshooting, and problem solving would allow me to contribute effectively.\n\n"
+        "Please find my application for your consideration. I would be glad to discuss my profile further.\n\n"
+        "Thank you for your time.\n\n"
+        "Best regards,\n"
+        "Hari Hara Sudhan"
+    )
+
+    if _open_gmail_draft(recipient, subject, body):
+        return f"Opening a job application Gmail draft to {recipient} for the {role} role."
+    return "I could not open the job application Gmail draft right now."
+
+
+def draft_meeting_request_email(command):
+    text = command
+    prefixes = [
+        "draft meeting request mail to",
+        "draft meeting request email to",
+        "write meeting request mail to",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            text = command.replace(prefix, "", 1).strip()
+            break
+
+    if " about " not in text:
+        return (
+            "Use this format: draft meeting request mail to manager@example.com about project planning."
+        )
+
+    recipient_part, topic_part = text.split(" about ", 1)
+    recipient = _clean_text(recipient_part)
+    topic = _clean_text(topic_part)
+
+    if not recipient or not topic:
+        return "Tell me the recipient and the meeting topic."
+
+    subject = f"Meeting Request Regarding {topic.title()}"
+    body = (
+        "Dear Sir or Madam,\n\n"
+        f"I hope you are doing well. I would like to request a meeting regarding {topic}. "
+        "Please let me know a convenient time for you to discuss this.\n\n"
+        "Thank you for your time.\n\n"
+        "Best regards,\n"
+        "Hari Hara Sudhan"
+    )
+
+    if _open_gmail_draft(recipient, subject, body):
+        return f"Opening a meeting request Gmail draft to {recipient} about {topic}."
+    return "I could not open the meeting request Gmail draft right now."
+
+
+def draft_thank_you_email(command):
+    text = command
+    prefixes = [
+        "draft thank you mail to",
+        "draft thank you email to",
+        "write thank you mail to",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            text = command.replace(prefix, "", 1).strip()
+            break
+
+    if " for " not in text:
+        return (
+            "Use this format: draft thank you mail to manager@example.com for the interview opportunity."
+        )
+
+    recipient_part, reason_part = text.split(" for ", 1)
+    recipient = _clean_text(recipient_part)
+    reason = _clean_text(reason_part)
+
+    if not recipient or not reason:
+        return "Tell me the recipient and the reason for the thank you mail."
+
+    subject = "Thank You"
+    body = (
+        "Dear Sir or Madam,\n\n"
+        f"Thank you for {reason}. I truly appreciate your time and support. "
+        "It was a valuable experience, and I am grateful for the opportunity.\n\n"
+        "Thanks again.\n\n"
+        "Best regards,\n"
+        "Hari Hara Sudhan"
+    )
+
+    if _open_gmail_draft(recipient, subject, body):
+        return f"Opening a thank you Gmail draft to {recipient}."
+    return "I could not open the thank you Gmail draft right now."
+
+
 def whatsapp_message_contact(command):
     text = command
     prefixes = [
