@@ -16,6 +16,7 @@ from brain.memory_engine import (
 )
 from brain.question_analyzer import is_personal_question
 from core.intent_router import try_handle_intent
+from core.tray_manager import start_tray, stop_tray
 
 from modules.calendar_module import (
     handle_calendar_queries,
@@ -33,6 +34,7 @@ from modules.app_scan_module import (
 )
 import modules.app_scan_module as app_scan_module
 from modules.briefing_module import build_due_reminder_alert
+from modules.dictation_module import start_dictation, stop_dictation
 from modules.media_module import media_control, type_text_dynamic
 from modules.system_module import (
     take_screenshot,
@@ -61,10 +63,10 @@ from modules.web_module import wikipedia_search
 from controls.brightness_control import handle_brightness
 from controls.volume_control import handle_volume, set_volume_percentage
 from utils.sound import play_sound
-from utils.config import APP_ALIASES
+from utils.config import APP_ALIASES, get_setting, update_setting
 from vision.hand_mouse_control import run_hand_mouse
-from vision.screen_reader import read_screen_text
-from vision.screen_reader import click_on_text
+from vision.screen_reader import click_on_text, find_text_details, is_text_visible, read_screen_text
+from voice.listen import apply_voice_profile, current_voice_mode
 from voice.speak import speak
 
 mouse_stop_event = None
@@ -99,6 +101,121 @@ def _handle_memory_edit_command(command):
     return None
 
 
+def _handle_config_command(command):
+    wake_word_match = re.match(r"^(?:set|change|update)\s+wake word\s+to\s+(.+)$", command)
+    if wake_word_match:
+        new_wake_word = wake_word_match.group(1).strip().strip("\"'")
+        if not new_wake_word:
+            return "Tell me the new wake word."
+        update_setting("wake_word", new_wake_word)
+        return f"Wake word updated to {new_wake_word}. Restart the assistant to use the new wake word."
+
+    initial_timeout_match = re.match(
+        r"^(?:set|change|update)\s+initial timeout\s+to\s+(\d+)$", command
+    )
+    if initial_timeout_match:
+        timeout_value = int(initial_timeout_match.group(1))
+        update_setting("initial_timeout", timeout_value)
+        return f"Initial timeout updated to {timeout_value} seconds."
+
+    active_timeout_match = re.match(
+        r"^(?:set|change|update)\s+active timeout\s+to\s+(\d+)$", command
+    )
+    if active_timeout_match:
+        timeout_value = int(active_timeout_match.group(1))
+        update_setting("active_timeout", timeout_value)
+        return f"Active timeout updated to {timeout_value} seconds."
+
+    if command in ["show settings", "show config", "settings"]:
+        wake_word = get_setting("wake_word", "hey grandpa")
+        tray_mode = get_setting("startup.tray_mode", False)
+        voice_mode = current_voice_mode()
+        sounds_enabled = get_setting("sounds.enabled", True)
+        start_sound = get_setting("sounds.start", True)
+        success_sound = get_setting("sounds.success", True)
+        error_sound = get_setting("sounds.error", True)
+        initial_timeout = get_setting("initial_timeout", 15)
+        active_timeout = get_setting("active_timeout", 60)
+        return (
+            f"Current settings: wake word is {wake_word}. "
+            f"Voice mode is {voice_mode}. "
+            f"Initial timeout is {initial_timeout} seconds. "
+            f"Active timeout is {active_timeout} seconds. "
+            f"Tray startup is {'on' if tray_mode else 'off'}. "
+            f"Sounds are {'on' if sounds_enabled else 'off'}. "
+            f"Start sound is {'on' if start_sound else 'off'}. "
+            f"Success sound is {'on' if success_sound else 'off'}. "
+            f"Error sound is {'on' if error_sound else 'off'}."
+        )
+
+    if command in ["mute sounds", "turn off sounds", "disable sounds"]:
+        update_setting("sounds.enabled", False)
+        return "Assistant sounds turned off."
+
+    if command in ["unmute sounds", "turn on sounds", "enable sounds"]:
+        update_setting("sounds.enabled", True)
+        return "Assistant sounds turned on."
+
+    if command in ["turn off start sound", "disable start sound"]:
+        update_setting("sounds.start", False)
+        return "Start sound turned off."
+
+    if command in ["turn on start sound", "enable start sound"]:
+        update_setting("sounds.start", True)
+        return "Start sound turned on."
+
+    if command in ["turn off success sound", "disable success sound"]:
+        update_setting("sounds.success", False)
+        return "Success sound turned off."
+
+    if command in ["turn on success sound", "enable success sound"]:
+        update_setting("sounds.success", True)
+        return "Success sound turned on."
+
+    if command in ["turn off error sound", "disable error sound"]:
+        update_setting("sounds.error", False)
+        return "Error sound turned off."
+
+    if command in ["turn on error sound", "enable error sound"]:
+        update_setting("sounds.error", True)
+        return "Error sound turned on."
+
+    if command in ["enable tray startup", "turn on tray startup"]:
+        update_setting("startup.tray_mode", True)
+        return "Tray startup enabled."
+
+    if command in ["disable tray startup", "turn off tray startup"]:
+        update_setting("startup.tray_mode", False)
+        return "Tray startup disabled."
+
+    if command in [
+        "enable noise cancel mode",
+        "turn on noise cancel mode",
+        "set voice mode to noise cancel",
+    ]:
+        apply_voice_profile("noise_cancel")
+        return "Voice mode changed to noise cancel. Restart the assistant for the cleanest result."
+
+    if command in [
+        "enable sensitive voice mode",
+        "turn on sensitive voice mode",
+        "set voice mode to sensitive",
+        "soft voice mode",
+    ]:
+        apply_voice_profile("sensitive")
+        return "Voice mode changed to sensitive. Soft voice detection should improve."
+
+    if command in [
+        "set voice mode to normal",
+        "enable normal voice mode",
+        "turn on normal voice mode",
+    ]:
+        apply_voice_profile("normal")
+        return "Voice mode changed to normal."
+
+    return None
+
+
 # ---------------- PROCESS COMMAND ----------------
 def process_command(command, INSTALLED_APPS, input_mode="text"):
     global mouse_stop_event, mouse_stop_requested_by_command, pending_confirmation
@@ -106,6 +223,11 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     command = command.lower().strip()
     if command:
         log_command(command, source=input_mode)
+
+    config_reply = _handle_config_command(command)
+    if config_reply:
+        speak(config_reply)
+        return
 
     if pending_confirmation:
         if command in ["yes", "confirm", "ok", "okay", "do it"]:
@@ -129,6 +251,67 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         print("\n========================\n")
 
         speak("Screen content printed")
+        return
+
+    if command in [
+        "start dictation",
+        "start detection",
+        "start typing mode",
+        "voice typing mode",
+    ]:
+        start_dictation()
+        speak("Dictation mode started. Speak your text, and say stop dictation to exit.")
+        return
+
+    if command in [
+        "stop dictation",
+        "stop detection",
+        "stop typing mode",
+        "exit dictation",
+    ]:
+        stop_dictation()
+        speak("Dictation mode stopped.")
+        return
+
+    if command.startswith("find "):
+        target = command.replace("find", "", 1).strip()
+        if not target:
+            speak("Tell me what you want me to find on the screen.")
+            return
+
+        details = find_text_details(target)
+        if details:
+            x, y = details["center"]
+            speak(
+                f"I found {details['text']} on the screen near position {x}, {y}."
+            )
+        else:
+            speak(f"I could not find {target} on the screen.")
+        return
+
+    if command.startswith("click "):
+        target = command.replace("click", "", 1).strip()
+        if not target:
+            speak("Tell me what you want me to click.")
+            return
+
+        found = click_on_text(target)
+        if found:
+            speak(f"I clicked {target}.")
+        else:
+            speak(f"I could not find {target} to click.")
+        return
+
+    if command.startswith("is ") and command.endswith(" visible"):
+        target = command[3:-8].strip()
+        if not target:
+            speak("Tell me what you want me to check.")
+            return
+
+        if is_text_visible(target):
+            speak(f"Yes, {target} is visible on the screen.")
+        else:
+            speak(f"No, I could not see {target} on the screen.")
         return
 
     if command.startswith("open file"):
@@ -203,6 +386,19 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         save_apps_to_cache(INSTALLED_APPS)
 
         speak("Applications rescanned and cache updated.")
+        return
+
+    if command in ["background mode", "start background mode", "minimize to tray", "tray mode"]:
+        success, message = start_tray()
+        speak(message if message else "Tray mode updated.")
+        return
+
+    if command in ["exit tray mode", "stop background mode", "restore assistant", "open assistant window"]:
+        stopped = stop_tray()
+        if stopped:
+            speak("Grandpa Assistant restored from the system tray.")
+        else:
+            speak("Tray mode is not active right now.")
         return
 
     # ----- calendar queries -----

@@ -7,12 +7,14 @@ mediapipe
 numpy
 opencv-python
 playsound
+Pillow
 psutil
 PyAudio
 pyautogui
 pycaw
 pygetwindow
 pyjokes
+pystray
 pytesseract
 pyttsx3
 requests

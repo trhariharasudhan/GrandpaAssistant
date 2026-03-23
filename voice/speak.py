@@ -9,6 +9,7 @@ init(autoreset=True)
 
 _engine = None
 _engine_lock = threading.Lock()
+_response_mode = "hybrid"
 
 
 def _get_engine():
@@ -34,17 +35,25 @@ def typing_effect(text, delay=0.02):
     print()
 
 
-def speak(text):
-    typing_effect(text)
+def set_response_mode(mode):
+    global _response_mode
+    if mode in {"text", "voice", "hybrid"}:
+        _response_mode = mode
 
-    try:
-        with _engine_lock:
-            engine = _get_engine()
-            engine.stop()
-            engine.say(text)
-            engine.runAndWait()
-    except Exception as error:
-        print("TTS Error:", error)
+
+def speak(text):
+    if _response_mode in {"text", "hybrid"}:
+        typing_effect(text)
+
+    if _response_mode in {"voice", "hybrid"}:
+        try:
+            with _engine_lock:
+                engine = _get_engine()
+                engine.stop()
+                engine.say(text)
+                engine.runAndWait()
+        except Exception as error:
+            print("TTS Error:", error)
 
 
 def stop_speaking():

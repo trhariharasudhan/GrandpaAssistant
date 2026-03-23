@@ -7,3 +7,7 @@ __pycache__/
 logs/
 data/memory.json
 data/apps_cache.json
+.venv/
+__pycache__/
+*.pyc
+data/settings.json

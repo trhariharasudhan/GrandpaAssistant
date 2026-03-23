@@ -116,6 +116,50 @@ def find_text_on_screen(target_text):
     return None
 
 
+def find_text_details(target_text):
+    if not _ocr_ready():
+        return None
+
+    img = _prepare_image()
+    data = pytesseract.image_to_data(
+        img, output_type=pytesseract.Output.DICT, config=OCR_CONFIG
+    )
+
+    target_words = [word for word in re.split(r"\s+", target_text.lower().strip()) if word]
+    best_match = None
+
+    for index, word in enumerate(data["text"]):
+        cleaned_word = _clean_line(word).lower()
+        if not cleaned_word:
+            continue
+
+        score = 0
+        if target_text.lower() in cleaned_word:
+            score += 3
+        if any(target_word in cleaned_word for target_word in target_words):
+            score += 1
+
+        if score <= 0:
+            continue
+
+        x = data["left"][index]
+        y = data["top"][index]
+        width = data["width"][index]
+        height = data["height"][index]
+
+        candidate = {
+            "text": _clean_line(word),
+            "center": (x + width // 2, y + height // 2),
+            "bounds": (x, y, width, height),
+            "score": score,
+        }
+
+        if best_match is None or candidate["score"] > best_match["score"]:
+            best_match = candidate
+
+    return best_match
+
+
 def click_on_text(target):
     position = find_text_on_screen(target)
 
@@ -124,6 +168,10 @@ def click_on_text(target):
         return True
 
     return False
+
+
+def is_text_visible(target):
+    return find_text_details(target) is not None
 
 
 def read_screen_text():

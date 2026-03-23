@@ -2,6 +2,27 @@ import datetime
 
 from modules.briefing_module import build_brief_details, build_due_reminder_alert
 from modules.calendar_module import get_date, get_day, get_period, get_time
+from modules.dashboard_module import build_dashboard_report
+from modules.profile_module import (
+    build_focus_suggestion,
+    build_personal_snapshot,
+    build_profile_summary,
+    build_proactive_nudge,
+)
+from modules.weather_module import get_weather_report
+from modules.window_context_module import (
+    describe_active_window,
+    get_active_app_name,
+    get_active_window_title,
+    summarize_active_window,
+    summarize_browser_page,
+    summarize_code_editor,
+    summarize_if_browser,
+    summarize_if_code_editor,
+    summarize_if_file_explorer,
+    summarize_current_folder,
+    summarize_whatsapp_context,
+)
 from modules.routine_module import (
     create_custom_routine,
     delete_custom_routine,
@@ -98,12 +119,221 @@ COMMAND_REGISTRY = [
         "confidence": 0.9,
     },
     {
+        "intent": "weather.current",
+        "patterns": [
+            "weather",
+            "what is the weather",
+            "today weather",
+            "weather today",
+            "weather in",
+            "forecast in",
+        ],
+        "type": "weather",
+        "handler": get_weather_report,
+        "category": "weather",
+        "confidence": 0.96,
+    },
+    {
         "intent": "brief.daily",
         "patterns": ["daily brief", "morning brief", "brief me", "status report"],
         "type": "exact",
         "handler": lambda command: build_brief_details(),
         "category": "briefing",
         "confidence": 0.98,
+    },
+    {
+        "intent": "dashboard.report",
+        "patterns": ["dashboard", "status center", "my day summary", "full report"],
+        "type": "exact",
+        "handler": lambda command: build_dashboard_report(),
+        "category": "dashboard",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "profile.summary",
+        "patterns": [
+            "tell me about myself",
+            "summarize my profile",
+            "my profile summary",
+            "who am i really",
+        ],
+        "type": "exact",
+        "handler": lambda command: build_profile_summary(),
+        "category": "profile",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "profile.focus",
+        "patterns": [
+            "what should i focus on",
+            "what should i do next",
+            "what is my focus",
+            "guide my focus",
+        ],
+        "type": "exact",
+        "handler": lambda command: build_focus_suggestion(),
+        "category": "profile",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "profile.snapshot",
+        "patterns": [
+            "personal snapshot",
+            "tell me my habits",
+            "summarize my personal details",
+        ],
+        "type": "exact",
+        "handler": lambda command: build_personal_snapshot(),
+        "category": "profile",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "profile.nudge",
+        "patterns": [
+            "give me a suggestion",
+            "give me a nudge",
+            "motivate me",
+            "what should i do now",
+            "any suggestion for me",
+        ],
+        "type": "exact",
+        "handler": lambda command: build_proactive_nudge(),
+        "category": "profile",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "window.active_app",
+        "patterns": [
+            "what app am i using",
+            "which app am i using",
+            "what application is open",
+        ],
+        "type": "exact",
+        "handler": lambda command: get_active_app_name(),
+        "category": "window_context",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "window.active_title",
+        "patterns": [
+            "what window is open",
+            "what is the current window",
+            "what is my current window",
+        ],
+        "type": "exact",
+        "handler": lambda command: get_active_window_title(),
+        "category": "window_context",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "window.describe",
+        "patterns": [
+            "what am i seeing",
+            "what am i looking at",
+            "describe my screen",
+            "describe active window",
+        ],
+        "type": "exact",
+        "handler": lambda command: summarize_active_window(),
+        "category": "window_context",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "window.browser",
+        "patterns": [
+            "am i in browser",
+            "what tab is open",
+            "summarize this page",
+            "which tab is open",
+        ],
+        "type": "exact",
+        "handler": lambda command: summarize_if_browser(),
+        "category": "window_context",
+        "confidence": 0.96,
+    },
+    {
+        "intent": "app.browser.summary",
+        "patterns": [
+            "summarize current browser page",
+            "read current browser page",
+            "summarize browser page",
+        ],
+        "type": "exact",
+        "handler": lambda command: summarize_browser_page(),
+        "category": "app_intelligence",
+        "confidence": 0.96,
+    },
+    {
+        "intent": "window.editor",
+        "patterns": [
+            "am i in vscode",
+            "what file is open",
+            "am i coding now",
+            "which file is open",
+        ],
+        "type": "exact",
+        "handler": lambda command: summarize_if_code_editor(),
+        "category": "window_context",
+        "confidence": 0.96,
+    },
+    {
+        "intent": "app.editor.summary",
+        "patterns": [
+            "summarize current code editor",
+            "summarize current file",
+            "read current file context",
+        ],
+        "type": "exact",
+        "handler": lambda command: summarize_code_editor(),
+        "category": "app_intelligence",
+        "confidence": 0.96,
+    },
+    {
+        "intent": "window.explorer",
+        "patterns": [
+            "am i in file explorer",
+            "which folder is open",
+            "what folder is open",
+        ],
+        "type": "exact",
+        "handler": lambda command: summarize_if_file_explorer(),
+        "category": "window_context",
+        "confidence": 0.96,
+    },
+    {
+        "intent": "app.explorer.summary",
+        "patterns": [
+            "summarize current folder",
+            "read current folder",
+            "what folder am i in",
+        ],
+        "type": "exact",
+        "handler": lambda command: summarize_current_folder(),
+        "category": "app_intelligence",
+        "confidence": 0.96,
+    },
+    {
+        "intent": "app.whatsapp.summary",
+        "patterns": [
+            "summarize whatsapp",
+            "what chat am i on",
+            "read whatsapp screen",
+        ],
+        "type": "exact",
+        "handler": lambda command: summarize_whatsapp_context(),
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "window.describe_app",
+        "patterns": [
+            "describe current app",
+            "tell me current app",
+        ],
+        "type": "exact",
+        "handler": lambda command: describe_active_window(),
+        "category": "window_context",
+        "confidence": 0.96,
     },
     {
         "intent": "reminders.urgent",
@@ -227,6 +457,9 @@ def _matches(command, entry):
 
     if match_type == "mode_start":
         return command.startswith("start") and "mode" in command
+
+    if match_type == "weather":
+        return command in patterns[:4] or command.startswith("weather in") or command.startswith("forecast in")
 
     return False
 

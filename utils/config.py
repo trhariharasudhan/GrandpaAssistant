@@ -1,8 +1,36 @@
-# Configuration settings for GrandpaAssistant
+import json
+import os
 
-WAKE_WORD = "hey grandpa"
-INITIAL_TIMEOUT = 15
-ACTIVE_TIMEOUT = 60
+
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+SETTINGS_PATH = os.path.join(DATA_DIR, "settings.json")
+
+DEFAULT_SETTINGS = {
+    "wake_word": "hey grandpa",
+    "initial_timeout": 15,
+    "active_timeout": 60,
+    "voice": {
+        "mode": "normal",
+        "ambient_duration": 0.8,
+        "listen_timeout": 2,
+        "phrase_time_limit": 4,
+        "pause_threshold": 0.8,
+        "non_speaking_duration": 0.35,
+        "dynamic_energy_threshold": True,
+        "energy_threshold": 220,
+        "dynamic_energy_adjustment_ratio": 1.3,
+    },
+    "sounds": {
+        "enabled": True,
+        "start": True,
+        "success": True,
+        "error": True,
+    },
+    "startup": {
+        "tray_mode": False,
+    },
+}
 
 APP_ALIASES = {
     "note": "notepad.exe",
@@ -14,3 +42,63 @@ APP_ALIASES = {
     "excel": "excel.exe",
     "paint": "mspaint.exe",
 }
+
+
+def _merge_dicts(base, override):
+    result = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _merge_dicts(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def load_settings():
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+    if not os.path.exists(SETTINGS_PATH):
+        save_settings(DEFAULT_SETTINGS)
+        return dict(DEFAULT_SETTINGS)
+
+    try:
+        with open(SETTINGS_PATH, "r", encoding="utf-8") as file:
+            saved = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        save_settings(DEFAULT_SETTINGS)
+        return dict(DEFAULT_SETTINGS)
+
+    merged = _merge_dicts(DEFAULT_SETTINGS, saved)
+    if merged != saved:
+        save_settings(merged)
+    return merged
+
+
+def save_settings(settings):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(SETTINGS_PATH, "w", encoding="utf-8") as file:
+        json.dump(settings, file, indent=4)
+
+
+def get_setting(path, default=None):
+    current = load_settings()
+    for key in path.split("."):
+        if not isinstance(current, dict) or key not in current:
+            return default
+        current = current[key]
+    return current
+
+
+def update_setting(path, value):
+    settings = load_settings()
+    keys = path.split(".")
+    current = settings
+
+    for key in keys[:-1]:
+        if key not in current or not isinstance(current[key], dict):
+            current[key] = {}
+        current = current[key]
+
+    current[keys[-1]] = value
+    save_settings(settings)
+    return settings

@@ -1,4 +1,6 @@
 import os
+import re
+from difflib import SequenceMatcher
 import sys
 import threading
 import time
@@ -6,12 +8,16 @@ import time
 from colorama import Fore, Style, init
 
 from core.command_router import process_command
+from core.tray_manager import set_tray_exit_callback, start_tray, stop_tray
 from modules.app_scan_module import categorize_apps, get_all_apps, scan_store_apps
 from modules.briefing_module import build_daily_brief, build_due_reminder_alert
+from modules.dictation_module import handle_dictation_text, is_dictation_active, stop_dictation
+from modules.profile_module import build_proactive_nudge
+from utils.config import get_setting
 from utils.sound import play_sound
 from vision.hand_mouse_control import run_hand_mouse
 from voice.listen import listen
-from voice.speak import speak, stop_speaking
+from voice.speak import set_response_mode, speak, stop_speaking
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
@@ -25,12 +31,18 @@ else:
 init(autoreset=True)
 
 INSTALLED_APPS = {}
-WAKE_WORD = "hey grandpa"
-INITIAL_TIMEOUT = 15
-ACTIVE_TIMEOUT = 60
+WAKE_WORD = get_setting("wake_word", "hey grandpa")
+INITIAL_TIMEOUT = get_setting("initial_timeout", 15)
+ACTIVE_TIMEOUT = get_setting("active_timeout", 60)
 
 stop_event = threading.Event()
 hand_mouse_thread = None
+
+
+def exit_assistant():
+    stop_tray()
+    stop_event.set()
+    os._exit(0)
 
 
 def glowing_cursor():
@@ -43,9 +55,48 @@ def glowing_cursor():
         time.sleep(0.5)
 
 
-def main():
-    global INSTALLED_APPS
+def _wait_for_thread(thread, poll_interval=0.1):
+    while thread.is_alive():
+        thread.join(timeout=poll_interval)
 
+
+def _normalize_phrase(text):
+    return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
+
+
+def _wake_word_detected(command, wake_word):
+    normalized_command = _normalize_phrase(command)
+    normalized_wake_word = _normalize_phrase(wake_word)
+
+    if not normalized_command or not normalized_wake_word:
+        return False
+
+    if normalized_wake_word in normalized_command:
+        return True
+
+    command_words = normalized_command.split()
+    wake_words = normalized_wake_word.split()
+    wake_len = len(wake_words)
+
+    if wake_len == 0 or len(command_words) < wake_len:
+        return False
+
+    for index in range(len(command_words) - wake_len + 1):
+        window = " ".join(command_words[index:index + wake_len])
+        if SequenceMatcher(None, window, normalized_wake_word).ratio() >= 0.72:
+            return True
+
+    return SequenceMatcher(None, normalized_command, normalized_wake_word).ratio() >= 0.72
+
+
+def main(start_in_tray=False):
+    global INSTALLED_APPS
+    global WAKE_WORD, INITIAL_TIMEOUT, ACTIVE_TIMEOUT
+
+    set_tray_exit_callback(exit_assistant)
+    WAKE_WORD = get_setting("wake_word", "hey grandpa")
+    INITIAL_TIMEOUT = get_setting("initial_timeout", 15)
+    ACTIVE_TIMEOUT = get_setting("active_timeout", 60)
     INSTALLED_APPS = get_all_apps()
     INSTALLED_APPS.update(scan_store_apps())
     categorized = categorize_apps(INSTALLED_APPS)
@@ -64,6 +115,21 @@ def main():
     urgent_alert = build_due_reminder_alert()
     if urgent_alert != "No urgent reminders right now.":
         speak(urgent_alert)
+    speak(build_proactive_nudge())
+    play_sound("start")
+
+    if get_setting("startup.tray_mode", False):
+        start_in_tray = True
+
+    if start_in_tray:
+        success, message = start_tray(on_quit=exit_assistant)
+        if message:
+            print(message)
+        if success:
+            set_response_mode("voice")
+            speak("Background tray mode activated.")
+            voice_mode()
+            return
 
     try:
         print("\nChoose to enter input mode (1 - Voice / 2 - Text): ", end="")
@@ -75,14 +141,18 @@ def main():
         return
 
     if mode == "1":
+        set_response_mode("voice")
+        play_sound("start")
         voice_mode()
     elif mode == "2":
-        play_sound("start.wav")
+        set_response_mode("text")
+        play_sound("start")
         speak("Text mode activated.")
         print()
         text_mode()
     else:
         print("Invalid mode selected.")
+        play_sound("error")
         speak("Invalid mode selected.")
 
 
@@ -139,11 +209,12 @@ def voice_mode():
                         continue
                 finally:
                     stop_flag["stop"] = True
-                    anim_thread.join()
+                    _wait_for_thread(anim_thread)
 
                 command = command.lower().strip()
 
-                if WAKE_WORD in command:
+                if _wake_word_detected(command, WAKE_WORD):
+                    play_sound("start")
                     speak("Yes Captain?")
                     time.sleep(0.5)
                     active_mode = True
@@ -177,13 +248,13 @@ def voice_mode():
             timer_thread.start()
             listen_thread.start()
 
-            listen_thread.join()
+            _wait_for_thread(listen_thread)
             stop_flag["stop"] = True
-            timer_thread.join()
+            _wait_for_thread(timer_thread)
 
             command = command_container["cmd"]
 
-            if time.time() - last_active_time > current_timeout:
+            if not is_dictation_active() and time.time() - last_active_time > current_timeout:
                 active_mode = False
                 sys.stdout.write("\r" + " " * 60 + "\r")
                 print("Going back to sleep mode...\n")
@@ -196,6 +267,7 @@ def voice_mode():
             last_active_time = time.time()
 
             if command == "exit assistant":
+                stop_dictation()
                 speak("Goodbye Captain!")
                 break
 
@@ -206,12 +278,32 @@ def voice_mode():
                 stop_speaking()
                 continue
 
+            if is_dictation_active():
+                if command in [
+                    "stop dictation",
+                    "stop detection",
+                    "stop typing mode",
+                    "exit dictation",
+                ]:
+                    stop_dictation()
+                    speak("Dictation mode stopped.")
+                    continue
+
+                typed = handle_dictation_text(command)
+                if typed:
+                    play_sound("success")
+                    current_timeout = ACTIVE_TIMEOUT
+                    continue
+
             process_command(command, INSTALLED_APPS, input_mode="voice")
+            play_sound("success")
             current_timeout = ACTIVE_TIMEOUT
             print()
 
     except KeyboardInterrupt:
         print()
+        stop_dictation()
+        stop_tray()
         speak("Goodbye Captain!")
 
 
@@ -226,13 +318,17 @@ def text_mode():
 
             if command in ["exit", "quit"]:
                 speak("Goodbye Captain!")
+                stop_dictation()
+                stop_tray()
                 break
 
             process_command(command, INSTALLED_APPS, input_mode="text")
-            play_sound("start.wav")
+            play_sound("success")
             print()
 
         except KeyboardInterrupt:
             print()
             speak("Goodbye Captain!")
+            stop_dictation()
+            stop_tray()
             break
