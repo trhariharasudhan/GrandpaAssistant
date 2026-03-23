@@ -40,11 +40,26 @@ def _safe_get(data, path, default=None):
 
 def _default_location():
     memory = load_memory()
+    area = _safe_get(memory, "personal.location.current_location.area")
     city = _safe_get(memory, "personal.location.current_location.city")
     state = _safe_get(memory, "personal.location.current_location.state")
     country = _safe_get(memory, "personal.location.current_location.country")
-    parts = [part for part in [city, state, country] if part]
-    return ", ".join(parts) if parts else "Salem, India"
+    candidate_locations = []
+
+    if city and country:
+        candidate_locations.append(f"{city}, {country}")
+    if city and state:
+        candidate_locations.append(f"{city}, {state}")
+    if city:
+        candidate_locations.append(city)
+    if area and city:
+        candidate_locations.append(f"{area}, {city}")
+    if state and country:
+        candidate_locations.append(f"{state}, {country}")
+    if country:
+        candidate_locations.append(country)
+
+    return candidate_locations[0] if candidate_locations else "Salem, India"
 
 
 def _extract_location(command):
@@ -106,7 +121,27 @@ def get_weather_report(command):
         return None
 
     try:
+        attempted_locations = [location_name]
         place = _geocode_location(location_name)
+
+        if not place and location_name == _default_location():
+            memory = load_memory()
+            fallbacks = [
+                _safe_get(memory, "personal.location.current_location.city"),
+                _safe_get(memory, "personal.location.current_location.area"),
+                _safe_get(memory, "personal.location.current_location.state"),
+                _safe_get(memory, "personal.location.current_location.country"),
+                "Salem, India",
+            ]
+
+            for fallback in fallbacks:
+                if not fallback or fallback in attempted_locations:
+                    continue
+                attempted_locations.append(fallback)
+                place = _geocode_location(fallback)
+                if place:
+                    break
+
         if not place:
             return f"I could not find weather information for {location_name}."
 

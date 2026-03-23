@@ -6,7 +6,7 @@ keyboard
 mediapipe
 numpy
 opencv-python
-playsound
+playsound==1.2.2
 Pillow
 psutil
 PyAudio

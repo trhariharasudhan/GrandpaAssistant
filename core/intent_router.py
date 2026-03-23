@@ -3,6 +3,7 @@ import datetime
 from modules.briefing_module import build_brief_details, build_due_reminder_alert
 from modules.calendar_module import get_date, get_day, get_period, get_time
 from modules.dashboard_module import build_dashboard_report
+from modules.notes_module import add_note, delete_note, list_notes
 from modules.profile_module import (
     build_focus_suggestion,
     build_personal_snapshot,
@@ -147,6 +148,30 @@ COMMAND_REGISTRY = [
         "type": "exact",
         "handler": lambda command: build_dashboard_report(),
         "category": "dashboard",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "notes.add",
+        "patterns": ["take a note", "save this idea", "save note", "add note", "note this"],
+        "type": "startswith",
+        "handler": add_note,
+        "category": "notes",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "notes.list",
+        "patterns": ["list notes", "show notes", "my notes"],
+        "type": "exact",
+        "handler": lambda command: list_notes(),
+        "category": "notes",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "notes.delete",
+        "patterns": ["delete note"],
+        "type": "startswith",
+        "handler": delete_note,
+        "category": "notes",
         "confidence": 0.98,
     },
     {

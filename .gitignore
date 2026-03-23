@@ -11,3 +11,4 @@ data/apps_cache.json
 __pycache__/
 *.pyc
 data/settings.json
+data/notes.json

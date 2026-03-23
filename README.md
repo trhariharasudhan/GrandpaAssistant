@@ -1,22 +1,109 @@
 # GrandpaAssistant
 
-GrandpaAssistant is a Windows-focused personal desktop assistant built with Python. It combines voice and text interaction with local AI responses, system controls, application launching, OCR-based screen reading, calendar utilities, and gesture-based hand mouse control.
+GrandpaAssistant is a Windows-first personal desktop assistant built with Python. It combines voice interaction, text commands, personal memory, local AI, OCR-based screen tools, desktop automation, tray mode, dashboard reporting, and task workflows in a single assistant project.
 
-The project is designed for local usage on a personal machine. It uses Ollama for AI responses, Windows-native utilities for system actions, and a local JSON memory store for personal context.
+It is designed for local usage on a personal Windows machine and uses Ollama for general AI replies, Tesseract OCR for screen reading, and local JSON/SQLite storage for memory, tasks, reminders, notes, and settings.
 
-## Features
+## Highlights
 
-- Voice mode with wake-word based interaction
-- Text mode for direct command input
-- Local AI responses through Ollama
-- Personal memory lookup and storage
-- Date, time, and calendar commands
-- Application launch, switch, minimize, maximize, and close controls
-- Volume and brightness controls
+- Voice mode with wake word support
+- Text mode for direct terminal usage
+- Mode-specific replies
+  - text mode gives text replies
+  - voice mode gives voice replies
+- Personal memory system backed by `memory.json` and SQLite
+- Task, reminder, note, and dashboard workflows
+- Weather, battery, and daily brief support
+- App launch and system control commands
+- OCR-based screen reading, text finding, and click actions
+- Active window and app-specific context awareness
+- Hand mouse mode using webcam gestures
+- Tray/background mode
+- Configurable sound and voice settings
+
+## Feature Set
+
+### Core Interaction
+
+- Voice mode with wake word
+- Text mode
+- Stop speaking
+- Dictation mode
+- Startup, success, and error feedback sounds
+
+### Personal Memory
+
+- Answer questions from saved profile data
+- Update saved memory by command
+- Remove selected memory fields by command
+- Profile summary
+- Personal snapshot
+- Focus suggestions
+- Proactive nudges
+
+### Productivity
+
+- Add, list, complete, and delete tasks
+- Add, list, and delete reminders
+- Add, list, and delete notes
+- Daily brief
+- Urgent reminder report
+- Full dashboard / status center
+
+### Automation and Routines
+
+- Preset modes
+  - work mode
+  - study mode
+  - movie mode
+- Custom routine creation and deletion
+- Volume and brightness actions inside routines
+- App launching inside routines
+
+### Vision and Screen Actions
+
+- Read full screen text
+- Find text on screen
+- Click visible text on screen
+- Check whether screen text is visible
+- Active app detection
+- Current window title detection
+- Browser tab summary
+- Code editor file/context summary
+- File Explorer folder summary
+- WhatsApp screen summary
+
+### System Controls
+
+- Open installed apps
+- Rescan installed apps
+- Open File Explorer
 - Screenshot capture
-- OCR-based screen reading and on-screen text click support
-- Media controls for play, pause, next, and previous
-- Hand mouse control using webcam gestures
+- Battery info
+- Wi-Fi, Bluetooth, and Airplane Mode settings
+- Minimize, maximize, restore, and switch app windows
+- Lock, sleep, sign out, restart, and shutdown
+- Smart confirmation for risky actions
+
+### AI and Search
+
+- Local AI replies through Ollama
+- Wikipedia-style topic lookup
+- Intent router with command registry
+- Command history logging
+
+### Settings and Config
+
+- Show current settings
+- Change wake word
+- Change voice timeout values
+- Enable/disable tray startup
+- Mute/unmute sounds
+- Toggle start/success/error sounds
+- Voice profiles
+  - normal
+  - sensitive
+  - noise cancel
 
 ## Tech Stack
 
@@ -28,57 +115,43 @@ The project is designed for local usage on a personal machine. It uses Ollama fo
 - OpenCV
 - PyAutoGUI
 - Tesseract OCR
+- pystray
+- Pillow
+- SQLite
 
 ## Project Structure
 
-Top-level files and folders:
-
-- `main.py`
-- `requirements.txt`
-- `README.md`
-- `brain/`
-- `controls/`
-- `core/`
-- `data/`
-- `modules/`
-- `sounds/`
-- `utils/`
-- `vision/`
-- `voice/`
-
-Key folders:
-
-- `core/` - main assistant loop and command routing
-- `brain/` - AI engine, memory handling, and personal-question detection
-- `modules/` - web, calendar, app scan, media, and system command logic
-- `controls/` - brightness and volume controls
-- `vision/` - hand mouse and OCR utilities
-- `voice/` - speech input and output
-- `data/` - local memory and cached app data
-- `sounds/` - assistant sound effects
+- `main.py` - app entry point
+- `brain/` - AI engine, database, memory engine, question analysis
+- `controls/` - brightness and volume control
+- `core/` - assistant loop, command router, intent router, tray manager
+- `data/` - local runtime data such as memory, settings, tasks, notes, and database
+- `modules/` - feature modules like calendar, dashboard, notes, profile, routines, tasks, weather, and system control
+- `sounds/` - assistant feedback sounds
+- `utils/` - config, sound helpers, misc support
+- `vision/` - OCR and hand mouse utilities
+- `voice/` - speech input and speech output
 
 ## Requirements
 
-Before running the project, make sure you have:
+Before running the assistant, make sure you have:
 
 - Windows 10 or Windows 11
 - Python 3.10 or newer
-- A working microphone for voice mode
-- Speakers or headphones for spoken responses
+- Microphone for voice mode
+- Speakers or headphones for voice replies
 - Ollama installed locally
 - Tesseract OCR installed for screen-reading features
-- Webcam for hand mouse control
+- Webcam for hand mouse mode
 
 ## Installation
 
-### 1. Clone or download the project
+### 1. Clone the repository
 
 ```powershell
-git clone <your-repo-url>
+git clone https://github.com/trhariharasudhan/GrandpaAssistant.git
 cd GrandpaAssistant
 ```
-
-If you downloaded a ZIP, extract it and open the project folder in PowerShell.
 
 ### 2. Create and activate a virtual environment
 
@@ -87,7 +160,7 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 ```
 
-If PowerShell blocks activation, run:
+If PowerShell blocks activation:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
@@ -95,84 +168,66 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 Then activate the environment again.
 
-### 3. Install Python dependencies
+### 3. Install dependencies
 
 ```powershell
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. Install and prepare Ollama
+### 4. Install Ollama
 
-Install Ollama from:
+Download Ollama:
 
-- [Ollama](https://ollama.com/)
+- [https://ollama.com/](https://ollama.com/)
 
-Then pull the model used by this project:
+Pull the model used by the project:
 
 ```powershell
 ollama pull phi3
 ```
 
-Make sure Ollama is running before starting the assistant.
+Make sure Ollama is running before using AI replies.
 
 ### 5. Install Tesseract OCR
 
-Tesseract is required for:
+Tesseract is required for OCR features such as:
 
 - `read screen`
-- `open file <text on screen>`
+- `find <text>`
+- `click <text>`
 
-Install Tesseract and make sure `tesseract.exe` is available in one of these locations:
-
-- `C:\Program Files\Tesseract-OCR\tesseract.exe`
-- or in your system `PATH`
-
-Recommended download:
+Recommended Windows build:
 
 - [Tesseract OCR for Windows](https://github.com/UB-Mannheim/tesseract/wiki)
 
-## Usage
+The project supports:
 
-Run the assistant:
+- `C:\Program Files\Tesseract-OCR\tesseract.exe`
+- or `tesseract` available in `PATH`
+
+## Running the Assistant
+
+### Normal startup
 
 ```powershell
 python main.py
 ```
 
-At startup you will be asked to choose an input mode:
+### Start directly in tray mode
 
-- `1` - Voice mode
-- `2` - Text mode
-
-## How To Use
-
-### Text Mode
-
-Choose `2` when prompted, then type commands such as:
-
-```text
-what time
-what is my name
-tell me about india
-open notepad
-read screen
-start mouse
-stop mouse
-take screenshot
-increase volume
-brightness down
+```powershell
+python main.py --tray
 ```
 
-Exit text mode with:
+At startup choose:
 
-```text
-exit
-```
+- `1` for voice mode
+- `2` for text mode
+
+## Usage Examples
 
 ### Voice Mode
-
-Choose `1` when prompted.
 
 Wake word:
 
@@ -180,15 +235,37 @@ Wake word:
 hey grandpa
 ```
 
-After the wake word, you can speak commands. To leave voice mode:
+Example voice commands:
 
 ```text
-exit assistant
+what time
+weather
+dashboard
+start dictation
+stop dictation
+background mode
 ```
 
-## Example Commands
+### Text Mode
 
-### Time and Date
+Example text commands:
+
+```text
+what time
+what is my name
+weather in chennai
+dashboard
+open notepad
+take a note buy milk tomorrow
+list notes
+read screen
+find login
+click search
+```
+
+## Command Groups
+
+### Time and Calendar
 
 - `what time`
 - `what is date`
@@ -197,20 +274,50 @@ exit assistant
 - `current year`
 - `week number`
 
-### Personal Memory
+### Memory and Profile
 
-- `my name is Hari`
 - `what is my name`
-- `who am i`
-- `clear memory`
+- `my father details`
+- `my github`
+- `my goals`
+- `tell me about myself`
+- `personal snapshot`
+- `what should i focus on`
+- `give me a suggestion`
 
-### Web and AI
+### Memory Updates
 
-- `who is A. P. J. Abdul Kalam`
-- `tell me about india`
-- `what is artificial intelligence`
+- `update my father age to 58`
+- `set my wake up time to 6 am`
+- `remove my twitter`
 
-### Apps and System Controls
+### Tasks, Reminders, and Notes
+
+- `add task finish report`
+- `list tasks`
+- `complete task 1`
+- `remind me to pay EB bill tomorrow`
+- `list reminders`
+- `take a note call client next week`
+- `list notes`
+- `delete note 1`
+
+### Dashboard and Daily Status
+
+- `daily brief`
+- `check reminders`
+- `dashboard`
+- `status center`
+- `full report`
+
+### Weather
+
+- `weather`
+- `what is the weather`
+- `weather in bangalore`
+- `forecast in chennai`
+
+### Apps and System
 
 - `open notepad`
 - `open explorer`
@@ -223,50 +330,89 @@ exit assistant
 - `restart`
 - `shutdown`
 
-### Media and Device Controls
-
-- `play`
-- `pause`
-- `next`
-- `previous`
-- `volume up`
-- `volume down`
-- `mute`
-- `brightness up`
-- `brightness down`
-
-### Screen and Vision
+### Vision and OCR
 
 - `read screen`
-- `open file settings`
-- `start mouse`
-- `stop mouse`
+- `find login`
+- `click search`
+- `is submit visible`
+- `what app am i using`
+- `what window is open`
+- `what am i seeing`
+- `summarize current browser page`
+- `summarize current code editor`
+- `what folder am i in`
 
-## Notes
+### Dictation
 
-- The assistant is currently tailored for Windows.
-- AI responses depend on Ollama being available at `http://localhost:11434`.
-- Hand mouse mode uses the webcam and can be stopped with `Esc`.
-- OCR output quality depends on screen clarity, font size, and UI complexity.
-- Personal data is stored locally in `data/memory.json`.
+- `start dictation`
+- `stop dictation`
+- `start detection`
+- `stop detection`
+
+Supported dictation phrases:
+
+- `comma`
+- `full stop`
+- `question mark`
+- `new line`
+- `enter`
+- `backspace`
+
+### Modes and Tray
+
+- `list modes`
+- `start work mode`
+- `start study mode`
+- `start movie mode`
+- `create mode coding volume 25 brightness 60 apps chrome, notepad`
+- `background mode`
+- `restore assistant`
+
+### Settings
+
+- `show settings`
+- `mute sounds`
+- `unmute sounds`
+- `turn off success sound`
+- `enable tray startup`
+- `disable tray startup`
+- `set wake word to hey captain`
+- `set initial timeout to 20`
+- `set active timeout to 90`
+- `enable sensitive voice mode`
+- `enable noise cancel mode`
+
+## Local Data Files
+
+Common runtime files under `data/`:
+
+- `memory.json` - personal memory profile
+- `assistant.db` - SQLite database for memory/history
+- `tasks.json` - tasks and reminders
+- `notes.json` - saved notes
+- `settings.json` - local settings
+
+If this repository is public, review personal data before pushing runtime files.
 
 ## Troubleshooting
+
+### Voice mode is not detecting well
+
+Try:
+
+- `enable sensitive voice mode`
+- `enable noise cancel mode`
+- restart the assistant after changing voice mode
+- check Windows microphone input level
 
 ### `python` command not found
 
 Install Python and ensure it is added to `PATH`.
 
-### Voice input not working
-
-Check:
-
-- microphone permissions
-- PyAudio installation
-- Windows input device settings
-
 ### AI not responding
 
-Make sure Ollama is installed, running, and that the `phi3` model has been pulled:
+Make sure Ollama is installed, running, and that the required model is pulled:
 
 ```powershell
 ollama list
@@ -274,24 +420,34 @@ ollama list
 
 ### OCR not working
 
-Make sure Tesseract OCR is installed and `tesseract.exe` is reachable.
+Make sure Tesseract OCR is installed and reachable through the configured path or system `PATH`.
+
+### Tray mode not working
+
+Make sure required dependencies are installed:
+
+- `pystray`
+- `Pillow`
 
 ### Hand mouse not starting
 
 Check:
 
-- webcam access permissions
+- webcam permission
 - MediaPipe and OpenCV installation
 - whether another app is already using the camera
 
-## Dependency Notes
+## Git Ignore Recommendation
 
-The current `requirements.txt` matches the packages directly used by the project source files. During cleanup:
+Keep local runtime files out of source control when needed:
 
-- added `comtypes` because it is directly imported for volume control
-- removed unused `wikipedia`
-- removed redundant `opencv-contrib-python`
+```gitignore
+.venv/
+__pycache__/
+*.pyc
+data/settings.json
+```
 
 ## License
 
-No license file is currently included in this project. Add one if you plan to publish or share it publicly.
+No license file is currently included in this repository. Add a license if you plan to distribute or publish the project widely.
