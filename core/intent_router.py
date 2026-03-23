@@ -1,9 +1,30 @@
 import datetime
 
 from modules.briefing_module import build_brief_details, build_due_reminder_alert
+from modules.browser_automation_module import (
+    open_gmail,
+    open_maps_search,
+    open_whatsapp_web,
+    open_youtube,
+    search_google,
+    search_youtube,
+)
 from modules.calendar_module import get_date, get_day, get_period, get_time
 from modules.dashboard_module import build_dashboard_report
-from modules.notes_module import add_note, delete_note, list_notes
+from modules.messaging_automation_module import (
+    draft_gmail,
+    open_gmail_and_type,
+    open_whatsapp_and_type,
+    type_in_whatsapp,
+)
+from modules.notes_module import (
+    add_note,
+    delete_note,
+    latest_note,
+    list_notes,
+    search_notes,
+    summarize_notes,
+)
 from modules.profile_module import (
     build_focus_suggestion,
     build_personal_snapshot,
@@ -165,6 +186,38 @@ COMMAND_REGISTRY = [
         "confidence": 0.98,
     },
     {
+        "intent": "messaging.whatsapp.open_and_type",
+        "patterns": ["open whatsapp web and type"],
+        "type": "startswith",
+        "handler": open_whatsapp_and_type,
+        "category": "messaging_automation",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "messaging.whatsapp.type",
+        "patterns": ["type in whatsapp"],
+        "type": "startswith",
+        "handler": type_in_whatsapp,
+        "category": "messaging_automation",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "messaging.gmail.open_and_type",
+        "patterns": ["open gmail and type"],
+        "type": "startswith",
+        "handler": open_gmail_and_type,
+        "category": "messaging_automation",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "messaging.gmail.draft",
+        "patterns": ["draft gmail"],
+        "type": "startswith",
+        "handler": draft_gmail,
+        "category": "messaging_automation",
+        "confidence": 0.97,
+    },
+    {
         "intent": "notes.add",
         "patterns": ["take a note", "save this idea", "save note", "add note", "note this"],
         "type": "startswith",
@@ -179,6 +232,78 @@ COMMAND_REGISTRY = [
         "handler": lambda command: list_notes(),
         "category": "notes",
         "confidence": 0.98,
+    },
+    {
+        "intent": "notes.search",
+        "patterns": ["search notes for", "find note about", "find note", "search notes"],
+        "type": "startswith",
+        "handler": search_notes,
+        "category": "notes",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "notes.latest",
+        "patterns": ["latest note", "last note", "my latest note"],
+        "type": "exact",
+        "handler": lambda command: latest_note(),
+        "category": "notes",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "notes.summary",
+        "patterns": ["summarize notes", "notes summary", "note summary", "recap my notes"],
+        "type": "exact",
+        "handler": lambda command: summarize_notes(),
+        "category": "notes",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "browser.search.google",
+        "patterns": ["search google for", "search for", "search", "google"],
+        "type": "startswith",
+        "handler": search_google,
+        "category": "browser_automation",
+        "confidence": 0.94,
+    },
+    {
+        "intent": "browser.search.youtube",
+        "patterns": ["search youtube for", "open youtube and search", "youtube search"],
+        "type": "startswith",
+        "handler": search_youtube,
+        "category": "browser_automation",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "browser.open.youtube",
+        "patterns": ["open youtube"],
+        "type": "exact",
+        "handler": lambda command: open_youtube(),
+        "category": "browser_automation",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "browser.open.whatsapp_web",
+        "patterns": ["open whatsapp web", "start whatsapp web"],
+        "type": "exact",
+        "handler": lambda command: open_whatsapp_web(),
+        "category": "browser_automation",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "browser.open.gmail",
+        "patterns": ["open gmail", "open google mail"],
+        "type": "exact",
+        "handler": lambda command: open_gmail(),
+        "category": "browser_automation",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "browser.open.maps",
+        "patterns": ["open maps for", "find place", "search maps for"],
+        "type": "startswith",
+        "handler": open_maps_search,
+        "category": "browser_automation",
+        "confidence": 0.95,
     },
     {
         "intent": "notes.delete",
