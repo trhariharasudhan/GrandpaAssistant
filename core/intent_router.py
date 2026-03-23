@@ -11,6 +11,13 @@ from modules.browser_automation_module import (
 )
 from modules.calendar_module import get_date, get_day, get_period, get_time
 from modules.dashboard_module import build_dashboard_report
+from modules.event_module import (
+    add_event,
+    delete_event,
+    list_events,
+    today_events,
+    upcoming_events,
+)
 from modules.health_module import (
     get_battery_status,
     get_cpu_status,
@@ -198,6 +205,46 @@ COMMAND_REGISTRY = [
         "type": "exact",
         "handler": lambda command: build_dashboard_report(),
         "category": "dashboard",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "events.add",
+        "patterns": ["add event", "create event", "schedule event"],
+        "type": "startswith",
+        "handler": add_event,
+        "category": "events",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "events.list",
+        "patterns": ["list events", "show events", "my events"],
+        "type": "exact",
+        "handler": lambda command: list_events(),
+        "category": "events",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "events.today",
+        "patterns": ["today events", "what are my events today", "today schedule"],
+        "type": "exact",
+        "handler": lambda command: today_events(),
+        "category": "events",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "events.upcoming",
+        "patterns": ["upcoming events", "next events", "future events"],
+        "type": "exact",
+        "handler": lambda command: upcoming_events(),
+        "category": "events",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "events.delete",
+        "patterns": ["delete event"],
+        "type": "startswith",
+        "handler": delete_event,
+        "category": "events",
         "confidence": 0.98,
     },
     {
