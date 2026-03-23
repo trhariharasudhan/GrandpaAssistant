@@ -15,6 +15,7 @@ pycaw
 pygetwindow
 pyjokes
 pystray
+pypdf
 pytesseract
 pyttsx3
 requests

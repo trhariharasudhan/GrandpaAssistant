@@ -1,6 +1,11 @@
 import os
 from pathlib import Path
 
+try:
+    from pypdf import PdfReader
+except ImportError:
+    PdfReader = None
+
 
 SEARCH_EXTENSIONS = {
     ".txt",
@@ -117,6 +122,31 @@ def recent_files():
     return "Recent files: " + " | ".join(lines)
 
 
+def _read_pdf_preview(path):
+    if PdfReader is None:
+        return None, "PDF summary support is not available because the PDF reader package is missing."
+
+    try:
+        reader = PdfReader(str(path))
+    except Exception:
+        return None, f"I found {path.name}, but I could not open the PDF."
+
+    extracted_pages = []
+    for page in reader.pages[:3]:
+        try:
+            page_text = page.extract_text() or ""
+        except Exception:
+            page_text = ""
+        if page_text.strip():
+            extracted_pages.append(page_text.strip())
+
+    content = " ".join(extracted_pages).strip()
+    if not content:
+        return None, f"I found {path.name}, but I could not extract readable text from the PDF."
+
+    return " ".join(content.split()), None
+
+
 def summarize_found_file(command):
     query = command
     prefixes = [
@@ -139,13 +169,19 @@ def summarize_found_file(command):
         return f"I could not find a file matching {query}."
 
     path = matches[0]
-    if path.suffix.lower() not in {".txt", ".md", ".py", ".json"}:
-        return f"I found {path.name}, but quick summary is supported only for text-based files right now."
+    suffix = path.suffix.lower()
 
-    try:
-        content = path.read_text(encoding="utf-8", errors="ignore").strip()
-    except Exception:
-        return f"I found {path.name}, but I could not read it."
+    if suffix == ".pdf":
+        content, error = _read_pdf_preview(path)
+        if error:
+            return error
+    elif suffix in {".txt", ".md", ".py", ".json"}:
+        try:
+            content = path.read_text(encoding="utf-8", errors="ignore").strip()
+        except Exception:
+            return f"I found {path.name}, but I could not read it."
+    else:
+        return f"I found {path.name}, but quick summary is supported only for text-based files and PDFs right now."
 
     if not content:
         return f"{path.name} is empty."
