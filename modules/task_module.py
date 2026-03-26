@@ -121,6 +121,51 @@ def _parse_snooze_days(command):
     return amount
 
 
+def _extract_title_text(command, prefixes):
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            return _clean_text(command[len(prefix):])
+    return ""
+
+
+def _match_by_title(items, title_text, *, pending_only=False):
+    query = _clean_text(title_text).lower()
+    if not query:
+        return None
+
+    candidates = []
+    for item in items:
+        if pending_only and item.get("completed"):
+            continue
+
+        title = item.get("title", "")
+        normalized = _clean_text(title).lower()
+        if not normalized:
+            continue
+
+        score = 0
+        if normalized == query:
+            score = 100
+        elif normalized.startswith(query):
+            score = 90
+        elif query in normalized:
+            score = 80
+        else:
+            query_words = [word for word in query.split() if word]
+            overlap = sum(1 for word in query_words if word in normalized)
+            if overlap:
+                score = overlap * 10
+
+        if score:
+            candidates.append((score, item))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda entry: (entry[0], entry[1].get("created_at", "")), reverse=True)
+    return candidates[0][1]
+
+
 def _remove_date_phrases(text):
     patterns = [
         r"\b(today|tomorrow|yesterday|next week|last week|next month|last month|next year|last year)\b",
@@ -260,6 +305,22 @@ def complete_latest_task():
     return f"Completed latest task: {task.get('title', 'Untitled task')}"
 
 
+def complete_task_by_title(command):
+    title_text = _extract_title_text(command, ["complete task titled", "complete task about", "complete task"])
+    if not title_text:
+        return "Tell me which task title you want to complete."
+
+    data = _load_data()
+    task = _match_by_title(data["tasks"], title_text, pending_only=True)
+
+    if not task:
+        return f"I could not find a pending task matching '{title_text}'."
+
+    task["completed"] = True
+    _save_data(data)
+    return f"Completed task: {task.get('title', 'Untitled task')}"
+
+
 def delete_task(command):
     index = _parse_index(command, "delete task")
     if index is None:
@@ -287,6 +348,23 @@ def delete_latest_task():
     tasks.remove(task)
     _save_data(data)
     return f"Deleted latest task: {task.get('title', 'Untitled task')}"
+
+
+def delete_task_by_title(command):
+    title_text = _extract_title_text(command, ["delete task titled", "delete task about", "remove task titled", "remove task about"])
+    if not title_text:
+        return "Tell me which task title you want to delete."
+
+    data = _load_data()
+    tasks = data["tasks"]
+    task = _match_by_title(tasks, title_text)
+
+    if not task:
+        return f"I could not find a task matching '{title_text}'."
+
+    tasks.remove(task)
+    _save_data(data)
+    return f"Deleted task: {task.get('title', 'Untitled task')}"
 
 
 def add_reminder(command):
@@ -366,6 +444,26 @@ def delete_latest_reminder():
     return f"Deleted latest reminder: {reminder.get('title', 'Untitled reminder')}"
 
 
+def delete_reminder_by_title(command):
+    title_text = _extract_title_text(
+        command,
+        ["delete reminder about", "delete reminder titled", "remove reminder about", "remove reminder titled"],
+    )
+    if not title_text:
+        return "Tell me which reminder title you want to delete."
+
+    data = _load_data()
+    reminders = data["reminders"]
+    reminder = _match_by_title(reminders, title_text)
+
+    if not reminder:
+        return f"I could not find a reminder matching '{title_text}'."
+
+    reminders.remove(reminder)
+    _save_data(data)
+    return f"Deleted reminder: {reminder.get('title', 'Untitled reminder')}"
+
+
 def snooze_reminder(command):
     target = _parse_snooze_target(command)
     snooze_days = _parse_snooze_days(command)
@@ -381,6 +479,13 @@ def snooze_reminder(command):
 
     if target["latest"]:
         reminder = _latest_item(reminders)
+        reminder_index = reminders.index(reminder) if reminder else None
+    elif "about" in command or "titled" in command:
+        title_text = _extract_title_text(
+            command,
+            ["snooze reminder about", "snooze reminder titled", "snooze latest reminder about"],
+        )
+        reminder = _match_by_title(reminders, title_text)
         reminder_index = reminders.index(reminder) if reminder else None
     else:
         reminder_index = target["index"]
