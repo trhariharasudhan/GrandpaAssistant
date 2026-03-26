@@ -6,6 +6,11 @@ import time
 import tkinter as tk
 
 try:
+    import keyboard
+except ImportError:
+    keyboard = None
+
+try:
     import pytesseract
 except ImportError:
     pytesseract = None
@@ -103,6 +108,7 @@ def _show_live_region_preview(
     color="#4cc9f0",
     border_width=3,
     update_interval_ms=40,
+    stop_event=None,
 ):
     def worker():
         try:
@@ -123,6 +129,10 @@ def _show_live_region_preview(
             start_time = time.time()
 
             def update_box():
+                if stop_event and stop_event.is_set():
+                    root.destroy()
+                    return
+
                 if time.time() - start_time >= duration_seconds:
                     root.destroy()
                     return
@@ -490,6 +500,8 @@ def read_selected_area_text(selection_wait_seconds=3):
         return "Tesseract OCR is not installed or not available in PATH."
 
     region = capture_selected_region(selection_wait_seconds=selection_wait_seconds)
+    if isinstance(region, dict) and region.get("cancelled"):
+        return "Selected area capture cancelled."
     if not region:
         return "Selected area was too small. Move the mouse to two different corners and try again."
 
@@ -510,8 +522,21 @@ def read_selected_area_text(selection_wait_seconds=3):
 
 def capture_selected_region(selection_wait_seconds=3):
     start_position = pyautogui.position()
-    _show_live_region_preview(start_position, duration_seconds=selection_wait_seconds)
-    time.sleep(selection_wait_seconds)
+    stop_event = threading.Event()
+    _show_live_region_preview(
+        start_position,
+        duration_seconds=selection_wait_seconds,
+        stop_event=stop_event,
+    )
+
+    end_time = time.time() + selection_wait_seconds
+    while time.time() < end_time:
+        if keyboard and keyboard.is_pressed("esc"):
+            stop_event.set()
+            return {"cancelled": True}
+        time.sleep(0.05)
+
+    stop_event.set()
     end_position = pyautogui.position()
 
     left = min(start_position.x, end_position.x)

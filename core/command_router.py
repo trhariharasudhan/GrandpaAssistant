@@ -462,6 +462,9 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             "Move your mouse to the first corner now. I will capture the second corner in three seconds."
         )
         region = capture_selected_region()
+        if isinstance(region, dict) and region.get("cancelled"):
+            speak("Selected area capture cancelled.")
+            return
         if not region:
             speak("Selected area was too small. Try again.")
             return
@@ -484,6 +487,9 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             "Move your mouse to the first corner now. I will capture the second corner in three seconds."
         )
         region = capture_selected_region()
+        if isinstance(region, dict) and region.get("cancelled"):
+            speak("Selected area capture cancelled.")
+            return
         if not region:
             speak("Selected area was too small. Try again.")
             return
