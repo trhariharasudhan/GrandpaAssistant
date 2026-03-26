@@ -221,6 +221,22 @@ def _handle_config_command(command):
         update_setting("browser.whatsapp_search_retry_delay_seconds", retry_delay)
         return f"WhatsApp retry delay updated to {retry_delay} seconds."
 
+    whatsapp_send_press_match = re.match(
+        r"^(?:set|change|update)\s+whatsapp send press count\s+to\s+(\d+)$", command
+    )
+    if whatsapp_send_press_match:
+        press_value = max(1, int(whatsapp_send_press_match.group(1)))
+        update_setting("browser.whatsapp_send_press_count", press_value)
+        return f"WhatsApp send press count updated to {press_value}."
+
+    whatsapp_send_delay_match = re.match(
+        r"^(?:set|change|update)\s+whatsapp send confirm delay\s+to\s+(\d+(?:\.\d+)?)$", command
+    )
+    if whatsapp_send_delay_match:
+        delay_value = max(0.2, float(whatsapp_send_delay_match.group(1)))
+        update_setting("browser.whatsapp_send_confirm_delay_seconds", delay_value)
+        return f"WhatsApp send confirm delay updated to {delay_value} seconds."
+
     gmail_delay_match = re.match(
         r"^(?:set|change|update)\s+gmail load delay\s+to\s+(\d+)$", command
     )
@@ -274,6 +290,11 @@ def _handle_config_command(command):
         whatsapp_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
         whatsapp_retry_count = get_setting("browser.whatsapp_search_retry_count", 2)
         whatsapp_retry_delay = get_setting("browser.whatsapp_search_retry_delay_seconds", 1.2)
+        whatsapp_auto_send = get_setting("browser.whatsapp_auto_send", True)
+        whatsapp_send_press_count = get_setting("browser.whatsapp_send_press_count", 1)
+        whatsapp_send_confirm_delay = get_setting(
+            "browser.whatsapp_send_confirm_delay_seconds", 0.8
+        )
         gmail_delay = get_setting("browser.gmail_load_delay_seconds", 8)
         ocr_hotkey_enabled = get_setting("ocr.region_hotkey_enabled", True)
         ocr_hotkey = get_setting("ocr.region_hotkey", "ctrl+shift+o")
@@ -299,6 +320,9 @@ def _handle_config_command(command):
             f"WhatsApp load delay is {whatsapp_delay} seconds. "
             f"WhatsApp retry count is {whatsapp_retry_count}. "
             f"WhatsApp retry delay is {whatsapp_retry_delay} seconds. "
+            f"WhatsApp auto send is {'on' if whatsapp_auto_send else 'off'}. "
+            f"WhatsApp send press count is {whatsapp_send_press_count}. "
+            f"WhatsApp send confirm delay is {whatsapp_send_confirm_delay} seconds. "
             f"Gmail load delay is {gmail_delay} seconds. "
             f"OCR region hotkey is {ocr_hotkey}. "
             f"OCR hotkey is {'on' if ocr_hotkey_enabled else 'off'}. "
@@ -362,6 +386,14 @@ def _handle_config_command(command):
     if command in ["disable ocr hotkey", "turn off ocr hotkey", "disable region hotkey"]:
         update_setting("ocr.region_hotkey_enabled", False)
         return "OCR region hotkey disabled. Restart the assistant if it was already running."
+
+    if command in ["enable whatsapp auto send", "turn on whatsapp auto send"]:
+        update_setting("browser.whatsapp_auto_send", True)
+        return "WhatsApp auto send enabled."
+
+    if command in ["disable whatsapp auto send", "turn off whatsapp auto send"]:
+        update_setting("browser.whatsapp_auto_send", False)
+        return "WhatsApp auto send disabled."
 
     if command in ["friendly mode", "set persona to friendly", "change persona to friendly"]:
         update_setting("assistant.persona", "friendly")

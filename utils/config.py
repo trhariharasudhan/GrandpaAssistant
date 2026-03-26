@@ -48,6 +48,9 @@ DEFAULT_SETTINGS = {
         "gmail_load_delay_seconds": 8,
         "whatsapp_search_retry_count": 2,
         "whatsapp_search_retry_delay_seconds": 1.2,
+        "whatsapp_auto_send": True,
+        "whatsapp_send_press_count": 1,
+        "whatsapp_send_confirm_delay_seconds": 0.8,
     },
     "ocr": {
         "region_hotkey_enabled": True,
