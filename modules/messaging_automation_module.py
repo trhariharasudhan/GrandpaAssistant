@@ -90,6 +90,30 @@ def _persist_current_jobs():
     _save_scheduled_data({"whatsapp": whatsapp_jobs, "gmail": gmail_jobs})
 
 
+def _prune_expired_jobs():
+    now = datetime.datetime.now()
+    changed = False
+
+    with _scheduled_job_lock:
+        original_len = len(_scheduled_whatsapp_jobs)
+        _scheduled_whatsapp_jobs[:] = [
+            job for job in _scheduled_whatsapp_jobs if job["scheduled_for"] > now
+        ]
+        if len(_scheduled_whatsapp_jobs) != original_len:
+            changed = True
+
+    with _scheduled_gmail_lock:
+        original_len = len(_scheduled_gmail_jobs)
+        _scheduled_gmail_jobs[:] = [
+            job for job in _scheduled_gmail_jobs if job["scheduled_for"] > now
+        ]
+        if len(_scheduled_gmail_jobs) != original_len:
+            changed = True
+
+    if changed:
+        _persist_current_jobs()
+
+
 def _open_url(url):
     try:
         webbrowser.open(url)
@@ -453,6 +477,7 @@ def restore_scheduled_jobs():
         )
 
     _loaded_scheduled_jobs = True
+    _prune_expired_jobs()
     _persist_current_jobs()
     return True
 
@@ -478,6 +503,7 @@ def schedule_whatsapp_message(command):
 
 
 def list_scheduled_whatsapp_messages():
+    _prune_expired_jobs()
     with _scheduled_job_lock:
         jobs = sorted(_scheduled_whatsapp_jobs, key=lambda item: item["scheduled_for"])
 
@@ -493,6 +519,7 @@ def list_scheduled_whatsapp_messages():
 
 
 def cancel_scheduled_whatsapp_message(command):
+    _prune_expired_jobs()
     raw = (
         command.replace("cancel scheduled whatsapp message", "", 1)
         .replace("delete scheduled whatsapp message", "", 1)
@@ -543,6 +570,7 @@ def schedule_gmail_draft(command):
 
 
 def list_scheduled_gmail_drafts():
+    _prune_expired_jobs()
     with _scheduled_gmail_lock:
         jobs = sorted(_scheduled_gmail_jobs, key=lambda item: item["scheduled_for"])
 
@@ -558,6 +586,7 @@ def list_scheduled_gmail_drafts():
 
 
 def cancel_scheduled_gmail_draft(command):
+    _prune_expired_jobs()
     raw = (
         command.replace("cancel scheduled gmail draft", "", 1)
         .replace("delete scheduled gmail draft", "", 1)
