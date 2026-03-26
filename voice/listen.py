@@ -78,6 +78,9 @@ def _active_voice_settings():
         "recalibrate_interval": get_setting(
             "voice.recalibrate_interval", base["recalibrate_interval"]
         ),
+        "min_command_chars": get_setting("voice.min_command_chars", 3),
+        "post_wake_pause_seconds": get_setting("voice.post_wake_pause_seconds", 0.35),
+        "empty_listen_backoff_seconds": get_setting("voice.empty_listen_backoff_seconds", 0.2),
     }
 
 
@@ -146,7 +149,10 @@ def listen():
             )
 
             command = recognizer.recognize_google(audio)
-            return command.lower()
+            command = command.lower().strip()
+            if len(command) < settings["min_command_chars"]:
+                return None
+            return command
 
         except sr.WaitTimeoutError:
             return None

@@ -131,6 +131,22 @@ def _handle_config_command(command):
         update_setting("active_timeout", timeout_value)
         return f"Active timeout updated to {timeout_value} seconds."
 
+    wake_pause_match = re.match(
+        r"^(?:set|change|update)\s+post wake pause\s+to\s+(\d+(?:\.\d+)?)$", command
+    )
+    if wake_pause_match:
+        pause_value = max(0.1, float(wake_pause_match.group(1)))
+        update_setting("voice.post_wake_pause_seconds", pause_value)
+        return f"Post wake pause updated to {pause_value} seconds."
+
+    backoff_match = re.match(
+        r"^(?:set|change|update)\s+empty listen backoff\s+to\s+(\d+(?:\.\d+)?)$", command
+    )
+    if backoff_match:
+        backoff_value = max(0.0, float(backoff_match.group(1)))
+        update_setting("voice.empty_listen_backoff_seconds", backoff_value)
+        return f"Empty listen backoff updated to {backoff_value} seconds."
+
     browser_delay_match = re.match(
         r"^(?:set|change|update)\s+browser load delay\s+to\s+(\d+)$", command
     )
@@ -166,6 +182,8 @@ def _handle_config_command(command):
         error_sound = get_setting("sounds.error", True)
         initial_timeout = get_setting("initial_timeout", 15)
         active_timeout = get_setting("active_timeout", 60)
+        post_wake_pause = get_setting("voice.post_wake_pause_seconds", 0.35)
+        empty_backoff = get_setting("voice.empty_listen_backoff_seconds", 0.2)
         browser_delay = get_setting("browser.page_load_delay_seconds", 3)
         whatsapp_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
         gmail_delay = get_setting("browser.gmail_load_delay_seconds", 8)
@@ -179,6 +197,8 @@ def _handle_config_command(command):
             f"Persona mode is {persona_mode}. "
             f"Initial timeout is {initial_timeout} seconds. "
             f"Active timeout is {active_timeout} seconds. "
+            f"Post wake pause is {post_wake_pause} seconds. "
+            f"Empty listen backoff is {empty_backoff} seconds. "
             f"Browser load delay is {browser_delay} seconds. "
             f"WhatsApp load delay is {whatsapp_delay} seconds. "
             f"Gmail load delay is {gmail_delay} seconds. "

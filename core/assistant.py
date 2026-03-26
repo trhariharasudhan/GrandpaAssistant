@@ -36,6 +36,8 @@ INSTALLED_APPS = {}
 WAKE_WORD = get_setting("wake_word", "hey grandpa")
 INITIAL_TIMEOUT = get_setting("initial_timeout", 15)
 ACTIVE_TIMEOUT = get_setting("active_timeout", 60)
+POST_WAKE_PAUSE = get_setting("voice.post_wake_pause_seconds", 0.35)
+EMPTY_LISTEN_BACKOFF = get_setting("voice.empty_listen_backoff_seconds", 0.2)
 
 stop_event = threading.Event()
 hand_mouse_thread = None
@@ -174,12 +176,14 @@ def _process_voice_command(command, current_timeout):
 
 def main(start_in_tray=False):
     global INSTALLED_APPS
-    global WAKE_WORD, INITIAL_TIMEOUT, ACTIVE_TIMEOUT
+    global WAKE_WORD, INITIAL_TIMEOUT, ACTIVE_TIMEOUT, POST_WAKE_PAUSE, EMPTY_LISTEN_BACKOFF
 
     set_tray_exit_callback(exit_assistant)
     WAKE_WORD = get_setting("wake_word", "hey grandpa")
     INITIAL_TIMEOUT = get_setting("initial_timeout", 15)
     ACTIVE_TIMEOUT = get_setting("active_timeout", 60)
+    POST_WAKE_PAUSE = get_setting("voice.post_wake_pause_seconds", 0.35)
+    EMPTY_LISTEN_BACKOFF = get_setting("voice.empty_listen_backoff_seconds", 0.2)
     INSTALLED_APPS = get_all_apps()
     INSTALLED_APPS.update(scan_store_apps())
     categorized = categorize_apps(INSTALLED_APPS)
@@ -292,6 +296,7 @@ def voice_mode():
                 try:
                     command = listen()
                     if not command:
+                        time.sleep(EMPTY_LISTEN_BACKOFF)
                         continue
                 finally:
                     stop_flag["stop"] = True
@@ -311,7 +316,7 @@ def voice_mode():
                         current_timeout = result["timeout"]
                     else:
                         speak("Yes Captain?")
-                        time.sleep(0.5)
+                        time.sleep(POST_WAKE_PAUSE)
                         active_mode = True
                         last_active_time = time.time()
                         current_timeout = INITIAL_TIMEOUT
@@ -366,6 +371,7 @@ def voice_mode():
                 continue
 
             if not command:
+                time.sleep(EMPTY_LISTEN_BACKOFF)
                 continue
 
             command = command.lower().strip()

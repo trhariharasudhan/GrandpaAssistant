@@ -21,6 +21,9 @@ DEFAULT_SETTINGS = {
         "energy_threshold": 110,
         "dynamic_energy_adjustment_ratio": 1.08,
         "recalibrate_interval": 30,
+        "min_command_chars": 3,
+        "post_wake_pause_seconds": 0.35,
+        "empty_listen_backoff_seconds": 0.2,
     },
     "sounds": {
         "enabled": True,
