@@ -19,6 +19,7 @@ from modules.event_module import (
     upcoming_events,
 )
 from modules.file_intelligence_module import (
+    ask_found_file,
     find_file,
     open_found_file,
     recent_files,
@@ -299,6 +300,20 @@ COMMAND_REGISTRY = [
         "patterns": ["summarize file", "read file summary", "what is in file"],
         "type": "startswith",
         "handler": summarize_found_file,
+        "category": "file_intelligence",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "files.qa",
+        "patterns": [
+            "ask file",
+            "ask pdf",
+            "ask document",
+            "what does file",
+            "search document",
+        ],
+        "type": "startswith",
+        "handler": ask_found_file,
         "category": "file_intelligence",
         "confidence": 0.97,
     },

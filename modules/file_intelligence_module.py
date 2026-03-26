@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 
 try:
@@ -147,6 +148,86 @@ def _read_pdf_preview(path):
     return " ".join(content.split()), None
 
 
+def _read_supported_file_text(path):
+    suffix = path.suffix.lower()
+
+    if suffix == ".pdf":
+        return _read_pdf_preview(path)
+
+    if suffix in {".txt", ".md", ".py", ".json"}:
+        try:
+            return path.read_text(encoding="utf-8", errors="ignore").strip(), None
+        except Exception:
+            return None, f"I found {path.name}, but I could not read it."
+
+    return (
+        None,
+        f"I found {path.name}, but question and answer is supported only for text-based files and PDFs right now.",
+    )
+
+
+def _split_text_chunks(content):
+    parts = re.split(r"(?<=[.!?])\s+|\n+", content)
+    chunks = []
+    for part in parts:
+        cleaned = " ".join(part.split()).strip()
+        if cleaned:
+            chunks.append(cleaned)
+    return chunks
+
+
+def _question_keywords(question):
+    words = re.findall(r"[a-zA-Z0-9]+", question.lower())
+    ignore = {
+        "what",
+        "is",
+        "the",
+        "in",
+        "on",
+        "of",
+        "a",
+        "an",
+        "does",
+        "do",
+        "this",
+        "that",
+        "file",
+        "pdf",
+        "document",
+        "say",
+        "about",
+        "tell",
+        "me",
+        "where",
+        "who",
+        "when",
+        "why",
+        "how",
+    }
+    return [word for word in words if word not in ignore and len(word) > 1]
+
+
+def _best_matching_chunks(content, question, limit=3):
+    chunks = _split_text_chunks(content)
+    keywords = _question_keywords(question)
+
+    if not chunks:
+        return []
+
+    if not keywords:
+        return chunks[:limit]
+
+    scored = []
+    for chunk in chunks:
+        lowered = chunk.lower()
+        score = sum(1 for keyword in keywords if keyword in lowered)
+        if score > 0:
+            scored.append((score, chunk))
+
+    scored.sort(key=lambda item: (-item[0], len(item[1])))
+    return [chunk for _, chunk in scored[:limit]]
+
+
 def summarize_found_file(command):
     query = command
     prefixes = [
@@ -169,22 +250,64 @@ def summarize_found_file(command):
         return f"I could not find a file matching {query}."
 
     path = matches[0]
-    suffix = path.suffix.lower()
-
-    if suffix == ".pdf":
-        content, error = _read_pdf_preview(path)
-        if error:
-            return error
-    elif suffix in {".txt", ".md", ".py", ".json"}:
-        try:
-            content = path.read_text(encoding="utf-8", errors="ignore").strip()
-        except Exception:
-            return f"I found {path.name}, but I could not read it."
-    else:
-        return f"I found {path.name}, but quick summary is supported only for text-based files and PDFs right now."
+    content, error = _read_supported_file_text(path)
+    if error:
+        return error
 
     if not content:
         return f"{path.name} is empty."
 
     preview = " ".join(content.split())
     return f"Summary of {path.name}: {preview[:300]}"
+
+
+def ask_found_file(command):
+    patterns = [
+        r"^ask file\s+(.+?)\s+(.+)$",
+        r"^ask pdf\s+(.+?)\s+(.+)$",
+        r"^ask document\s+(.+?)\s+(.+)$",
+        r"^what does file\s+(.+?)\s+say about\s+(.+)$",
+        r"^search document\s+(.+?)\s+for\s+(.+)$",
+    ]
+
+    file_query = None
+    question = None
+    matched_pattern = None
+
+    for pattern in patterns:
+        match = re.match(pattern, command)
+        if match:
+            file_query = match.group(1).strip(" :")
+            question = match.group(2).strip(" :")
+            matched_pattern = pattern
+            break
+
+    if not file_query or not question:
+        return (
+            "Use this format: ask file resume what is my experience, "
+            "ask pdf invoice what is the total amount, or search document resume for networking."
+        )
+
+    matches = _find_files(file_query, limit=1)
+    if not matches:
+        return f"I could not find a file matching {file_query}."
+
+    path = matches[0]
+    content, error = _read_supported_file_text(path)
+    if error:
+        return error
+
+    if not content:
+        return f"{path.name} is empty."
+
+    matching_chunks = _best_matching_chunks(content, question)
+    if not matching_chunks:
+        if matched_pattern and "search document" in matched_pattern:
+            return f"I could not find anything relevant to {question} in {path.name}."
+        return (
+            f"I read {path.name}, but I could not find a clear answer for {question}. "
+            f"Try a more specific keyword."
+        )
+
+    answer_preview = " | ".join(matching_chunks)
+    return f"From {path.name}: {answer_preview[:700]}"
