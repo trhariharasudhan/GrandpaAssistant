@@ -71,6 +71,83 @@ def _extract_known_contact(name_text):
     return _clean_text(name_text)
 
 
+def _resolve_email_target(target_text):
+    memory = load_memory()
+    normalized = _clean_text(target_text).lower()
+
+    if normalized in {"myself", "me", "my email", "my primary email", "my mail"}:
+        primary = (
+            memory.get("personal", {})
+            .get("contact", {})
+            .get("email_primary")
+        )
+        if primary:
+            return primary, None
+        return None, "I could not find your primary email in memory."
+
+    if normalized in {"my secondary email", "my alternate email", "secondary email"}:
+        secondary = (
+            memory.get("personal", {})
+            .get("contact", {})
+            .get("email_secondary")
+        )
+        if secondary:
+            return secondary, None
+        return None, "I could not find your secondary email in memory."
+
+    candidates = []
+
+    def add_candidate(name=None, nickname=None, email=None):
+        if not name and not nickname:
+            return
+        candidates.append(
+            {
+                "name": _clean_text(name or ""),
+                "nickname": _clean_text(nickname or ""),
+                "email": _clean_text(email or ""),
+            }
+        )
+
+    contact = memory.get("personal", {}).get("contact", {})
+    add_candidate(
+        name=memory.get("personal", {}).get("identity", {}).get("name"),
+        email=contact.get("email_primary"),
+    )
+
+    emergency = contact.get("emergency_contact", {})
+    add_candidate(
+        name=emergency.get("name"),
+        email=emergency.get("email"),
+    )
+
+    family = memory.get("personal", {}).get("family", {})
+    for person_key in ["father", "mother"]:
+        person = family.get(person_key, {})
+        add_candidate(name=person.get("name"), email=person.get("email"))
+
+    for sibling in family.get("siblings", []):
+        add_candidate(name=sibling.get("name"), email=sibling.get("email"))
+
+    for friend in memory.get("personal", {}).get("friends", {}).get("close_friends", []):
+        add_candidate(
+            name=friend.get("name"),
+            nickname=friend.get("nickname"),
+            email=friend.get("email"),
+        )
+
+    for candidate in candidates:
+        if normalized in {candidate["name"].lower(), candidate["nickname"].lower()}:
+            if candidate["email"]:
+                return candidate["email"], None
+            display_name = candidate["name"] or candidate["nickname"] or target_text
+            return None, f"I found {display_name}, but I do not have an email saved yet."
+
+    if "@" in normalized:
+        return _clean_text(target_text), None
+
+    return _clean_text(target_text), None
+
+
 def _type_after_delay(text, delay_seconds=8):
     def worker():
         time.sleep(delay_seconds)
@@ -165,9 +242,12 @@ def smart_gmail_draft(command):
     to_part, remainder = text.split(" subject ", 1)
     subject_part, body_part = remainder.split(" body ", 1)
 
-    recipient = _clean_text(to_part)
+    recipient, recipient_error = _resolve_email_target(to_part)
     subject = _clean_text(subject_part)
     body = _clean_text(body_part)
+
+    if recipient_error:
+        return recipient_error
 
     if not recipient or not subject or not body:
         return (
@@ -198,8 +278,11 @@ def draft_professional_email(command):
         )
 
     recipient_part, topic_part = text.split(" about ", 1)
-    recipient = _clean_text(recipient_part)
+    recipient, recipient_error = _resolve_email_target(recipient_part)
     topic = _clean_text(topic_part)
+
+    if recipient_error:
+        return recipient_error
 
     if not recipient or not topic:
         return "Tell me the recipient and the topic for the professional email."
@@ -237,8 +320,11 @@ def draft_leave_email(command):
         )
 
     recipient_part, reason_part = text.split(" for ", 1)
-    recipient = _clean_text(recipient_part)
+    recipient, recipient_error = _resolve_email_target(recipient_part)
     reason = _clean_text(reason_part)
+
+    if recipient_error:
+        return recipient_error
 
     if not recipient or not reason:
         return "Tell me the recipient and the leave reason."
@@ -276,8 +362,11 @@ def draft_follow_up_email(command):
         )
 
     recipient_part, topic_part = text.split(" about ", 1)
-    recipient = _clean_text(recipient_part)
+    recipient, recipient_error = _resolve_email_target(recipient_part)
     topic = _clean_text(topic_part)
+
+    if recipient_error:
+        return recipient_error
 
     if not recipient or not topic:
         return "Tell me the recipient and the follow-up topic."
@@ -315,8 +404,11 @@ def draft_job_application_email(command):
         )
 
     recipient_part, role_part = text.split(" for ", 1)
-    recipient = _clean_text(recipient_part)
+    recipient, recipient_error = _resolve_email_target(recipient_part)
     role = _clean_text(role_part)
+
+    if recipient_error:
+        return recipient_error
 
     if not recipient or not role:
         return "Tell me the recipient and the role for the job application."
@@ -355,8 +447,11 @@ def draft_meeting_request_email(command):
         )
 
     recipient_part, topic_part = text.split(" about ", 1)
-    recipient = _clean_text(recipient_part)
+    recipient, recipient_error = _resolve_email_target(recipient_part)
     topic = _clean_text(topic_part)
+
+    if recipient_error:
+        return recipient_error
 
     if not recipient or not topic:
         return "Tell me the recipient and the meeting topic."
@@ -394,8 +489,11 @@ def draft_thank_you_email(command):
         )
 
     recipient_part, reason_part = text.split(" for ", 1)
-    recipient = _clean_text(recipient_part)
+    recipient, recipient_error = _resolve_email_target(recipient_part)
     reason = _clean_text(reason_part)
+
+    if recipient_error:
+        return recipient_error
 
     if not recipient or not reason:
         return "Tell me the recipient and the reason for the thank you mail."
