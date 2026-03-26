@@ -1,7 +1,9 @@
 import os
 import re
 import shutil
+import threading
 import time
+import tkinter as tk
 
 try:
     import pytesseract
@@ -52,6 +54,47 @@ def _capture_region(region):
     screenshot = pyautogui.screenshot(region=region)
     img = np.array(screenshot)
     return _prepare_image_array(img)
+
+
+def _show_region_overlay(region, duration_seconds=1.2, color="#3ddc97", border_width=3):
+    left, top, width, height = region
+
+    if width < 2 or height < 2:
+        return False
+
+    def worker():
+        try:
+            root = tk.Tk()
+            root.overrideredirect(True)
+            root.attributes("-topmost", True)
+            root.attributes("-alpha", 0.35)
+            root.configure(bg="black")
+            root.geometry(f"{width}x{height}+{left}+{top}")
+
+            canvas = tk.Canvas(
+                root,
+                width=width,
+                height=height,
+                highlightthickness=0,
+                bg="black",
+            )
+            canvas.pack(fill="both", expand=True)
+            canvas.create_rectangle(
+                border_width,
+                border_width,
+                max(border_width + 1, width - border_width),
+                max(border_width + 1, height - border_width),
+                outline=color,
+                width=border_width,
+            )
+
+            root.after(max(200, int(duration_seconds * 1000)), root.destroy)
+            root.mainloop()
+        except Exception:
+            return
+
+    threading.Thread(target=worker, daemon=True).start()
+    return True
 
 
 def _clean_line(line):
@@ -373,6 +416,7 @@ def read_named_screen_region(region_name):
     if not region:
         return "That screen region is not supported."
 
+    _show_region_overlay(region)
     img = _capture_region(region)
     lines = _extract_text_lines(img)
 
@@ -387,19 +431,11 @@ def read_selected_area_text(selection_wait_seconds=3):
     if not _ocr_ready():
         return "Tesseract OCR is not installed or not available in PATH."
 
-    start_position = pyautogui.position()
-    time.sleep(selection_wait_seconds)
-    end_position = pyautogui.position()
-
-    left = min(start_position.x, end_position.x)
-    top = min(start_position.y, end_position.y)
-    width = abs(end_position.x - start_position.x)
-    height = abs(end_position.y - start_position.y)
-
-    if width < 20 or height < 20:
+    region = capture_selected_region(selection_wait_seconds=selection_wait_seconds)
+    if not region:
         return "Selected area was too small. Move the mouse to two different corners and try again."
 
-    img = _capture_region((left, top, width, height))
+    img = _capture_region(region)
     lines = _extract_text_lines(img)
 
     if not lines:
@@ -410,7 +446,7 @@ def read_selected_area_text(selection_wait_seconds=3):
 
     return {
         "text": text,
-        "bounds": (left, top, width, height),
+        "bounds": region,
     }
 
 
@@ -427,4 +463,6 @@ def capture_selected_region(selection_wait_seconds=3):
     if width < 20 or height < 20:
         return None
 
-    return (left, top, width, height)
+    region = (left, top, width, height)
+    _show_region_overlay(region)
+    return region
