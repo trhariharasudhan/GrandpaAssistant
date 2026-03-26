@@ -123,6 +123,65 @@ def _extract_text_lines(img):
     return ordered_lines
 
 
+def _extract_line_entries(img):
+    data = pytesseract.image_to_data(
+        img, output_type=pytesseract.Output.DICT, config=OCR_DATA_CONFIG
+    )
+
+    grouped_lines = {}
+    total_items = len(data["text"])
+
+    for index in range(total_items):
+        raw_text = data["text"][index]
+        cleaned = _clean_line(raw_text)
+        if not cleaned:
+            continue
+
+        try:
+            confidence = float(data["conf"][index])
+        except (TypeError, ValueError):
+            confidence = -1
+
+        if confidence < 20:
+            continue
+
+        line_key = (data["block_num"][index], data["par_num"][index], data["line_num"][index])
+        grouped_lines.setdefault(line_key, []).append(
+            {
+                "left": data["left"][index],
+                "top": data["top"][index],
+                "width": data["width"][index],
+                "height": data["height"][index],
+                "text": cleaned,
+                "confidence": confidence,
+            }
+        )
+
+    entries = []
+    for key in sorted(grouped_lines):
+        words = sorted(grouped_lines[key], key=lambda item: item["left"])
+        line_text = _clean_line(" ".join(word["text"] for word in words))
+        if not line_text:
+            continue
+
+        left = min(word["left"] for word in words)
+        top = min(word["top"] for word in words)
+        right = max(word["left"] + word["width"] for word in words)
+        bottom = max(word["top"] + word["height"] for word in words)
+        avg_confidence = sum(word["confidence"] for word in words) / max(len(words), 1)
+
+        entries.append(
+            {
+                "text": line_text,
+                "center": ((left + right) // 2, (top + bottom) // 2),
+                "bounds": (left, top, right - left, bottom - top),
+                "confidence": avg_confidence,
+            }
+        )
+
+    return entries
+
+
 def _clean_ocr_text(text):
     cleaned_lines = []
     seen = set()
@@ -147,23 +206,8 @@ def _clean_ocr_text(text):
 
 
 def find_text_on_screen(target_text):
-    if not _ocr_ready():
-        return None
-
-    img = _prepare_image()
-    data = pytesseract.image_to_data(
-        img, output_type=pytesseract.Output.DICT, config=OCR_CONFIG
-    )
-
-    for index, word in enumerate(data["text"]):
-        if target_text.lower() in word.lower():
-            x = data["left"][index]
-            y = data["top"][index]
-            width = data["width"][index]
-            height = data["height"][index]
-            return x + width // 2, y + height // 2
-
-    return None
+    details = find_text_details(target_text)
+    return details["center"] if details else None
 
 
 def find_text_details(target_text):
@@ -171,37 +215,43 @@ def find_text_details(target_text):
         return None
 
     img = _prepare_image()
-    data = pytesseract.image_to_data(
-        img, output_type=pytesseract.Output.DICT, config=OCR_CONFIG
-    )
-
-    target_words = [word for word in re.split(r"\s+", target_text.lower().strip()) if word]
+    entries = _extract_line_entries(img)
+    normalized_target = _clean_line(target_text).lower()
+    target_words = [word for word in re.split(r"\s+", normalized_target) if word]
     best_match = None
 
-    for index, word in enumerate(data["text"]):
-        cleaned_word = _clean_line(word).lower()
-        if not cleaned_word:
+    for entry in entries:
+        line_text = entry["text"].lower()
+        if not line_text:
             continue
 
         score = 0
-        if target_text.lower() in cleaned_word:
-            score += 3
-        if any(target_word in cleaned_word for target_word in target_words):
-            score += 1
+        if line_text == normalized_target:
+            score += 8
+        if normalized_target in line_text:
+            score += 5
+
+        word_hits = sum(1 for target_word in target_words if target_word in line_text)
+        score += word_hits * 2
+
+        if target_words:
+            overlap_ratio = word_hits / len(target_words)
+            if overlap_ratio >= 0.8:
+                score += 3
+            elif overlap_ratio >= 0.5:
+                score += 1
+
+        score += min(2.0, entry["confidence"] / 50.0)
 
         if score <= 0:
             continue
 
-        x = data["left"][index]
-        y = data["top"][index]
-        width = data["width"][index]
-        height = data["height"][index]
-
         candidate = {
-            "text": _clean_line(word),
-            "center": (x + width // 2, y + height // 2),
-            "bounds": (x, y, width, height),
+            "text": entry["text"],
+            "center": entry["center"],
+            "bounds": entry["bounds"],
             "score": score,
+            "confidence": entry["confidence"],
         }
 
         if best_match is None or candidate["score"] > best_match["score"]:
@@ -211,10 +261,10 @@ def find_text_details(target_text):
 
 
 def click_on_text(target):
-    position = find_text_on_screen(target)
+    details = find_text_details(target)
 
-    if position:
-        pyautogui.click(position)
+    if details and details["score"] >= 4:
+        pyautogui.click(details["center"])
         return True
 
     return False
