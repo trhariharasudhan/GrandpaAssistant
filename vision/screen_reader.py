@@ -13,6 +13,7 @@ import pyautogui
 
 TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 OCR_CONFIG = r"--oem 3 --psm 6"
+OCR_DATA_CONFIG = r"--oem 3 --psm 6"
 
 if pytesseract and os.path.exists(TESSERACT_PATH):
     pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
@@ -45,6 +46,7 @@ def _prepare_image():
 def _clean_line(line):
     line = re.sub(r"\s+", " ", line).strip()
     line = re.sub(r"[|`~_=*<>]+", " ", line)
+    line = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", line)
     line = re.sub(r"\s+", " ", line).strip()
     return line
 
@@ -71,6 +73,43 @@ def _is_useful_line(line):
         return False
 
     return True
+
+
+def _extract_text_lines(img):
+    data = pytesseract.image_to_data(
+        img, output_type=pytesseract.Output.DICT, config=OCR_DATA_CONFIG
+    )
+
+    grouped_lines = {}
+    total_items = len(data["text"])
+
+    for index in range(total_items):
+        raw_text = data["text"][index]
+        cleaned = _clean_line(raw_text)
+        if not cleaned:
+            continue
+
+        try:
+            confidence = float(data["conf"][index])
+        except (TypeError, ValueError):
+            confidence = -1
+
+        if confidence < 25:
+            continue
+
+        line_key = (data["block_num"][index], data["par_num"][index], data["line_num"][index])
+        grouped_lines.setdefault(line_key, []).append(
+            (data["left"][index], cleaned)
+        )
+
+    ordered_lines = []
+    for key in sorted(grouped_lines):
+        words = [word for _, word in sorted(grouped_lines[key], key=lambda item: item[0])]
+        line = _clean_line(" ".join(words))
+        if line:
+            ordered_lines.append(line)
+
+    return ordered_lines
 
 
 def _clean_ocr_text(text):
@@ -179,5 +218,10 @@ def read_screen_text():
         return "Tesseract OCR is not installed or not available in PATH."
 
     img = _prepare_image()
-    raw_text = pytesseract.image_to_string(img, config=OCR_CONFIG)
-    return _clean_ocr_text(raw_text)
+    lines = _extract_text_lines(img)
+
+    if not lines:
+        raw_text = pytesseract.image_to_string(img, config=OCR_CONFIG)
+        return _clean_ocr_text(raw_text)
+
+    return _clean_ocr_text("\n".join(lines))

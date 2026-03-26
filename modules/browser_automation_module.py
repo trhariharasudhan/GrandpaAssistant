@@ -23,21 +23,32 @@ def _open_url(url, retries=2, delay_seconds=None):
     return False
 
 
+def _with_feedback(success_message, failure_message, delay_seconds=None):
+    delay_seconds = delay_seconds or get_setting("browser.page_load_delay_seconds", 3)
+    return (
+        f"{success_message} Give it about {delay_seconds} seconds to load."
+        if success_message
+        else failure_message
+    )
+
+
 def open_whatsapp_web():
-    if _open_url("https://web.whatsapp.com/"):
-        return "Opening WhatsApp Web."
+    delay_seconds = get_setting("browser.whatsapp_load_delay_seconds", 8)
+    if _open_url("https://web.whatsapp.com/", delay_seconds=delay_seconds):
+        return f"Opening WhatsApp Web. Give it about {delay_seconds} seconds to load."
     return "I could not open WhatsApp Web right now."
 
 
 def open_youtube():
     if _open_url("https://www.youtube.com/"):
-        return "Opening YouTube."
+        return _with_feedback("Opening YouTube.", None)
     return "I could not open YouTube right now."
 
 
 def open_gmail():
-    if _open_url("https://mail.google.com/"):
-        return "Opening Gmail."
+    delay_seconds = get_setting("browser.gmail_load_delay_seconds", 8)
+    if _open_url("https://mail.google.com/", delay_seconds=delay_seconds):
+        return f"Opening Gmail. Give it about {delay_seconds} seconds to load."
     return "I could not open Gmail right now."
 
 
@@ -61,7 +72,7 @@ def search_google(command):
 
     url = "https://www.google.com/search?q=" + urllib.parse.quote_plus(query)
     if _open_url(url):
-        return f"Searching Google for {query}."
+        return _with_feedback(f"Searching Google for {query}.", None)
     return "I could not open Google search right now."
 
 
@@ -85,7 +96,7 @@ def search_youtube(command):
 
     url = "https://www.youtube.com/results?search_query=" + urllib.parse.quote_plus(query)
     if _open_url(url):
-        return f"Searching YouTube for {query}."
+        return _with_feedback(f"Searching YouTube for {query}.", None)
     return "I could not open YouTube search right now."
 
 
@@ -108,5 +119,5 @@ def open_maps_search(command):
 
     url = "https://www.google.com/maps/search/" + urllib.parse.quote_plus(query)
     if _open_url(url):
-        return f"Opening maps for {query}."
+        return _with_feedback(f"Opening maps for {query}.", None)
     return "I could not open maps right now."

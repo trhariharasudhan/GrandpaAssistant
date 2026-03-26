@@ -120,6 +120,41 @@ def _collect_notification_lines():
     return lines
 
 
+def _collect_monitor_lines():
+    data = get_task_data()
+    today = datetime.date.today()
+    due_events = get_due_event_titles(days_ahead=1)
+
+    due_reminders = []
+    for reminder in data.get("reminders", []):
+        due_date = _parse_date(reminder.get("due_date"))
+        if due_date is None:
+            continue
+        if due_date <= today:
+            due_reminders.append(reminder.get("title", "Untitled reminder"))
+
+    pending_tasks = [
+        task.get("title", "Untitled task")
+        for task in data.get("tasks", [])
+        if not task.get("completed")
+    ]
+
+    lines = []
+    if due_reminders:
+        lines.append(f"Due reminders ({len(due_reminders)}): {', '.join(due_reminders[:3])}")
+    if pending_tasks:
+        lines.append(f"Pending tasks ({len(pending_tasks)}): {', '.join(pending_tasks[:3])}")
+    if get_setting("notifications.event_monitor_enabled", True):
+        if due_events["today"]:
+            lines.append(f"Today's events ({len(due_events['today'])}): {', '.join(due_events['today'][:3])}")
+        if due_events["upcoming"]:
+            lines.append(
+                f"Upcoming events ({len(due_events['upcoming'])}): {', '.join(due_events['upcoming'][:2])}"
+            )
+
+    return lines
+
+
 def build_notification_summary():
     lines = _collect_notification_lines()
     if not lines:
@@ -209,9 +244,7 @@ def show_event_popup():
 
 
 def _build_due_monitor_message():
-    lines = _collect_notification_lines()
-    if not get_setting("notifications.event_monitor_enabled", True):
-        lines = [line for line in lines if "events" not in line.lower()]
+    lines = _collect_monitor_lines()
     return _format_lines(lines) if lines else None
 
 

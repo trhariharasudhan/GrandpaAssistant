@@ -117,8 +117,7 @@ def _prune_expired_jobs():
 
 def _open_url(url):
     try:
-        webbrowser.open(url, new=2)
-        return True
+        return bool(webbrowser.open(url, new=2))
     except Exception:
         return False
 
@@ -236,7 +235,10 @@ def _resolve_email_target(target_text):
 def _type_after_delay(text, delay_seconds=8):
     def worker():
         time.sleep(delay_seconds)
-        keyboard.write(text, delay=0.03)
+        try:
+            keyboard.write(text, delay=0.03)
+        except Exception:
+            pass
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -264,6 +266,14 @@ def _open_whatsapp_and_queue_message(contact_name, message_text, launch_delay=8)
         return False
 
     _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seconds=launch_delay)
+    return True
+
+
+def _open_gmail_and_queue_draft(recipient, subject, body, launch_delay=8):
+    launch_delay = get_setting("browser.gmail_load_delay_seconds", launch_delay)
+    if not _open_gmail_draft(recipient, subject, body):
+        return False
+    time.sleep(0)
     return True
 
 
@@ -382,7 +392,7 @@ def _parse_scheduled_gmail_command(command):
 def _enqueue_whatsapp_job_with_id(job_id, contact_name, message_text, scheduled_for, delay_seconds):
     def worker():
         time.sleep(max(1, delay_seconds))
-        _open_whatsapp_and_queue_message(contact_name, message_text, launch_delay=8)
+        _open_whatsapp_and_queue_message(contact_name, message_text)
         with _scheduled_job_lock:
             _scheduled_whatsapp_jobs[:] = [
                 job for job in _scheduled_whatsapp_jobs if job["id"] != job_id
@@ -413,7 +423,7 @@ def _enqueue_whatsapp_job(contact_name, message_text, scheduled_for, delay_secon
 def _enqueue_gmail_job_with_id(job_id, recipient, subject, body, scheduled_for, delay_seconds):
     def worker():
         time.sleep(max(1, delay_seconds))
-        _open_gmail_draft(recipient, subject, body)
+        _open_gmail_and_queue_draft(recipient, subject, body)
         with _scheduled_gmail_lock:
             _scheduled_gmail_jobs[:] = [
                 job for job in _scheduled_gmail_jobs if job["id"] != job_id
@@ -621,11 +631,12 @@ def open_whatsapp_and_type(command):
     if not text:
         return "Tell me what you want to type in WhatsApp Web."
 
+    load_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
     if not _open_url("https://web.whatsapp.com/"):
         return "I could not open WhatsApp Web right now."
 
-    _type_after_delay(text, delay_seconds=get_setting("browser.whatsapp_load_delay_seconds", 8))
-    return "Opening WhatsApp Web and I will type your message in a few seconds."
+    _type_after_delay(text, delay_seconds=load_delay)
+    return f"Opening WhatsApp Web. I will type your message in about {load_delay} seconds."
 
 
 def type_in_whatsapp(command):
@@ -636,7 +647,7 @@ def type_in_whatsapp(command):
         return "Tell me what you want to type in WhatsApp."
 
     _type_after_delay(text, delay_seconds=1)
-    return "I will type your WhatsApp message now."
+    return "I will type your WhatsApp message in the current focused box now."
 
 
 def open_gmail_and_type(command):
@@ -646,12 +657,13 @@ def open_gmail_and_type(command):
     if not text:
         return "Tell me what you want to type in Gmail."
 
+    load_delay = get_setting("browser.gmail_load_delay_seconds", 8)
     compose_url = "https://mail.google.com/mail/?view=cm&fs=1&tf=1"
     if not _open_url(compose_url):
         return "I could not open Gmail compose right now."
 
-    _type_after_delay(text, delay_seconds=get_setting("browser.gmail_load_delay_seconds", 8))
-    return "Opening Gmail compose and I will type your message in a few seconds."
+    _type_after_delay(text, delay_seconds=load_delay)
+    return f"Opening Gmail compose. I will type your message in about {load_delay} seconds."
 
 
 def draft_gmail(command):
@@ -664,7 +676,10 @@ def draft_gmail(command):
     body = urllib.parse.quote(text)
     compose_url = f"https://mail.google.com/mail/?view=cm&fs=1&tf=1&body={body}"
     if _open_url(compose_url):
-        return "Opening a Gmail draft with your message."
+        return (
+            "Opening a Gmail draft with your message. "
+            f"Give it about {get_setting('browser.gmail_load_delay_seconds', 8)} seconds to load."
+        )
     return "I could not open Gmail draft right now."
 
 
@@ -697,7 +712,8 @@ def smart_gmail_draft(command):
         )
 
     if _open_gmail_draft(recipient, subject, body):
-        return f"Opening Gmail draft to {recipient} with your subject and body."
+        delay = get_setting("browser.gmail_load_delay_seconds", 8)
+        return f"Opening Gmail draft to {recipient} with your subject and body. Give it about {delay} seconds to load."
     return "I could not open the smart Gmail draft right now."
 
 
@@ -739,7 +755,10 @@ def draft_professional_email(command):
     )
 
     if _open_gmail_draft(recipient, subject, body):
-        return f"Opening a professional Gmail draft to {recipient} about {topic}."
+        return (
+            f"Opening a professional Gmail draft to {recipient} about {topic}. "
+            f"Give it about {get_setting('browser.gmail_load_delay_seconds', 8)} seconds to load."
+        )
     return "I could not open the professional Gmail draft right now."
 
 
@@ -781,7 +800,10 @@ def draft_leave_email(command):
     )
 
     if _open_gmail_draft(recipient, subject, body):
-        return f"Opening a leave request mail draft to {recipient}."
+        return (
+            f"Opening a leave request mail draft to {recipient}. "
+            f"Give it about {get_setting('browser.gmail_load_delay_seconds', 8)} seconds to load."
+        )
     return "I could not open the leave mail draft right now."
 
 
@@ -823,7 +845,10 @@ def draft_follow_up_email(command):
     )
 
     if _open_gmail_draft(recipient, subject, body):
-        return f"Opening a follow-up Gmail draft to {recipient} about {topic}."
+        return (
+            f"Opening a follow-up Gmail draft to {recipient} about {topic}. "
+            f"Give it about {get_setting('browser.gmail_load_delay_seconds', 8)} seconds to load."
+        )
     return "I could not open the follow-up Gmail draft right now."
 
 
@@ -866,7 +891,10 @@ def draft_job_application_email(command):
     )
 
     if _open_gmail_draft(recipient, subject, body):
-        return f"Opening a job application Gmail draft to {recipient} for the {role} role."
+        return (
+            f"Opening a job application Gmail draft to {recipient} for the {role} role. "
+            f"Give it about {get_setting('browser.gmail_load_delay_seconds', 8)} seconds to load."
+        )
     return "I could not open the job application Gmail draft right now."
 
 
@@ -908,7 +936,10 @@ def draft_meeting_request_email(command):
     )
 
     if _open_gmail_draft(recipient, subject, body):
-        return f"Opening a meeting request Gmail draft to {recipient} about {topic}."
+        return (
+            f"Opening a meeting request Gmail draft to {recipient} about {topic}. "
+            f"Give it about {get_setting('browser.gmail_load_delay_seconds', 8)} seconds to load."
+        )
     return "I could not open the meeting request Gmail draft right now."
 
 
@@ -950,7 +981,10 @@ def draft_thank_you_email(command):
     )
 
     if _open_gmail_draft(recipient, subject, body):
-        return f"Opening a thank you Gmail draft to {recipient}."
+        return (
+            f"Opening a thank you Gmail draft to {recipient}. "
+            f"Give it about {get_setting('browser.gmail_load_delay_seconds', 8)} seconds to load."
+        )
     return "I could not open the thank you Gmail draft right now."
 
 
@@ -979,12 +1013,16 @@ def whatsapp_message_contact(command):
     if not contact_name or not message_text:
         return "Tell me the contact name and the message text."
 
+    load_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
     if not _open_url("https://web.whatsapp.com/"):
         return "I could not open WhatsApp Web right now."
 
     _whatsapp_contact_message_after_delay(
         contact_name,
         message_text,
-        delay_seconds=get_setting("browser.whatsapp_load_delay_seconds", 8),
+        delay_seconds=load_delay,
     )
-    return f"Opening WhatsApp Web and I will search for {contact_name} and type your message."
+    return (
+        f"Opening WhatsApp Web. I will search for {contact_name} and type your message "
+        f"in about {load_delay} seconds."
+    )
