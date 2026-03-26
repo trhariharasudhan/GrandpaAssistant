@@ -2,6 +2,8 @@ import urllib.parse
 import webbrowser
 import time
 
+import keyboard
+
 from utils.config import get_setting
 
 
@@ -121,3 +123,51 @@ def open_maps_search(command):
     if _open_url(url):
         return _with_feedback(f"Opening maps for {query}.", None)
     return "I could not open maps right now."
+
+
+def _send_browser_shortcut(shortcut, success_message):
+    try:
+        keyboard.send(shortcut)
+        return success_message
+    except Exception:
+        return "I could not control the current browser right now."
+
+
+def browser_go_back():
+    return _send_browser_shortcut("alt+left", "Going back in the current browser tab.")
+
+
+def browser_go_forward():
+    return _send_browser_shortcut("alt+right", "Going forward in the current browser tab.")
+
+
+def browser_refresh():
+    return _send_browser_shortcut("ctrl+r", "Refreshing the current browser page.")
+
+
+def browser_scroll_down():
+    try:
+        keyboard.send("pagedown")
+        return "Scrolling down the current browser page."
+    except Exception:
+        return "I could not scroll the current browser page."
+
+
+def browser_scroll_up():
+    try:
+        keyboard.send("pageup")
+        return "Scrolling up the current browser page."
+    except Exception:
+        return "I could not scroll the current browser page."
+
+
+def copy_current_page_title(command=None):
+    try:
+        keyboard.send("alt+d")
+        time.sleep(0.15)
+        keyboard.send("ctrl+c")
+        time.sleep(0.15)
+        keyboard.send("esc")
+        return "I copied the current page title or address focus text to the clipboard."
+    except Exception:
+        return "I could not copy the current page title right now."
