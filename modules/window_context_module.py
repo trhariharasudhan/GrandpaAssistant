@@ -1,6 +1,13 @@
+import pyautogui
 import pygetwindow as gw
 
-from vision.screen_reader import click_on_text, find_text_details, read_named_screen_region, read_screen_text
+from vision.screen_reader import (
+    click_on_text,
+    find_text_details,
+    get_screen_text_entries,
+    read_named_screen_region,
+    read_screen_text,
+)
 
 
 BROWSER_APPS = {"chrome", "msedge", "microsoft edge", "firefox", "brave", "opera"}
@@ -274,6 +281,68 @@ def click_on_current_browser_page(command):
         return f"I clicked {target} on the current browser page."
 
     return f"I could not find {target} on the current browser page to click."
+
+
+def _candidate_browser_results():
+    entries = get_screen_text_entries()
+    if not entries:
+        return []
+
+    screen_width, screen_height = pyautogui.size()
+    min_top = int(screen_height * 0.16)
+    max_top = int(screen_height * 0.92)
+    min_width = int(screen_width * 0.12)
+    candidates = []
+
+    for entry in entries:
+        left, top, width, height = entry["bounds"]
+        text = entry["text"].strip()
+        if top < min_top or top > max_top:
+            continue
+        if width < min_width:
+            continue
+        if len(text) < 8:
+            continue
+        if text.lower() in {"google", "youtube", "images", "videos", "all"}:
+            continue
+
+        alpha_chars = sum(char.isalpha() for char in text)
+        if alpha_chars < 4:
+            continue
+
+        candidates.append(entry)
+
+    candidates.sort(key=lambda item: (item["bounds"][1], item["bounds"][0]))
+    return candidates
+
+
+def open_browser_result(command):
+    info = _browser_only_info()
+    if not info:
+        return "The active window does not look like a browser right now."
+
+    order_map = {
+        "open first search result": 1,
+        "open first result": 1,
+        "click top result": 1,
+        "open top result": 1,
+        "open second search result": 2,
+        "open second result": 2,
+        "open third search result": 3,
+        "open third result": 3,
+    }
+
+    ordinal = order_map.get(command.strip())
+    if ordinal is None:
+        return "Tell me which visible result you want to open."
+
+    candidates = _candidate_browser_results()
+    if len(candidates) < ordinal:
+        return f"I could not find a visible result number {ordinal} on this browser page."
+
+    chosen = candidates[ordinal - 1]
+    pyautogui.click(chosen["center"])
+    return f"I opened result {ordinal}: {chosen['text']}."
 
 
 def summarize_code_editor():

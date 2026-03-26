@@ -365,6 +365,14 @@ def find_text_on_screen(target_text):
     return details["center"] if details else None
 
 
+def get_screen_text_entries():
+    if not _ocr_ready():
+        return []
+
+    img = _prepare_image()
+    return _extract_line_entries(img)
+
+
 def find_text_details(target_text):
     if not _ocr_ready():
         return None
