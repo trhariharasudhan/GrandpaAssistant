@@ -14,6 +14,7 @@ from modules.briefing_module import build_daily_brief, build_due_reminder_alert
 from modules.dictation_module import handle_dictation_text, is_dictation_active, stop_dictation
 from modules.notification_module import show_startup_notifications, start_notification_monitor
 from modules.profile_module import build_proactive_nudge
+from modules.messaging_automation_module import restore_scheduled_jobs
 from utils.config import get_setting
 from utils.sound import play_sound
 from vision.hand_mouse_control import run_hand_mouse
@@ -200,6 +201,7 @@ def main(start_in_tray=False):
     speak(build_proactive_nudge())
     show_startup_notifications()
     start_notification_monitor()
+    restore_scheduled_jobs()
     play_sound("start")
 
     if get_setting("startup.tray_mode", False):

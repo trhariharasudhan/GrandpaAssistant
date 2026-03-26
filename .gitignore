@@ -12,3 +12,5 @@ __pycache__/
 *.pyc
 data/settings.json
 data/notes.json
+data/events.json
+data/scheduled_messages.json

@@ -1,22 +1,93 @@
+import datetime
+import json
+import os
+import re
 import threading
 import time
 import urllib.parse
 import webbrowser
-import datetime
-import re
 
 import keyboard
+
 from brain.memory_engine import load_memory
 
+
+DATA_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)),
+    "data",
+    "scheduled_messages.json",
+)
 
 _scheduled_whatsapp_jobs = []
 _scheduled_job_lock = threading.Lock()
 _scheduled_gmail_jobs = []
 _scheduled_gmail_lock = threading.Lock()
+_loaded_scheduled_jobs = False
 
 
 def _clean_text(text):
     return " ".join(text.strip().split())
+
+
+def _load_scheduled_data():
+    if not os.path.exists(DATA_FILE):
+        return {"whatsapp": [], "gmail": []}
+
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+    except Exception:
+        return {"whatsapp": [], "gmail": []}
+
+    data.setdefault("whatsapp", [])
+    data.setdefault("gmail", [])
+    return data
+
+
+def _save_scheduled_data(data):
+    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+    with open(DATA_FILE, "w", encoding="utf-8") as file:
+        json.dump(data, file, indent=4)
+
+
+def _datetime_to_string(value):
+    if isinstance(value, datetime.datetime):
+        return value.isoformat()
+    return value
+
+
+def _datetime_from_string(value):
+    try:
+        return datetime.datetime.fromisoformat(value)
+    except Exception:
+        return None
+
+
+def _persist_current_jobs():
+    with _scheduled_job_lock:
+        whatsapp_jobs = [
+            {
+                "id": job["id"],
+                "contact": job["contact"],
+                "message": job["message"],
+                "scheduled_for": _datetime_to_string(job["scheduled_for"]),
+            }
+            for job in _scheduled_whatsapp_jobs
+        ]
+
+    with _scheduled_gmail_lock:
+        gmail_jobs = [
+            {
+                "id": job["id"],
+                "recipient": job["recipient"],
+                "subject": job["subject"],
+                "body": job.get("body", ""),
+                "scheduled_for": _datetime_to_string(job["scheduled_for"]),
+            }
+            for job in _scheduled_gmail_jobs
+        ]
+
+    _save_scheduled_data({"whatsapp": whatsapp_jobs, "gmail": gmail_jobs})
 
 
 def _open_url(url):
@@ -45,20 +116,12 @@ def _extract_known_contact(name_text):
     normalized = _clean_text(name_text).lower()
     candidates = []
 
-    emergency = (
-        memory.get("personal", {})
-        .get("contact", {})
-        .get("emergency_contact", {})
-    )
+    emergency = memory.get("personal", {}).get("contact", {}).get("emergency_contact", {})
     if emergency.get("name"):
         candidates.append(emergency["name"])
 
     for person_key in ["father", "mother"]:
-        person = (
-            memory.get("personal", {})
-            .get("family", {})
-            .get(person_key, {})
-        )
+        person = memory.get("personal", {}).get("family", {}).get(person_key, {})
         if person.get("name"):
             candidates.append(person["name"])
 
@@ -84,21 +147,13 @@ def _resolve_email_target(target_text):
     normalized = _clean_text(target_text).lower()
 
     if normalized in {"myself", "me", "my email", "my primary email", "my mail"}:
-        primary = (
-            memory.get("personal", {})
-            .get("contact", {})
-            .get("email_primary")
-        )
+        primary = memory.get("personal", {}).get("contact", {}).get("email_primary")
         if primary:
             return primary, None
         return None, "I could not find your primary email in memory."
 
     if normalized in {"my secondary email", "my alternate email", "secondary email"}:
-        secondary = (
-            memory.get("personal", {})
-            .get("contact", {})
-            .get("email_secondary")
-        )
+        secondary = memory.get("personal", {}).get("contact", {}).get("email_secondary")
         if secondary:
             return secondary, None
         return None, "I could not find your secondary email in memory."
@@ -123,10 +178,7 @@ def _resolve_email_target(target_text):
     )
 
     emergency = contact.get("emergency_contact", {})
-    add_candidate(
-        name=emergency.get("name"),
-        email=emergency.get("email"),
-    )
+    add_candidate(name=emergency.get("name"), email=emergency.get("email"))
 
     family = memory.get("personal", {}).get("family", {})
     for person_key in ["father", "mother"]:
@@ -189,6 +241,10 @@ def _open_whatsapp_and_queue_message(contact_name, message_text, launch_delay=8)
     return True
 
 
+def _format_schedule_time(dt):
+    return dt.strftime("%d %B %Y %I:%M %p")
+
+
 def _parse_send_later(command):
     if " saying " not in command:
         return None
@@ -201,11 +257,12 @@ def _parse_send_later(command):
         before_message,
     )
     if match:
+        minutes = int(match.group(2))
         return {
             "contact": _extract_known_contact(match.group(1)),
             "message": message_text,
-            "delay_seconds": int(match.group(2)) * 60,
-            "scheduled_for": datetime.datetime.now() + datetime.timedelta(minutes=int(match.group(2))),
+            "delay_seconds": minutes * 60,
+            "scheduled_for": datetime.datetime.now() + datetime.timedelta(minutes=minutes),
         }
 
     match = re.match(
@@ -239,33 +296,6 @@ def _parse_send_later(command):
     }
 
 
-def _format_schedule_time(dt):
-    return dt.strftime("%d %B %Y %I:%M %p")
-
-
-def _parse_scheduled_recipient_subject_body(text):
-    if " subject " not in text or " body " not in text:
-        return None
-
-    to_part, remainder = text.split(" subject ", 1)
-    subject_part, body_part = remainder.split(" body ", 1)
-
-    recipient, recipient_error = _resolve_email_target(to_part)
-    if recipient_error:
-        return {"error": recipient_error}
-
-    subject = _clean_text(subject_part)
-    body = _clean_text(body_part)
-    if not recipient or not subject or not body:
-        return {"error": "Please give recipient, subject, and body for the Gmail schedule."}
-
-    return {
-        "recipient": recipient,
-        "subject": subject,
-        "body": body,
-    }
-
-
 def _parse_scheduled_gmail_command(command):
     if " after " in command:
         prefix_match = re.match(
@@ -280,15 +310,12 @@ def _parse_scheduled_gmail_command(command):
             return {"error": recipient_error}
 
         minutes = int(prefix_match.group(2))
-        subject = _clean_text(prefix_match.group(3))
-        body = _clean_text(prefix_match.group(4))
-        scheduled_for = datetime.datetime.now() + datetime.timedelta(minutes=minutes)
         return {
             "recipient": recipient,
-            "subject": subject,
-            "body": body,
+            "subject": _clean_text(prefix_match.group(3)),
+            "body": _clean_text(prefix_match.group(4)),
             "delay_seconds": minutes * 60,
-            "scheduled_for": scheduled_for,
+            "scheduled_for": datetime.datetime.now() + datetime.timedelta(minutes=minutes),
         }
 
     prefix_match = re.match(
@@ -326,9 +353,7 @@ def _parse_scheduled_gmail_command(command):
     }
 
 
-def _enqueue_whatsapp_job(contact_name, message_text, scheduled_for, delay_seconds):
-    job_id = int(time.time() * 1000)
-
+def _enqueue_whatsapp_job_with_id(job_id, contact_name, message_text, scheduled_for, delay_seconds):
     def worker():
         time.sleep(max(1, delay_seconds))
         _open_whatsapp_and_queue_message(contact_name, message_text, launch_delay=8)
@@ -336,6 +361,7 @@ def _enqueue_whatsapp_job(contact_name, message_text, scheduled_for, delay_secon
             _scheduled_whatsapp_jobs[:] = [
                 job for job in _scheduled_whatsapp_jobs if job["id"] != job_id
             ]
+        _persist_current_jobs()
 
     with _scheduled_job_lock:
         _scheduled_whatsapp_jobs.append(
@@ -346,14 +372,19 @@ def _enqueue_whatsapp_job(contact_name, message_text, scheduled_for, delay_secon
                 "scheduled_for": scheduled_for,
             }
         )
-
+    _persist_current_jobs()
     threading.Thread(target=worker, daemon=True).start()
     return job_id
 
 
-def _enqueue_gmail_job(recipient, subject, body, scheduled_for, delay_seconds):
+def _enqueue_whatsapp_job(contact_name, message_text, scheduled_for, delay_seconds):
     job_id = int(time.time() * 1000)
+    return _enqueue_whatsapp_job_with_id(
+        job_id, contact_name, message_text, scheduled_for, delay_seconds
+    )
 
+
+def _enqueue_gmail_job_with_id(job_id, recipient, subject, body, scheduled_for, delay_seconds):
     def worker():
         time.sleep(max(1, delay_seconds))
         _open_gmail_draft(recipient, subject, body)
@@ -361,6 +392,7 @@ def _enqueue_gmail_job(recipient, subject, body, scheduled_for, delay_seconds):
             _scheduled_gmail_jobs[:] = [
                 job for job in _scheduled_gmail_jobs if job["id"] != job_id
             ]
+        _persist_current_jobs()
 
     with _scheduled_gmail_lock:
         _scheduled_gmail_jobs.append(
@@ -368,12 +400,61 @@ def _enqueue_gmail_job(recipient, subject, body, scheduled_for, delay_seconds):
                 "id": job_id,
                 "recipient": recipient,
                 "subject": subject,
+                "body": body,
                 "scheduled_for": scheduled_for,
             }
         )
-
+    _persist_current_jobs()
     threading.Thread(target=worker, daemon=True).start()
     return job_id
+
+
+def _enqueue_gmail_job(recipient, subject, body, scheduled_for, delay_seconds):
+    job_id = int(time.time() * 1000)
+    return _enqueue_gmail_job_with_id(
+        job_id, recipient, subject, body, scheduled_for, delay_seconds
+    )
+
+
+def restore_scheduled_jobs():
+    global _loaded_scheduled_jobs
+
+    if _loaded_scheduled_jobs:
+        return False
+
+    data = _load_scheduled_data()
+    now = datetime.datetime.now()
+
+    for job in data.get("whatsapp", []):
+        scheduled_for = _datetime_from_string(job.get("scheduled_for"))
+        if not scheduled_for or scheduled_for <= now:
+            continue
+        delay_seconds = int((scheduled_for - now).total_seconds())
+        _enqueue_whatsapp_job_with_id(
+            job.get("id", int(time.time() * 1000)),
+            job.get("contact", ""),
+            job.get("message", ""),
+            scheduled_for,
+            delay_seconds,
+        )
+
+    for job in data.get("gmail", []):
+        scheduled_for = _datetime_from_string(job.get("scheduled_for"))
+        if not scheduled_for or scheduled_for <= now:
+            continue
+        delay_seconds = int((scheduled_for - now).total_seconds())
+        _enqueue_gmail_job_with_id(
+            job.get("id", int(time.time() * 1000)),
+            job.get("recipient", ""),
+            job.get("subject", ""),
+            job.get("body", ""),
+            scheduled_for,
+            delay_seconds,
+        )
+
+    _loaded_scheduled_jobs = True
+    _persist_current_jobs()
+    return True
 
 
 def schedule_whatsapp_message(command):
@@ -430,7 +511,7 @@ def cancel_scheduled_whatsapp_message(command):
         _scheduled_whatsapp_jobs[:] = [
             job for job in _scheduled_whatsapp_jobs if job["id"] != job_id
         ]
-
+    _persist_current_jobs()
     return (
         f"Cancelled scheduled WhatsApp message to {removed['contact']} at "
         f"{_format_schedule_time(removed['scheduled_for'])}."
@@ -495,7 +576,7 @@ def cancel_scheduled_gmail_draft(command):
         _scheduled_gmail_jobs[:] = [
             job for job in _scheduled_gmail_jobs if job["id"] != job_id
         ]
-
+    _persist_current_jobs()
     return (
         f"Cancelled scheduled Gmail draft to {removed['recipient']} at "
         f"{_format_schedule_time(removed['scheduled_for'])}."
@@ -859,9 +940,7 @@ def whatsapp_message_contact(command):
     elif " message " in text:
         contact_part, message_part = text.split(" message ", 1)
     else:
-        return (
-            "Use this format: send whatsapp message to Jeevan saying hello machi."
-        )
+        return "Use this format: send whatsapp message to Jeevan saying hello machi."
 
     contact_name = _extract_known_contact(contact_part)
     message_text = _clean_text(message_part)
@@ -873,6 +952,4 @@ def whatsapp_message_contact(command):
         return "I could not open WhatsApp Web right now."
 
     _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seconds=8)
-    return (
-        f"Opening WhatsApp Web and I will search for {contact_name} and type your message."
-    )
+    return f"Opening WhatsApp Web and I will search for {contact_name} and type your message."
