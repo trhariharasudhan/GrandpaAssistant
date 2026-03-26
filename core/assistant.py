@@ -18,6 +18,7 @@ from modules.messaging_automation_module import restore_scheduled_jobs
 from utils.config import get_setting
 from utils.sound import play_sound
 from vision.hand_mouse_control import run_hand_mouse
+from vision.screen_reader import register_region_hotkey, unregister_region_hotkey
 from voice.listen import listen
 from voice.speak import set_response_mode, speak, stop_speaking
 
@@ -46,9 +47,27 @@ hand_mouse_thread = None
 
 
 def exit_assistant():
+    unregister_region_hotkey()
     stop_tray()
     stop_event.set()
     os._exit(0)
+
+
+def _handle_ocr_hotkey_result(result):
+    if not result:
+        return
+
+    if result.get("error"):
+        message = result["error"]
+        print(f"\nOCR Hotkey: {message}")
+        speak(message)
+        return
+
+    text = result.get("text", "Readable text was not clearly detected on the screen.")
+    print("\n===== OCR HOTKEY AREA TEXT =====\n")
+    print(text)
+    print("\n================================\n")
+    speak("OCR hotkey area content printed")
 
 
 def glowing_cursor():
@@ -241,6 +260,11 @@ def main(start_in_tray=False):
     show_startup_notifications()
     start_notification_monitor()
     restore_scheduled_jobs()
+    if get_setting("ocr.region_hotkey_enabled", True):
+        register_region_hotkey(
+            _handle_ocr_hotkey_result,
+            get_setting("ocr.region_hotkey", "ctrl+shift+o"),
+        )
     play_sound("start")
 
     if get_setting("startup.tray_mode", False):

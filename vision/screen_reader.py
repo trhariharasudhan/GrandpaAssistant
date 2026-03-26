@@ -22,6 +22,9 @@ import pyautogui
 TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 OCR_CONFIG = r"--oem 3 --psm 6"
 OCR_DATA_CONFIG = r"--oem 3 --psm 6"
+_region_hotkey_registered = None
+_region_hotkey_handler = None
+_region_hotkey_lock = threading.Lock()
 
 if pytesseract and os.path.exists(TESSERACT_PATH):
     pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
@@ -550,3 +553,60 @@ def capture_selected_region(selection_wait_seconds=3):
     region = (left, top, width, height)
     _show_region_overlay(region)
     return region
+
+
+def capture_selected_area_with_feedback(selection_wait_seconds=3):
+    result = read_selected_area_text(selection_wait_seconds=selection_wait_seconds)
+    if isinstance(result, dict):
+        return result
+    return {"error": result}
+
+
+def register_region_hotkey(callback, hotkey="ctrl+shift+o"):
+    global _region_hotkey_registered, _region_hotkey_handler
+
+    if keyboard is None or not hotkey:
+        return False, "Keyboard hotkey support is not available."
+
+    unregister_region_hotkey()
+
+    def on_hotkey():
+        if not _region_hotkey_lock.acquire(blocking=False):
+            return
+
+        def worker():
+            try:
+                result = capture_selected_area_with_feedback()
+                callback(result)
+            finally:
+                _region_hotkey_lock.release()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    try:
+        _region_hotkey_handler = keyboard.add_hotkey(hotkey, on_hotkey)
+        _region_hotkey_registered = hotkey
+        return True, hotkey
+    except Exception:
+        _region_hotkey_handler = None
+        _region_hotkey_registered = None
+        return False, "I could not register the OCR hotkey."
+
+
+def unregister_region_hotkey():
+    global _region_hotkey_registered, _region_hotkey_handler
+
+    if keyboard is None:
+        _region_hotkey_registered = None
+        _region_hotkey_handler = None
+        return False
+
+    try:
+        if _region_hotkey_handler is not None:
+            keyboard.remove_hotkey(_region_hotkey_handler)
+    except Exception:
+        pass
+
+    _region_hotkey_registered = None
+    _region_hotkey_handler = None
+    return True

@@ -229,6 +229,14 @@ def _handle_config_command(command):
         update_setting("notifications.popup_cooldown_seconds", cooldown_value)
         return f"Popup cooldown updated to {cooldown_value} seconds."
 
+    ocr_hotkey_match = re.match(
+        r"^(?:set|change|update)\s+ocr hotkey\s+to\s+(.+)$", command
+    )
+    if ocr_hotkey_match:
+        hotkey_value = ocr_hotkey_match.group(1).strip().lower()
+        update_setting("ocr.region_hotkey", hotkey_value)
+        return f"OCR region hotkey updated to {hotkey_value}. Restart the assistant to use the new hotkey."
+
     if command in ["show settings", "show config", "settings"]:
         wake_word = get_setting("wake_word", "hey grandpa")
         tray_mode = get_setting("startup.tray_mode", False)
@@ -249,6 +257,8 @@ def _handle_config_command(command):
         browser_delay = get_setting("browser.page_load_delay_seconds", 3)
         whatsapp_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
         gmail_delay = get_setting("browser.gmail_load_delay_seconds", 8)
+        ocr_hotkey_enabled = get_setting("ocr.region_hotkey_enabled", True)
+        ocr_hotkey = get_setting("ocr.region_hotkey", "ctrl+shift+o")
         reminder_monitor = get_setting("notifications.reminder_monitor_enabled", True)
         reminder_interval = get_setting("notifications.reminder_check_interval_minutes", 15)
         event_monitor = get_setting("notifications.event_monitor_enabled", True)
@@ -270,6 +280,8 @@ def _handle_config_command(command):
             f"Browser load delay is {browser_delay} seconds. "
             f"WhatsApp load delay is {whatsapp_delay} seconds. "
             f"Gmail load delay is {gmail_delay} seconds. "
+            f"OCR region hotkey is {ocr_hotkey}. "
+            f"OCR hotkey is {'on' if ocr_hotkey_enabled else 'off'}. "
             f"Tray startup is {'on' if tray_mode else 'off'}. "
             f"Reminder monitor is {'on' if reminder_monitor else 'off'}. "
             f"Reminder interval is {reminder_interval} minutes. "
@@ -322,6 +334,14 @@ def _handle_config_command(command):
     if command in ["disable tray startup", "turn off tray startup"]:
         update_setting("startup.tray_mode", False)
         return "Tray startup disabled."
+
+    if command in ["enable ocr hotkey", "turn on ocr hotkey", "enable region hotkey"]:
+        update_setting("ocr.region_hotkey_enabled", True)
+        return "OCR region hotkey enabled. Restart the assistant if it was already running."
+
+    if command in ["disable ocr hotkey", "turn off ocr hotkey", "disable region hotkey"]:
+        update_setting("ocr.region_hotkey_enabled", False)
+        return "OCR region hotkey disabled. Restart the assistant if it was already running."
 
     if command in ["friendly mode", "set persona to friendly", "change persona to friendly"]:
         update_setting("assistant.persona", "friendly")

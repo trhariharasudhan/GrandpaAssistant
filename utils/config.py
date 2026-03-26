@@ -47,6 +47,10 @@ DEFAULT_SETTINGS = {
         "whatsapp_load_delay_seconds": 8,
         "gmail_load_delay_seconds": 8,
     },
+    "ocr": {
+        "region_hotkey_enabled": True,
+        "region_hotkey": "ctrl+shift+o",
+    },
     "notifications": {
         "reminder_monitor_enabled": True,
         "reminder_check_interval_minutes": 15,
