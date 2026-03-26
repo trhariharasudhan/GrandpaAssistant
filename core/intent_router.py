@@ -16,7 +16,7 @@ from modules.browser_automation_module import (
     search_youtube,
 )
 from modules.calendar_module import get_date, get_day, get_period, get_time
-from modules.dashboard_module import build_dashboard_report
+from modules.dashboard_module import build_dashboard_report, build_today_agenda
 from modules.event_module import (
     add_event,
     delete_event,
@@ -246,6 +246,14 @@ COMMAND_REGISTRY = [
         "patterns": ["dashboard", "status center", "my day summary", "full report"],
         "type": "exact",
         "handler": lambda command: build_dashboard_report(),
+        "category": "dashboard",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "agenda.today",
+        "patterns": ["today agenda", "my agenda", "plan my day", "today plan"],
+        "type": "exact",
+        "handler": lambda command: build_today_agenda(),
         "category": "dashboard",
         "confidence": 0.98,
     },
