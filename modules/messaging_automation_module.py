@@ -10,6 +10,7 @@ import webbrowser
 import keyboard
 
 from brain.memory_engine import load_memory
+from modules.notification_module import show_custom_popup
 from utils.config import get_setting
 
 
@@ -243,6 +244,46 @@ def _type_after_delay(text, delay_seconds=8):
     threading.Thread(target=worker, daemon=True).start()
 
 
+def _show_whatsapp_popup(contact_name, message_text, was_auto_sent):
+    if not get_setting("browser.whatsapp_success_popup_enabled", True):
+        return
+
+    preview = message_text[:80]
+    if len(message_text) > 80:
+        preview += "..."
+
+    if was_auto_sent:
+        popup_message = (
+            f"Send sequence completed for {contact_name}.\n"
+            f"Please confirm it was sent in WhatsApp Web.\n\n"
+            f"Message preview: {preview}"
+        )
+    else:
+        popup_message = (
+            f"Message to {contact_name} is typed and ready in WhatsApp Web.\n\n"
+            f"Message preview: {preview}"
+        )
+
+    show_custom_popup(
+        "WhatsApp",
+        popup_message,
+        dedupe_key=f"whatsapp_{contact_name.lower()}_{preview.lower()}",
+        force=True,
+    )
+
+
+def _show_whatsapp_failure_popup(contact_name):
+    if not get_setting("browser.whatsapp_success_popup_enabled", True):
+        return
+
+    show_custom_popup(
+        "WhatsApp",
+        f"I could not complete the WhatsApp automation for {contact_name}.",
+        dedupe_key=f"whatsapp_error_{contact_name.lower()}",
+        force=True,
+    )
+
+
 def _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seconds=8):
     def worker():
         time.sleep(delay_seconds)
@@ -277,8 +318,9 @@ def _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seco
                 for _ in range(send_press_count):
                     keyboard.send("enter")
                     time.sleep(0.15)
+            _show_whatsapp_popup(contact_name, message_text, auto_send)
         except Exception:
-            pass
+            _show_whatsapp_failure_popup(contact_name)
 
     threading.Thread(target=worker, daemon=True).start()
 

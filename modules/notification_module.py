@@ -243,6 +243,17 @@ def show_event_popup():
     return "I could not show the event popup right now."
 
 
+def show_custom_popup(title_suffix, message, dedupe_key=None, force=True):
+    if _show_popup(
+        _notification_title(title_suffix),
+        message,
+        dedupe_key=dedupe_key,
+        force=force,
+    ):
+        return True
+    return False
+
+
 def _build_due_monitor_message():
     lines = _collect_monitor_lines()
     return _format_lines(lines) if lines else None

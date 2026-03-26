@@ -237,6 +237,14 @@ def _handle_config_command(command):
         update_setting("browser.whatsapp_send_confirm_delay_seconds", delay_value)
         return f"WhatsApp send confirm delay updated to {delay_value} seconds."
 
+    if command in ["enable whatsapp success popup", "turn on whatsapp success popup"]:
+        update_setting("browser.whatsapp_success_popup_enabled", True)
+        return "WhatsApp success popup enabled."
+
+    if command in ["disable whatsapp success popup", "turn off whatsapp success popup"]:
+        update_setting("browser.whatsapp_success_popup_enabled", False)
+        return "WhatsApp success popup disabled."
+
     gmail_delay_match = re.match(
         r"^(?:set|change|update)\s+gmail load delay\s+to\s+(\d+)$", command
     )
@@ -295,6 +303,7 @@ def _handle_config_command(command):
         whatsapp_send_confirm_delay = get_setting(
             "browser.whatsapp_send_confirm_delay_seconds", 0.8
         )
+        whatsapp_success_popup = get_setting("browser.whatsapp_success_popup_enabled", True)
         gmail_delay = get_setting("browser.gmail_load_delay_seconds", 8)
         ocr_hotkey_enabled = get_setting("ocr.region_hotkey_enabled", True)
         ocr_hotkey = get_setting("ocr.region_hotkey", "ctrl+shift+o")
@@ -323,6 +332,7 @@ def _handle_config_command(command):
             f"WhatsApp auto send is {'on' if whatsapp_auto_send else 'off'}. "
             f"WhatsApp send press count is {whatsapp_send_press_count}. "
             f"WhatsApp send confirm delay is {whatsapp_send_confirm_delay} seconds. "
+            f"WhatsApp success popup is {'on' if whatsapp_success_popup else 'off'}. "
             f"Gmail load delay is {gmail_delay} seconds. "
             f"OCR region hotkey is {ocr_hotkey}. "
             f"OCR hotkey is {'on' if ocr_hotkey_enabled else 'off'}. "
