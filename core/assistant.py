@@ -55,11 +55,15 @@ hand_mouse_thread = None
 
 def _overlay_suggestions():
     return [
+        "what is due today",
+        "show overdue items",
+        "latest task",
+        "latest reminder",
         "weather",
         "dashboard",
         "show settings",
         "system status",
-        "summarize current browser page",
+        "complete latest task",
         "copy selected area text",
     ]
 
