@@ -247,12 +247,25 @@ def _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seco
     def worker():
         time.sleep(delay_seconds)
         try:
-            keyboard.send("ctrl+alt+/")
-            time.sleep(0.8)
-            keyboard.write(contact_name, delay=0.03)
-            time.sleep(1.2)
-            keyboard.send("enter")
-            time.sleep(1.0)
+            retry_count = max(1, int(get_setting("browser.whatsapp_search_retry_count", 2)))
+            retry_delay = max(
+                0.4, float(get_setting("browser.whatsapp_search_retry_delay_seconds", 1.2))
+            )
+
+            for attempt in range(retry_count):
+                keyboard.send("ctrl+alt+/")
+                time.sleep(0.8)
+                keyboard.send("ctrl+a")
+                time.sleep(0.1)
+                keyboard.send("backspace")
+                time.sleep(0.1)
+                keyboard.write(contact_name, delay=0.03)
+                time.sleep(retry_delay)
+                keyboard.send("enter")
+                if attempt < retry_count - 1:
+                    time.sleep(retry_delay)
+
+            time.sleep(max(0.8, retry_delay))
             keyboard.write(message_text, delay=0.03)
         except Exception:
             pass
@@ -1024,5 +1037,5 @@ def whatsapp_message_contact(command):
     )
     return (
         f"Opening WhatsApp Web. I will search for {contact_name} and type your message "
-        f"in about {load_delay} seconds."
+        f"in about {load_delay} seconds. If search misses, I will retry automatically."
     )

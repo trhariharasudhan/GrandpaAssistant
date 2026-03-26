@@ -205,6 +205,22 @@ def _handle_config_command(command):
         update_setting("browser.whatsapp_load_delay_seconds", delay_value)
         return f"WhatsApp load delay updated to {delay_value} seconds."
 
+    whatsapp_retry_count_match = re.match(
+        r"^(?:set|change|update)\s+whatsapp retry count\s+to\s+(\d+)$", command
+    )
+    if whatsapp_retry_count_match:
+        retry_value = max(1, int(whatsapp_retry_count_match.group(1)))
+        update_setting("browser.whatsapp_search_retry_count", retry_value)
+        return f"WhatsApp retry count updated to {retry_value}."
+
+    whatsapp_retry_delay_match = re.match(
+        r"^(?:set|change|update)\s+whatsapp retry delay\s+to\s+(\d+(?:\.\d+)?)$", command
+    )
+    if whatsapp_retry_delay_match:
+        retry_delay = max(0.4, float(whatsapp_retry_delay_match.group(1)))
+        update_setting("browser.whatsapp_search_retry_delay_seconds", retry_delay)
+        return f"WhatsApp retry delay updated to {retry_delay} seconds."
+
     gmail_delay_match = re.match(
         r"^(?:set|change|update)\s+gmail load delay\s+to\s+(\d+)$", command
     )
@@ -256,6 +272,8 @@ def _handle_config_command(command):
         wake_retry_window = get_setting("voice.wake_retry_window_seconds", 6)
         browser_delay = get_setting("browser.page_load_delay_seconds", 3)
         whatsapp_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
+        whatsapp_retry_count = get_setting("browser.whatsapp_search_retry_count", 2)
+        whatsapp_retry_delay = get_setting("browser.whatsapp_search_retry_delay_seconds", 1.2)
         gmail_delay = get_setting("browser.gmail_load_delay_seconds", 8)
         ocr_hotkey_enabled = get_setting("ocr.region_hotkey_enabled", True)
         ocr_hotkey = get_setting("ocr.region_hotkey", "ctrl+shift+o")
@@ -279,6 +297,8 @@ def _handle_config_command(command):
             f"Wake retry window is {wake_retry_window} seconds. "
             f"Browser load delay is {browser_delay} seconds. "
             f"WhatsApp load delay is {whatsapp_delay} seconds. "
+            f"WhatsApp retry count is {whatsapp_retry_count}. "
+            f"WhatsApp retry delay is {whatsapp_retry_delay} seconds. "
             f"Gmail load delay is {gmail_delay} seconds. "
             f"OCR region hotkey is {ocr_hotkey}. "
             f"OCR hotkey is {'on' if ocr_hotkey_enabled else 'off'}. "
