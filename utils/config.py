@@ -48,6 +48,8 @@ DEFAULT_SETTINGS = {
         "reminder_check_interval_minutes": 15,
         "event_monitor_enabled": True,
         "event_check_interval_minutes": 15,
+        "popup_timeout_seconds": 10,
+        "popup_cooldown_seconds": 180,
     },
 }
 

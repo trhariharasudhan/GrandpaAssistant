@@ -171,6 +171,22 @@ def _handle_config_command(command):
         update_setting("browser.gmail_load_delay_seconds", delay_value)
         return f"Gmail load delay updated to {delay_value} seconds."
 
+    popup_timeout_match = re.match(
+        r"^(?:set|change|update)\s+popup timeout\s+to\s+(\d+)$", command
+    )
+    if popup_timeout_match:
+        timeout_value = max(3, int(popup_timeout_match.group(1)))
+        update_setting("notifications.popup_timeout_seconds", timeout_value)
+        return f"Popup timeout updated to {timeout_value} seconds."
+
+    popup_cooldown_match = re.match(
+        r"^(?:set|change|update)\s+popup cooldown\s+to\s+(\d+)$", command
+    )
+    if popup_cooldown_match:
+        cooldown_value = max(0, int(popup_cooldown_match.group(1)))
+        update_setting("notifications.popup_cooldown_seconds", cooldown_value)
+        return f"Popup cooldown updated to {cooldown_value} seconds."
+
     if command in ["show settings", "show config", "settings"]:
         wake_word = get_setting("wake_word", "hey grandpa")
         tray_mode = get_setting("startup.tray_mode", False)
@@ -191,6 +207,8 @@ def _handle_config_command(command):
         reminder_interval = get_setting("notifications.reminder_check_interval_minutes", 15)
         event_monitor = get_setting("notifications.event_monitor_enabled", True)
         event_interval = get_setting("notifications.event_check_interval_minutes", 15)
+        popup_timeout = get_setting("notifications.popup_timeout_seconds", 10)
+        popup_cooldown = get_setting("notifications.popup_cooldown_seconds", 180)
         return (
             f"Current settings: wake word is {wake_word}. "
             f"Voice mode is {voice_mode}. "
@@ -207,6 +225,8 @@ def _handle_config_command(command):
             f"Reminder interval is {reminder_interval} minutes. "
             f"Event monitor is {'on' if event_monitor else 'off'}. "
             f"Event interval is {event_interval} minutes. "
+            f"Popup timeout is {popup_timeout} seconds. "
+            f"Popup cooldown is {popup_cooldown} seconds. "
             f"Sounds are {'on' if sounds_enabled else 'off'}. "
             f"Start sound is {'on' if start_sound else 'off'}. "
             f"Success sound is {'on' if success_sound else 'off'}. "
