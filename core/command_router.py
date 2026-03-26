@@ -66,8 +66,11 @@ from utils.sound import play_sound
 from utils.config import APP_ALIASES, get_setting, update_setting
 from vision.hand_mouse_control import run_hand_mouse
 from vision.screen_reader import (
+    capture_selected_region,
     click_on_text,
+    click_on_text_in_region,
     find_text_details,
+    find_text_details_in_region,
     is_text_visible,
     read_named_screen_region,
     read_screen_text,
@@ -447,6 +450,49 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             speak("Selected area content printed")
         else:
             speak(result)
+        return
+
+    if command.startswith("find in selected area "):
+        target = command.replace("find in selected area", "", 1).strip()
+        if not target:
+            speak("Tell me what you want me to find in the selected area.")
+            return
+
+        speak(
+            "Move your mouse to the first corner now. I will capture the second corner in three seconds."
+        )
+        region = capture_selected_region()
+        if not region:
+            speak("Selected area was too small. Try again.")
+            return
+
+        details = find_text_details_in_region(target, region)
+        if details:
+            x, y = details["center"]
+            speak(f"I found {details['text']} in the selected area near position {x}, {y}.")
+        else:
+            speak(f"I could not find {target} in the selected area.")
+        return
+
+    if command.startswith("click in selected area "):
+        target = command.replace("click in selected area", "", 1).strip()
+        if not target:
+            speak("Tell me what you want me to click in the selected area.")
+            return
+
+        speak(
+            "Move your mouse to the first corner now. I will capture the second corner in three seconds."
+        )
+        region = capture_selected_region()
+        if not region:
+            speak("Selected area was too small. Try again.")
+            return
+
+        details = click_on_text_in_region(target, region)
+        if details:
+            speak(f"I clicked {details['text']} in the selected area.")
+        else:
+            speak(f"I could not find {target} in the selected area to click.")
         return
 
     named_region_commands = {

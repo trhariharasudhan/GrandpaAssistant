@@ -182,6 +182,31 @@ def _extract_line_entries(img):
     return entries
 
 
+def _score_entry(entry, normalized_target, target_words):
+    line_text = entry["text"].lower()
+    if not line_text:
+        return 0
+
+    score = 0
+    if line_text == normalized_target:
+        score += 8
+    if normalized_target in line_text:
+        score += 5
+
+    word_hits = sum(1 for target_word in target_words if target_word in line_text)
+    score += word_hits * 2
+
+    if target_words:
+        overlap_ratio = word_hits / len(target_words)
+        if overlap_ratio >= 0.8:
+            score += 3
+        elif overlap_ratio >= 0.5:
+            score += 1
+
+    score += min(2.0, entry["confidence"] / 50.0)
+    return score
+
+
 def _clean_ocr_text(text):
     cleaned_lines = []
     seen = set()
@@ -221,28 +246,7 @@ def find_text_details(target_text):
     best_match = None
 
     for entry in entries:
-        line_text = entry["text"].lower()
-        if not line_text:
-            continue
-
-        score = 0
-        if line_text == normalized_target:
-            score += 8
-        if normalized_target in line_text:
-            score += 5
-
-        word_hits = sum(1 for target_word in target_words if target_word in line_text)
-        score += word_hits * 2
-
-        if target_words:
-            overlap_ratio = word_hits / len(target_words)
-            if overlap_ratio >= 0.8:
-                score += 3
-            elif overlap_ratio >= 0.5:
-                score += 1
-
-        score += min(2.0, entry["confidence"] / 50.0)
-
+        score = _score_entry(entry, normalized_target, target_words)
         if score <= 0:
             continue
 
@@ -250,6 +254,42 @@ def find_text_details(target_text):
             "text": entry["text"],
             "center": entry["center"],
             "bounds": entry["bounds"],
+            "score": score,
+            "confidence": entry["confidence"],
+        }
+
+        if best_match is None or candidate["score"] > best_match["score"]:
+            best_match = candidate
+
+    return best_match
+
+
+def find_text_details_in_region(target_text, region):
+    if not _ocr_ready():
+        return None
+
+    img = _capture_region(region)
+    entries = _extract_line_entries(img)
+    normalized_target = _clean_line(target_text).lower()
+    target_words = [word for word in re.split(r"\s+", normalized_target) if word]
+    best_match = None
+
+    for entry in entries:
+        score = _score_entry(entry, normalized_target, target_words)
+        if score <= 0:
+            continue
+
+        local_x, local_y = entry["center"]
+        left, top = region[0], region[1]
+        candidate = {
+            "text": entry["text"],
+            "center": (left + local_x, top + local_y),
+            "bounds": (
+                left + entry["bounds"][0],
+                top + entry["bounds"][1],
+                entry["bounds"][2],
+                entry["bounds"][3],
+            ),
             "score": score,
             "confidence": entry["confidence"],
         }
@@ -268,6 +308,16 @@ def click_on_text(target):
         return True
 
     return False
+
+
+def click_on_text_in_region(target, region):
+    details = find_text_details_in_region(target, region)
+
+    if details and details["score"] >= 4:
+        pyautogui.click(details["center"])
+        return details
+
+    return None
 
 
 def is_text_visible(target):
@@ -362,3 +412,19 @@ def read_selected_area_text(selection_wait_seconds=3):
         "text": text,
         "bounds": (left, top, width, height),
     }
+
+
+def capture_selected_region(selection_wait_seconds=3):
+    start_position = pyautogui.position()
+    time.sleep(selection_wait_seconds)
+    end_position = pyautogui.position()
+
+    left = min(start_position.x, end_position.x)
+    top = min(start_position.y, end_position.y)
+    width = abs(end_position.x - start_position.x)
+    height = abs(end_position.y - start_position.y)
+
+    if width < 20 or height < 20:
+        return None
+
+    return (left, top, width, height)
