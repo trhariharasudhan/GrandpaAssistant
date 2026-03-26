@@ -2,9 +2,15 @@ import threading
 import time
 import urllib.parse
 import webbrowser
+import datetime
+import re
 
 import keyboard
 from brain.memory_engine import load_memory
+
+
+_scheduled_whatsapp_jobs = []
+_scheduled_job_lock = threading.Lock()
 
 
 def _clean_text(text):
@@ -171,6 +177,154 @@ def _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seco
             pass
 
     threading.Thread(target=worker, daemon=True).start()
+
+
+def _open_whatsapp_and_queue_message(contact_name, message_text, launch_delay=8):
+    if not _open_url("https://web.whatsapp.com/"):
+        return False
+
+    _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seconds=launch_delay)
+    return True
+
+
+def _parse_send_later(command):
+    if " saying " not in command:
+        return None
+
+    before_message, message_part = command.split(" saying ", 1)
+    message_text = _clean_text(message_part)
+
+    match = re.match(
+        r"^(?:schedule whatsapp message to|send whatsapp message to)\s+(.+?)\s+after\s+(\d+)\s+minutes?$",
+        before_message,
+    )
+    if match:
+        return {
+            "contact": _extract_known_contact(match.group(1)),
+            "message": message_text,
+            "delay_seconds": int(match.group(2)) * 60,
+            "scheduled_for": datetime.datetime.now() + datetime.timedelta(minutes=int(match.group(2))),
+        }
+
+    match = re.match(
+        r"^(?:schedule whatsapp message to|send whatsapp message to)\s+(.+?)\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$",
+        before_message,
+    )
+    if not match:
+        return None
+
+    contact_name = _extract_known_contact(match.group(1))
+    hour = int(match.group(2))
+    minute = int(match.group(3) or 0)
+    meridiem = (match.group(4) or "").lower()
+
+    if meridiem:
+        if hour == 12:
+            hour = 0
+        if meridiem == "pm":
+            hour += 12
+
+    now = datetime.datetime.now()
+    scheduled_for = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if scheduled_for <= now:
+        scheduled_for += datetime.timedelta(days=1)
+
+    return {
+        "contact": contact_name,
+        "message": message_text,
+        "delay_seconds": int((scheduled_for - now).total_seconds()),
+        "scheduled_for": scheduled_for,
+    }
+
+
+def _format_schedule_time(dt):
+    return dt.strftime("%d %B %Y %I:%M %p")
+
+
+def _enqueue_whatsapp_job(contact_name, message_text, scheduled_for, delay_seconds):
+    job_id = int(time.time() * 1000)
+
+    def worker():
+        time.sleep(max(1, delay_seconds))
+        _open_whatsapp_and_queue_message(contact_name, message_text, launch_delay=8)
+        with _scheduled_job_lock:
+            _scheduled_whatsapp_jobs[:] = [
+                job for job in _scheduled_whatsapp_jobs if job["id"] != job_id
+            ]
+
+    with _scheduled_job_lock:
+        _scheduled_whatsapp_jobs.append(
+            {
+                "id": job_id,
+                "contact": contact_name,
+                "message": message_text,
+                "scheduled_for": scheduled_for,
+            }
+        )
+
+    threading.Thread(target=worker, daemon=True).start()
+    return job_id
+
+
+def schedule_whatsapp_message(command):
+    parsed = _parse_send_later(command)
+    if not parsed:
+        return None
+
+    contact_name = parsed["contact"]
+    message_text = parsed["message"]
+    delay_seconds = parsed["delay_seconds"]
+    scheduled_for = parsed["scheduled_for"]
+
+    if not contact_name or not message_text:
+        return "Tell me the WhatsApp contact and the message you want to schedule."
+
+    _enqueue_whatsapp_job(contact_name, message_text, scheduled_for, delay_seconds)
+    return (
+        f"Okay, I will send your WhatsApp message to {contact_name} at "
+        f"{_format_schedule_time(scheduled_for)}."
+    )
+
+
+def list_scheduled_whatsapp_messages():
+    with _scheduled_job_lock:
+        jobs = sorted(_scheduled_whatsapp_jobs, key=lambda item: item["scheduled_for"])
+
+    if not jobs:
+        return "You do not have any scheduled WhatsApp messages right now."
+
+    lines = []
+    for index, job in enumerate(jobs[:10], start=1):
+        lines.append(
+            f"{index}. to {job['contact']} at {_format_schedule_time(job['scheduled_for'])}"
+        )
+    return "Scheduled WhatsApp messages: " + " | ".join(lines)
+
+
+def cancel_scheduled_whatsapp_message(command):
+    raw = (
+        command.replace("cancel scheduled whatsapp message", "", 1)
+        .replace("delete scheduled whatsapp message", "", 1)
+        .strip()
+    )
+    if not raw.isdigit():
+        return "Tell me the scheduled WhatsApp message number to cancel."
+
+    index = int(raw) - 1
+    with _scheduled_job_lock:
+        jobs = sorted(_scheduled_whatsapp_jobs, key=lambda item: item["scheduled_for"])
+        if index < 0 or index >= len(jobs):
+            return "That scheduled WhatsApp message number does not exist."
+        job_id = jobs[index]["id"]
+        removed = jobs[index]
+        _scheduled_whatsapp_jobs[:] = [
+            job for job in _scheduled_whatsapp_jobs if job["id"] != job_id
+        ]
+
+    return (
+        f"Cancelled scheduled WhatsApp message to {removed['contact']} at "
+        f"{_format_schedule_time(removed['scheduled_for'])}."
+    )
 
 
 def open_whatsapp_and_type(command):
