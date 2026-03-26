@@ -67,6 +67,18 @@ def _format_due_date(date_str):
     return date_obj.strftime("%d %B %Y")
 
 
+def _format_due_value(reminder):
+    due_at = reminder.get("due_at")
+    if due_at:
+        try:
+            dt = datetime.datetime.fromisoformat(due_at)
+            return dt.strftime("%d %B %Y %I:%M %p")
+        except ValueError:
+            pass
+
+    return _format_due_date(reminder.get("due_date"))
+
+
 def _today():
     return datetime.date.today()
 
@@ -77,6 +89,16 @@ def _parse_iso_date(date_str):
 
     try:
         return datetime.date.fromisoformat(date_str)
+    except ValueError:
+        return None
+
+
+def _parse_iso_datetime(date_str):
+    if not date_str:
+        return None
+
+    try:
+        return datetime.datetime.fromisoformat(date_str)
     except ValueError:
         return None
 
@@ -119,6 +141,40 @@ def _parse_snooze_days(command):
     if "month" in unit:
         return amount * 30
     return amount
+
+
+def _parse_snooze_delta(command):
+    match = re.search(
+        r"by\s+(\d+)\s*(minute|minutes|hour|hours|day|days|week|weeks|month|months)",
+        command,
+    )
+    if not match:
+        return None
+
+    amount = int(match.group(1))
+    unit = match.group(2).lower()
+
+    if "minute" in unit:
+        return datetime.timedelta(minutes=amount)
+    if "hour" in unit:
+        return datetime.timedelta(hours=amount)
+    if "week" in unit:
+        return datetime.timedelta(days=amount * 7)
+    if "month" in unit:
+        return datetime.timedelta(days=amount * 30)
+    return datetime.timedelta(days=amount)
+
+
+def _get_reminder_datetime(reminder):
+    due_at = _parse_iso_datetime(reminder.get("due_at"))
+    if due_at:
+        return due_at
+
+    due_date = _parse_iso_date(reminder.get("due_date"))
+    if due_date:
+        return datetime.datetime.combine(due_date, datetime.time(hour=9, minute=0))
+
+    return None
 
 
 def _extract_title_text(command, prefixes):
@@ -241,9 +297,11 @@ def due_today_summary():
     due_today = []
 
     for reminder in data["reminders"]:
-        due_date = _parse_iso_date(reminder.get("due_date"))
-        if due_date == today:
-            due_today.append(reminder.get("title", "Untitled reminder"))
+        due_datetime = _get_reminder_datetime(reminder)
+        if due_datetime and due_datetime.date() == today:
+            due_today.append(
+                f"{reminder.get('title', 'Untitled reminder')} ({_format_due_value(reminder)})"
+            )
 
     pending_tasks = [task.get("title", "Untitled task") for task in data["tasks"] if not task.get("completed")]
 
@@ -261,14 +319,14 @@ def due_today_summary():
 
 def overdue_items():
     data = _load_data()
-    today = _today()
+    now = datetime.datetime.now()
     overdue_reminders = []
 
     for reminder in data["reminders"]:
-        due_date = _parse_iso_date(reminder.get("due_date"))
-        if due_date and due_date < today:
+        due_datetime = _get_reminder_datetime(reminder)
+        if due_datetime and due_datetime < now:
             overdue_reminders.append(
-                f"{reminder.get('title', 'Untitled reminder')} ({_format_due_date(reminder.get('due_date'))})"
+                f"{reminder.get('title', 'Untitled reminder')} ({_format_due_value(reminder)})"
             )
 
     if not overdue_reminders:
@@ -379,6 +437,7 @@ def add_reminder(command):
         {
             "title": reminder_text,
             "due_date": due_date,
+            "due_at": None,
             "created_at": datetime.datetime.now().isoformat(),
         }
     )
@@ -398,7 +457,7 @@ def list_reminders():
 
     lines = []
     for index, reminder in enumerate(reminders, start=1):
-        due = _format_due_date(reminder.get("due_date"))
+        due = _format_due_value(reminder)
         lines.append(f"{index}. {reminder.get('title', 'Untitled reminder')} - {due}")
 
     return "Your reminders are: " + " | ".join(lines)
@@ -411,7 +470,7 @@ def latest_reminder():
     if not reminder:
         return "You have no reminders right now."
 
-    due = _format_due_date(reminder.get("due_date"))
+    due = _format_due_value(reminder)
     return f"Your latest reminder is: {reminder.get('title', 'Untitled reminder')} - {due}"
 
 
@@ -466,10 +525,10 @@ def delete_reminder_by_title(command):
 
 def snooze_reminder(command):
     target = _parse_snooze_target(command)
-    snooze_days = _parse_snooze_days(command)
+    snooze_delta = _parse_snooze_delta(command)
 
-    if snooze_days is None:
-        return "Tell me how many days, weeks, or months to snooze the reminder by."
+    if snooze_delta is None:
+        return "Tell me how many minutes, hours, days, weeks, or months to snooze the reminder by."
 
     data = _load_data()
     reminders = data["reminders"]
@@ -494,12 +553,13 @@ def snooze_reminder(command):
     if reminder is None:
         return "That reminder does not exist."
 
-    base_date = _parse_iso_date(reminder.get("due_date")) or _today()
-    new_date = base_date + datetime.timedelta(days=snooze_days)
-    reminder["due_date"] = new_date.isoformat()
+    base_datetime = _get_reminder_datetime(reminder) or datetime.datetime.now()
+    new_datetime = base_datetime + snooze_delta
+    reminder["due_at"] = new_datetime.isoformat(timespec="minutes")
+    reminder["due_date"] = new_datetime.date().isoformat()
     _save_data(data)
 
     return (
         f"Snoozed reminder '{reminder.get('title', 'Untitled reminder')}' "
-        f"to {_format_due_date(reminder['due_date'])}."
+        f"to {_format_due_value(reminder)}."
     )

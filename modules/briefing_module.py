@@ -14,8 +14,38 @@ def _parse_date(date_str):
         return None
 
 
+def _parse_datetime(date_str):
+    if not date_str:
+        return None
+
+    try:
+        return datetime.datetime.fromisoformat(date_str)
+    except ValueError:
+        return None
+
+
+def _get_due_datetime(reminder):
+    due_at = _parse_datetime(reminder.get("due_at"))
+    if due_at is not None:
+        return due_at
+
+    due_date = _parse_date(reminder.get("due_date"))
+    if due_date is not None:
+        return datetime.datetime.combine(due_date, datetime.time(hour=9, minute=0))
+
+    return None
+
+
+def _format_due_for_brief(reminder):
+    due_datetime = _get_due_datetime(reminder)
+    if due_datetime is None:
+        return "No date"
+    return due_datetime.strftime("%d %B %I:%M %p")
+
+
 def build_daily_brief():
     today = datetime.date.today()
+    now = datetime.datetime.now()
     data = get_task_data()
 
     tasks = data.get("tasks", [])
@@ -27,11 +57,13 @@ def build_daily_brief():
     upcoming = []
 
     for reminder in reminders:
-        due_date = _parse_date(reminder.get("due_date"))
-        if due_date is None:
+        due_datetime = _get_due_datetime(reminder)
+        if due_datetime is None:
             continue
 
-        if due_date < today:
+        due_date = due_datetime.date()
+
+        if due_datetime < now:
             overdue.append(reminder)
         elif due_date == today:
             due_today.append(reminder)
@@ -64,20 +96,21 @@ def build_daily_brief():
 
 def build_due_reminder_alert():
     today = datetime.date.today()
+    now = datetime.datetime.now()
     data = get_task_data()
 
     overdue = []
     due_today = []
 
     for reminder in data.get("reminders", []):
-        due_date = _parse_date(reminder.get("due_date"))
-        if due_date is None:
+        due_datetime = _get_due_datetime(reminder)
+        if due_datetime is None:
             continue
 
-        if due_date < today:
-            overdue.append(reminder.get("title", "Untitled reminder"))
-        elif due_date == today:
-            due_today.append(reminder.get("title", "Untitled reminder"))
+        if due_datetime < now:
+            overdue.append(f"{reminder.get('title', 'Untitled reminder')} at {_format_due_for_brief(reminder)}")
+        elif due_datetime.date() == today:
+            due_today.append(f"{reminder.get('title', 'Untitled reminder')} at {_format_due_for_brief(reminder)}")
 
     parts = []
 
@@ -108,16 +141,16 @@ def build_brief_details():
 
     dated_reminders = []
     for reminder in reminders:
-        due_date = _parse_date(reminder.get("due_date"))
-        if due_date is not None and due_date <= today + datetime.timedelta(days=3):
-            dated_reminders.append((due_date, reminder.get("title", "Untitled reminder")))
+        due_datetime = _get_due_datetime(reminder)
+        if due_datetime is not None and due_datetime.date() <= today + datetime.timedelta(days=3):
+            dated_reminders.append((due_datetime, reminder.get("title", "Untitled reminder")))
 
     dated_reminders.sort(key=lambda item: item[0])
 
     if dated_reminders:
         reminder_text = ", ".join(
-            f"{title} on {due_date.strftime('%d %B')}"
-            for due_date, title in dated_reminders[:5]
+            f"{title} on {due_datetime.strftime('%d %B %I:%M %p')}"
+            for due_datetime, title in dated_reminders[:5]
         )
         lines.append(f"Upcoming reminders: {reminder_text}.")
 
