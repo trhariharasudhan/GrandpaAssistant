@@ -147,6 +147,38 @@ def _handle_config_command(command):
         update_setting("voice.empty_listen_backoff_seconds", backoff_value)
         return f"Empty listen backoff updated to {backoff_value} seconds."
 
+    wake_timeout_match = re.match(
+        r"^(?:set|change|update)\s+wake listen timeout\s+to\s+(\d+(?:\.\d+)?)$", command
+    )
+    if wake_timeout_match:
+        timeout_value = max(1.0, float(wake_timeout_match.group(1)))
+        update_setting("voice.wake_listen_timeout", timeout_value)
+        return f"Wake listen timeout updated to {timeout_value} seconds."
+
+    wake_phrase_match = re.match(
+        r"^(?:set|change|update)\s+wake phrase time limit\s+to\s+(\d+(?:\.\d+)?)$", command
+    )
+    if wake_phrase_match:
+        phrase_value = max(1.0, float(wake_phrase_match.group(1)))
+        update_setting("voice.wake_phrase_time_limit", phrase_value)
+        return f"Wake phrase time limit updated to {phrase_value} seconds."
+
+    wake_threshold_match = re.match(
+        r"^(?:set|change|update)\s+wake match threshold\s+to\s+(0(?:\.\d+)?|1(?:\.0+)?)$", command
+    )
+    if wake_threshold_match:
+        threshold_value = min(1.0, max(0.4, float(wake_threshold_match.group(1))))
+        update_setting("voice.wake_match_threshold", threshold_value)
+        return f"Wake match threshold updated to {threshold_value}."
+
+    wake_retry_match = re.match(
+        r"^(?:set|change|update)\s+wake retry window\s+to\s+(\d+(?:\.\d+)?)$", command
+    )
+    if wake_retry_match:
+        retry_value = max(1.0, float(wake_retry_match.group(1)))
+        update_setting("voice.wake_retry_window_seconds", retry_value)
+        return f"Wake retry window updated to {retry_value} seconds."
+
     browser_delay_match = re.match(
         r"^(?:set|change|update)\s+browser load delay\s+to\s+(\d+)$", command
     )
@@ -200,6 +232,10 @@ def _handle_config_command(command):
         active_timeout = get_setting("active_timeout", 60)
         post_wake_pause = get_setting("voice.post_wake_pause_seconds", 0.35)
         empty_backoff = get_setting("voice.empty_listen_backoff_seconds", 0.2)
+        wake_listen_timeout = get_setting("voice.wake_listen_timeout", 5)
+        wake_phrase_limit = get_setting("voice.wake_phrase_time_limit", 4)
+        wake_match_threshold = get_setting("voice.wake_match_threshold", 0.68)
+        wake_retry_window = get_setting("voice.wake_retry_window_seconds", 6)
         browser_delay = get_setting("browser.page_load_delay_seconds", 3)
         whatsapp_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
         gmail_delay = get_setting("browser.gmail_load_delay_seconds", 8)
@@ -217,6 +253,10 @@ def _handle_config_command(command):
             f"Active timeout is {active_timeout} seconds. "
             f"Post wake pause is {post_wake_pause} seconds. "
             f"Empty listen backoff is {empty_backoff} seconds. "
+            f"Wake listen timeout is {wake_listen_timeout} seconds. "
+            f"Wake phrase time limit is {wake_phrase_limit} seconds. "
+            f"Wake match threshold is {wake_match_threshold}. "
+            f"Wake retry window is {wake_retry_window} seconds. "
             f"Browser load delay is {browser_delay} seconds. "
             f"WhatsApp load delay is {whatsapp_delay} seconds. "
             f"Gmail load delay is {gmail_delay} seconds. "

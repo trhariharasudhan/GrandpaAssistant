@@ -24,6 +24,10 @@ DEFAULT_SETTINGS = {
         "min_command_chars": 3,
         "post_wake_pause_seconds": 0.35,
         "empty_listen_backoff_seconds": 0.2,
+        "wake_listen_timeout": 5,
+        "wake_phrase_time_limit": 4,
+        "wake_match_threshold": 0.68,
+        "wake_retry_window_seconds": 6,
     },
     "sounds": {
         "enabled": True,

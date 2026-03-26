@@ -81,6 +81,10 @@ def _active_voice_settings():
         "min_command_chars": get_setting("voice.min_command_chars", 3),
         "post_wake_pause_seconds": get_setting("voice.post_wake_pause_seconds", 0.35),
         "empty_listen_backoff_seconds": get_setting("voice.empty_listen_backoff_seconds", 0.2),
+        "wake_listen_timeout": get_setting("voice.wake_listen_timeout", 5),
+        "wake_phrase_time_limit": get_setting("voice.wake_phrase_time_limit", 4),
+        "wake_match_threshold": get_setting("voice.wake_match_threshold", 0.68),
+        "wake_retry_window_seconds": get_setting("voice.wake_retry_window_seconds", 6),
     }
 
 
@@ -121,7 +125,7 @@ def _mark_calibrated(settings):
     _last_calibration_at = time.time()
 
 
-def listen():
+def listen(for_wake_word=False):
     settings = _active_voice_settings()
 
     recognizer.dynamic_energy_threshold = settings["dynamic_energy_threshold"]
@@ -144,8 +148,16 @@ def listen():
 
             audio = recognizer.listen(
                 source,
-                timeout=settings["listen_timeout"],
-                phrase_time_limit=settings["phrase_time_limit"],
+                timeout=(
+                    settings["wake_listen_timeout"]
+                    if for_wake_word
+                    else settings["listen_timeout"]
+                ),
+                phrase_time_limit=(
+                    settings["wake_phrase_time_limit"]
+                    if for_wake_word
+                    else settings["phrase_time_limit"]
+                ),
             )
 
             command = recognizer.recognize_google(audio)

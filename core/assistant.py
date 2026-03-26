@@ -38,6 +38,8 @@ INITIAL_TIMEOUT = get_setting("initial_timeout", 15)
 ACTIVE_TIMEOUT = get_setting("active_timeout", 60)
 POST_WAKE_PAUSE = get_setting("voice.post_wake_pause_seconds", 0.35)
 EMPTY_LISTEN_BACKOFF = get_setting("voice.empty_listen_backoff_seconds", 0.2)
+WAKE_MATCH_THRESHOLD = get_setting("voice.wake_match_threshold", 0.68)
+WAKE_RETRY_WINDOW = get_setting("voice.wake_retry_window_seconds", 6)
 
 stop_event = threading.Event()
 hand_mouse_thread = None
@@ -71,12 +73,24 @@ def _normalize_phrase(text):
 def _wake_word_detected(command, wake_word):
     normalized_command = _normalize_phrase(command)
     normalized_wake_word = _normalize_phrase(wake_word)
+    wake_threshold = get_setting("voice.wake_match_threshold", WAKE_MATCH_THRESHOLD)
+    wake_aliases = {
+        normalized_wake_word,
+        "hi grandpa",
+        "hello grandpa",
+        "hey grand pa",
+        "hay grandpa",
+        "a grandpa",
+        "hey grampa",
+        "hi grampa",
+    }
 
     if not normalized_command or not normalized_wake_word:
         return False
 
-    if normalized_wake_word in normalized_command:
-        return True
+    for alias in wake_aliases:
+        if alias and alias in normalized_command:
+            return True
 
     command_words = normalized_command.split()
     wake_words = normalized_wake_word.split()
@@ -87,21 +101,39 @@ def _wake_word_detected(command, wake_word):
 
     for index in range(len(command_words) - wake_len + 1):
         window = " ".join(command_words[index:index + wake_len])
-        if SequenceMatcher(None, window, normalized_wake_word).ratio() >= 0.72:
+        if any(
+            SequenceMatcher(None, window, alias).ratio() >= wake_threshold
+            for alias in wake_aliases
+            if alias
+        ):
             return True
 
-    return SequenceMatcher(None, normalized_command, normalized_wake_word).ratio() >= 0.72
+    return any(
+        SequenceMatcher(None, normalized_command, alias).ratio() >= wake_threshold
+        for alias in wake_aliases
+        if alias
+    )
 
 
 def _strip_wake_word(command, wake_word):
     normalized_command = _normalize_phrase(command)
     normalized_wake_word = _normalize_phrase(wake_word)
+    aliases = [
+        normalized_wake_word,
+        "hi grandpa",
+        "hello grandpa",
+        "hey grand pa",
+        "hay grandpa",
+        "hey grampa",
+        "hi grampa",
+    ]
 
     if not normalized_command or not normalized_wake_word:
         return ""
 
-    if normalized_command.startswith(normalized_wake_word):
-        return normalized_command[len(normalized_wake_word):].strip()
+    for alias in aliases:
+        if alias and normalized_command.startswith(alias):
+            return normalized_command[len(alias):].strip()
 
     return ""
 
@@ -177,6 +209,7 @@ def _process_voice_command(command, current_timeout):
 def main(start_in_tray=False):
     global INSTALLED_APPS
     global WAKE_WORD, INITIAL_TIMEOUT, ACTIVE_TIMEOUT, POST_WAKE_PAUSE, EMPTY_LISTEN_BACKOFF
+    global WAKE_MATCH_THRESHOLD, WAKE_RETRY_WINDOW
 
     set_tray_exit_callback(exit_assistant)
     WAKE_WORD = get_setting("wake_word", "hey grandpa")
@@ -184,6 +217,8 @@ def main(start_in_tray=False):
     ACTIVE_TIMEOUT = get_setting("active_timeout", 60)
     POST_WAKE_PAUSE = get_setting("voice.post_wake_pause_seconds", 0.35)
     EMPTY_LISTEN_BACKOFF = get_setting("voice.empty_listen_backoff_seconds", 0.2)
+    WAKE_MATCH_THRESHOLD = get_setting("voice.wake_match_threshold", 0.68)
+    WAKE_RETRY_WINDOW = get_setting("voice.wake_retry_window_seconds", 6)
     INSTALLED_APPS = get_all_apps()
     INSTALLED_APPS.update(scan_store_apps())
     categorized = categorize_apps(INSTALLED_APPS)
@@ -274,6 +309,7 @@ def voice_mode():
     current_timeout = INITIAL_TIMEOUT
     active_mode = False
     last_active_time = 0
+    wake_retry_until = 0
 
     try:
         while True:
@@ -294,7 +330,7 @@ def voice_mode():
                 anim_thread.start()
 
                 try:
-                    command = listen()
+                    command = listen(for_wake_word=True)
                     if not command:
                         time.sleep(EMPTY_LISTEN_BACKOFF)
                         continue
@@ -307,6 +343,7 @@ def voice_mode():
                 if _wake_word_detected(command, WAKE_WORD):
                     trailing_command = _strip_wake_word(command, WAKE_WORD)
                     play_sound("start")
+                    wake_retry_until = time.time() + WAKE_RETRY_WINDOW
                     if trailing_command:
                         last_active_time = time.time()
                         result = _process_voice_command(trailing_command, ACTIVE_TIMEOUT)
@@ -320,6 +357,15 @@ def voice_mode():
                         active_mode = True
                         last_active_time = time.time()
                         current_timeout = INITIAL_TIMEOUT
+
+                elif wake_retry_until and time.time() <= wake_retry_until and _looks_like_direct_command(command):
+                    play_sound("start")
+                    last_active_time = time.time()
+                    result = _process_voice_command(command, ACTIVE_TIMEOUT)
+                    if result["exit"]:
+                        break
+                    active_mode = True
+                    current_timeout = result["timeout"]
 
                 elif _looks_like_direct_command(command):
                     # Practical fallback when wake word recognition is weak.
