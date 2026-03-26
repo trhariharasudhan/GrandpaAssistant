@@ -1,4 +1,6 @@
 import datetime
+import json
+import os
 import threading
 import time
 
@@ -14,6 +16,39 @@ _monitor_thread = None
 _monitor_stop_event = threading.Event()
 _last_monitor_message = None
 _popup_history = {}
+STATE_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)),
+    "data",
+    "notification_state.json",
+)
+
+
+def _load_notification_state():
+    if not os.path.exists(STATE_FILE):
+        return {}
+
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except Exception:
+        return {}
+
+
+def _save_notification_state(state):
+    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+    with open(STATE_FILE, "w", encoding="utf-8") as file:
+        json.dump(state, file, indent=4)
+
+
+def _get_state_value(key, default=None):
+    state = _load_notification_state()
+    return state.get(key, default)
+
+
+def _set_state_value(key, value):
+    state = _load_notification_state()
+    state[key] = value
+    _save_notification_state(state)
 
 
 def _notification_title(suffix=None):
@@ -209,12 +244,17 @@ def show_startup_notifications():
     if summary == "You do not have any urgent reminders, pending tasks, or upcoming events right now.":
         return None
 
+    previous_summary = _get_state_value("last_startup_summary")
+    if previous_summary == summary:
+        return summary
+
     _show_popup(
         _notification_title("Startup Summary"),
         summary,
         timeout=max(_default_popup_timeout(), 12),
         dedupe_key="startup_summary",
     )
+    _set_state_value("last_startup_summary", summary)
     return summary
 
 
@@ -268,13 +308,18 @@ def _monitor_worker():
         ):
             message = _build_due_monitor_message()
             if message and message != _last_monitor_message:
-                shown = _show_popup(
-                    _notification_title("Reminder Monitor"),
-                    message,
-                    dedupe_key="reminder_monitor",
-                )
-                if shown:
+                previous_persisted_message = _get_state_value("last_monitor_message")
+                if message == previous_persisted_message:
                     _last_monitor_message = message
+                else:
+                    shown = _show_popup(
+                        _notification_title("Reminder Monitor"),
+                        message,
+                        dedupe_key="reminder_monitor",
+                    )
+                    if shown:
+                        _last_monitor_message = message
+                        _set_state_value("last_monitor_message", message)
 
         reminder_interval = max(
             1, int(get_setting("notifications.reminder_check_interval_minutes", 15))
