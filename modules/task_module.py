@@ -67,6 +67,60 @@ def _format_due_date(date_str):
     return date_obj.strftime("%d %B %Y")
 
 
+def _today():
+    return datetime.date.today()
+
+
+def _parse_iso_date(date_str):
+    if not date_str:
+        return None
+
+    try:
+        return datetime.date.fromisoformat(date_str)
+    except ValueError:
+        return None
+
+
+def _latest_pending_task(tasks):
+    pending_tasks = [task for task in tasks if not task.get("completed")]
+    if not pending_tasks:
+        return None
+    return max(pending_tasks, key=lambda task: task.get("created_at", ""))
+
+
+def _latest_item(items):
+    if not items:
+        return None
+    return max(items, key=lambda item: item.get("created_at", ""))
+
+
+def _parse_snooze_target(command):
+    latest_requested = "latest reminder" in command
+    if latest_requested:
+        return {"latest": True, "index": None}
+
+    match = re.search(r"reminder\s+(\d+)", command)
+    if match:
+        return {"latest": False, "index": int(match.group(1)) - 1}
+
+    return {"latest": False, "index": None}
+
+
+def _parse_snooze_days(command):
+    match = re.search(r"by\s+(\d+)\s*(day|days|week|weeks|month|months)", command)
+    if not match:
+        return None
+
+    amount = int(match.group(1))
+    unit = match.group(2).lower()
+
+    if "week" in unit:
+        return amount * 7
+    if "month" in unit:
+        return amount * 30
+    return amount
+
+
 def _remove_date_phrases(text):
     patterns = [
         r"\b(today|tomorrow|yesterday|next week|last week|next month|last month|next year|last year)\b",
@@ -126,6 +180,58 @@ def list_tasks():
     return "Your tasks are: " + " | ".join(lines)
 
 
+def latest_task():
+    data = _load_data()
+    task = _latest_pending_task(data["tasks"])
+
+    if not task:
+        return "You have no pending tasks right now."
+
+    return f"Your latest pending task is: {task.get('title', 'Untitled task')}"
+
+
+def due_today_summary():
+    data = _load_data()
+    today = _today()
+    due_today = []
+
+    for reminder in data["reminders"]:
+        due_date = _parse_iso_date(reminder.get("due_date"))
+        if due_date == today:
+            due_today.append(reminder.get("title", "Untitled reminder"))
+
+    pending_tasks = [task.get("title", "Untitled task") for task in data["tasks"] if not task.get("completed")]
+
+    parts = []
+    if due_today:
+        parts.append("Reminders due today: " + " | ".join(due_today))
+    if pending_tasks:
+        parts.append("Pending tasks: " + " | ".join(pending_tasks[:5]))
+
+    if not parts:
+        return "You have nothing due today."
+
+    return " | ".join(parts)
+
+
+def overdue_items():
+    data = _load_data()
+    today = _today()
+    overdue_reminders = []
+
+    for reminder in data["reminders"]:
+        due_date = _parse_iso_date(reminder.get("due_date"))
+        if due_date and due_date < today:
+            overdue_reminders.append(
+                f"{reminder.get('title', 'Untitled reminder')} ({_format_due_date(reminder.get('due_date'))})"
+            )
+
+    if not overdue_reminders:
+        return "You have no overdue reminders right now."
+
+    return "Your overdue items are: " + " | ".join(overdue_reminders)
+
+
 def complete_task(command):
     index = _parse_index(command, "complete task")
     if index is None:
@@ -142,6 +248,18 @@ def complete_task(command):
     return f"Completed task {index + 1}: {tasks[index]['title']}"
 
 
+def complete_latest_task():
+    data = _load_data()
+    task = _latest_pending_task(data["tasks"])
+
+    if not task:
+        return "You have no pending tasks to complete."
+
+    task["completed"] = True
+    _save_data(data)
+    return f"Completed latest task: {task.get('title', 'Untitled task')}"
+
+
 def delete_task(command):
     index = _parse_index(command, "delete task")
     if index is None:
@@ -156,6 +274,19 @@ def delete_task(command):
     removed = tasks.pop(index)
     _save_data(data)
     return f"Deleted task: {removed['title']}"
+
+
+def delete_latest_task():
+    data = _load_data()
+    tasks = data["tasks"]
+    task = _latest_item(tasks)
+
+    if not task:
+        return "You have no tasks to delete."
+
+    tasks.remove(task)
+    _save_data(data)
+    return f"Deleted latest task: {task.get('title', 'Untitled task')}"
 
 
 def add_reminder(command):
@@ -195,6 +326,17 @@ def list_reminders():
     return "Your reminders are: " + " | ".join(lines)
 
 
+def latest_reminder():
+    data = _load_data()
+    reminder = _latest_item(data["reminders"])
+
+    if not reminder:
+        return "You have no reminders right now."
+
+    due = _format_due_date(reminder.get("due_date"))
+    return f"Your latest reminder is: {reminder.get('title', 'Untitled reminder')} - {due}"
+
+
 def delete_reminder(command):
     index = _parse_index(command, "delete reminder")
     if index is None:
@@ -209,3 +351,50 @@ def delete_reminder(command):
     removed = reminders.pop(index)
     _save_data(data)
     return f"Deleted reminder: {removed['title']}"
+
+
+def delete_latest_reminder():
+    data = _load_data()
+    reminders = data["reminders"]
+    reminder = _latest_item(reminders)
+
+    if not reminder:
+        return "You have no reminders to delete."
+
+    reminders.remove(reminder)
+    _save_data(data)
+    return f"Deleted latest reminder: {reminder.get('title', 'Untitled reminder')}"
+
+
+def snooze_reminder(command):
+    target = _parse_snooze_target(command)
+    snooze_days = _parse_snooze_days(command)
+
+    if snooze_days is None:
+        return "Tell me how many days, weeks, or months to snooze the reminder by."
+
+    data = _load_data()
+    reminders = data["reminders"]
+
+    if not reminders:
+        return "You have no reminders to snooze."
+
+    if target["latest"]:
+        reminder = _latest_item(reminders)
+        reminder_index = reminders.index(reminder) if reminder else None
+    else:
+        reminder_index = target["index"]
+        reminder = reminders[reminder_index] if reminder_index is not None and 0 <= reminder_index < len(reminders) else None
+
+    if reminder is None:
+        return "That reminder does not exist."
+
+    base_date = _parse_iso_date(reminder.get("due_date")) or _today()
+    new_date = base_date + datetime.timedelta(days=snooze_days)
+    reminder["due_date"] = new_date.isoformat()
+    _save_data(data)
+
+    return (
+        f"Snoozed reminder '{reminder.get('title', 'Untitled reminder')}' "
+        f"to {_format_due_date(reminder['due_date'])}."
+    )
