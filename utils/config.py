@@ -57,6 +57,10 @@ DEFAULT_SETTINGS = {
         "region_hotkey_enabled": True,
         "region_hotkey": "ctrl+shift+o",
     },
+    "overlay": {
+        "hotkey_enabled": True,
+        "hotkey": "ctrl+shift+space",
+    },
     "notifications": {
         "reminder_monitor_enabled": True,
         "reminder_check_interval_minutes": 15,

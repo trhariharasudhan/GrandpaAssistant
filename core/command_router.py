@@ -16,6 +16,7 @@ from brain.memory_engine import (
 )
 from brain.question_analyzer import is_personal_question
 from core.intent_router import try_handle_intent
+from core.quick_overlay import hide_quick_overlay, show_quick_overlay
 from core.tray_manager import start_tray, stop_tray
 
 from modules.calendar_module import (
@@ -280,6 +281,17 @@ def _handle_config_command(command):
         update_setting("ocr.region_hotkey", hotkey_value)
         return f"OCR region hotkey updated to {hotkey_value}. Restart the assistant to use the new hotkey."
 
+    overlay_hotkey_match = re.match(
+        r"^(?:set|change|update)\s+overlay hotkey\s+to\s+(.+)$", command
+    )
+    if overlay_hotkey_match:
+        hotkey_value = overlay_hotkey_match.group(1).strip().lower()
+        update_setting("overlay.hotkey", hotkey_value)
+        return (
+            f"Quick command overlay hotkey updated to {hotkey_value}. "
+            "Restart the assistant to use the new hotkey."
+        )
+
     if command in ["show settings", "show config", "settings"]:
         wake_word = get_setting("wake_word", "hey grandpa")
         tray_mode = get_setting("startup.tray_mode", False)
@@ -310,6 +322,8 @@ def _handle_config_command(command):
         gmail_delay = get_setting("browser.gmail_load_delay_seconds", 8)
         ocr_hotkey_enabled = get_setting("ocr.region_hotkey_enabled", True)
         ocr_hotkey = get_setting("ocr.region_hotkey", "ctrl+shift+o")
+        overlay_hotkey_enabled = get_setting("overlay.hotkey_enabled", True)
+        overlay_hotkey = get_setting("overlay.hotkey", "ctrl+shift+space")
         reminder_monitor = get_setting("notifications.reminder_monitor_enabled", True)
         reminder_interval = get_setting("notifications.reminder_check_interval_minutes", 15)
         event_monitor = get_setting("notifications.event_monitor_enabled", True)
@@ -339,6 +353,8 @@ def _handle_config_command(command):
             f"Gmail load delay is {gmail_delay} seconds. "
             f"OCR region hotkey is {ocr_hotkey}. "
             f"OCR hotkey is {'on' if ocr_hotkey_enabled else 'off'}. "
+            f"Quick overlay hotkey is {overlay_hotkey}. "
+            f"Quick overlay is {'on' if overlay_hotkey_enabled else 'off'}. "
             f"Tray startup is {'on' if tray_mode else 'off'}. "
             f"Reminder monitor is {'on' if reminder_monitor else 'off'}. "
             f"Reminder interval is {reminder_interval} minutes. "
@@ -399,6 +415,14 @@ def _handle_config_command(command):
     if command in ["disable ocr hotkey", "turn off ocr hotkey", "disable region hotkey"]:
         update_setting("ocr.region_hotkey_enabled", False)
         return "OCR region hotkey disabled. Restart the assistant if it was already running."
+
+    if command in ["enable quick overlay", "turn on quick overlay", "enable overlay hotkey"]:
+        update_setting("overlay.hotkey_enabled", True)
+        return "Quick command overlay enabled. Restart the assistant if it was already running."
+
+    if command in ["disable quick overlay", "turn off quick overlay", "disable overlay hotkey"]:
+        update_setting("overlay.hotkey_enabled", False)
+        return "Quick command overlay disabled. Restart the assistant if it was already running."
 
     if command in ["enable whatsapp auto send", "turn on whatsapp auto send"]:
         update_setting("browser.whatsapp_auto_send", True)
@@ -517,6 +541,30 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             pending_confirmation = None
             speak("Cancelled.")
             return
+
+    if command in [
+        "open quick command overlay",
+        "show quick command overlay",
+        "open quick overlay",
+        "show quick overlay",
+    ]:
+        success, message = show_quick_overlay(
+            lambda overlay_command: process_command(
+                overlay_command, INSTALLED_APPS, input_mode="text"
+            )
+        )
+        speak(message if message else "Quick command overlay updated.")
+        return
+
+    if command in [
+        "hide quick command overlay",
+        "close quick command overlay",
+        "hide quick overlay",
+        "close quick overlay",
+    ]:
+        success, message = hide_quick_overlay()
+        speak(message if message else "Quick command overlay updated.")
+        return
 
     if command in [
         "read selected area",

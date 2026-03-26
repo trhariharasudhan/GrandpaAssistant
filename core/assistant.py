@@ -8,6 +8,12 @@ import time
 from colorama import Fore, Style, init
 
 from core.command_router import process_command
+from core.quick_overlay import (
+    hide_quick_overlay,
+    register_overlay_hotkey,
+    show_quick_overlay,
+    unregister_overlay_hotkey,
+)
 from core.tray_manager import set_tray_exit_callback, start_tray, stop_tray
 from modules.app_scan_module import categorize_apps, get_all_apps, scan_store_apps
 from modules.briefing_module import build_daily_brief, build_due_reminder_alert
@@ -47,6 +53,8 @@ hand_mouse_thread = None
 
 
 def exit_assistant():
+    hide_quick_overlay()
+    unregister_overlay_hotkey()
     unregister_region_hotkey()
     stop_tray()
     stop_event.set()
@@ -68,6 +76,12 @@ def _handle_ocr_hotkey_result(result):
     print(text)
     print("\n================================\n")
     speak("OCR hotkey area content printed")
+
+
+def _handle_overlay_command(command_text):
+    print(f"\nOverlay command: {command_text}")
+    process_command(command_text.lower().strip(), INSTALLED_APPS, input_mode="text")
+    play_sound("success")
 
 
 def glowing_cursor():
@@ -264,6 +278,11 @@ def main(start_in_tray=False):
         register_region_hotkey(
             _handle_ocr_hotkey_result,
             get_setting("ocr.region_hotkey", "ctrl+shift+o"),
+        )
+    if get_setting("overlay.hotkey_enabled", True):
+        register_overlay_hotkey(
+            _handle_overlay_command,
+            get_setting("overlay.hotkey", "ctrl+shift+space"),
         )
     play_sound("start")
 
