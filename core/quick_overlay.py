@@ -10,13 +10,15 @@ except ImportError:
 _overlay_root = None
 _overlay_entry = None
 _overlay_handler = None
+_overlay_recent_frame = None
+_overlay_suggestion_frame = None
 _overlay_hotkey_handler = None
 _overlay_hotkey_registered = None
 _overlay_lock = threading.Lock()
 
 
 def _destroy_overlay():
-    global _overlay_root, _overlay_entry
+    global _overlay_root, _overlay_entry, _overlay_recent_frame, _overlay_suggestion_frame
 
     if _overlay_root is None:
         return False
@@ -28,16 +30,77 @@ def _destroy_overlay():
 
     _overlay_root = None
     _overlay_entry = None
+    _overlay_recent_frame = None
+    _overlay_suggestion_frame = None
     return True
 
 
-def show_quick_overlay(on_submit):
-    global _overlay_root, _overlay_entry, _overlay_handler
+def _clear_frame(frame):
+    if frame is None:
+        return
+    for child in frame.winfo_children():
+        child.destroy()
+
+
+def _make_chip(parent, text, command_text, on_submit, bg="#1f2937", fg="white"):
+    button = tk.Button(
+        parent,
+        text=text,
+        command=lambda: on_submit(command_text),
+        bg=bg,
+        fg=fg,
+        activebackground="#374151",
+        activeforeground="white",
+        relief="flat",
+        padx=8,
+        pady=4,
+        font=("Segoe UI", 9),
+        cursor="hand2",
+        wraplength=180,
+        justify="left",
+    )
+    return button
+
+
+def _refresh_overlay_lists(suggestions=None, recent_commands=None):
+    if _overlay_recent_frame is None or _overlay_suggestion_frame is None or _overlay_handler is None:
+        return
+
+    _clear_frame(_overlay_suggestion_frame)
+    _clear_frame(_overlay_recent_frame)
+
+    suggestions = suggestions or []
+    recent_commands = recent_commands or []
+
+    for index, item in enumerate(suggestions):
+        chip = _make_chip(
+            _overlay_suggestion_frame,
+            item,
+            item,
+            _overlay_handler,
+            bg="#0f766e",
+        )
+        chip.grid(row=index // 3, column=index % 3, padx=4, pady=4, sticky="w")
+
+    for index, item in enumerate(recent_commands):
+        chip = _make_chip(
+            _overlay_recent_frame,
+            item,
+            item,
+            _overlay_handler,
+            bg="#1f2937",
+        )
+        chip.grid(row=index // 2, column=index % 2, padx=4, pady=4, sticky="w")
+
+
+def show_quick_overlay(on_submit, suggestions=None, recent_commands=None):
+    global _overlay_root, _overlay_entry, _overlay_handler, _overlay_recent_frame, _overlay_suggestion_frame
 
     _overlay_handler = on_submit
 
     if _overlay_root is not None:
         try:
+            _refresh_overlay_lists(suggestions=suggestions, recent_commands=recent_commands)
             _overlay_root.deiconify()
             _overlay_root.lift()
             _overlay_root.attributes("-topmost", True)
@@ -49,20 +112,20 @@ def show_quick_overlay(on_submit):
             _destroy_overlay()
 
     def worker():
-        global _overlay_root, _overlay_entry
+        global _overlay_root, _overlay_entry, _overlay_recent_frame, _overlay_suggestion_frame
         try:
             root = tk.Tk()
             root.title("Grandpa Assistant")
-            root.geometry("520x110")
+            root.geometry("560x290")
             root.attributes("-topmost", True)
             root.configure(bg="#111827")
             root.resizable(False, False)
 
             screen_width = root.winfo_screenwidth()
             screen_height = root.winfo_screenheight()
-            x = (screen_width // 2) - 260
+            x = (screen_width // 2) - 280
             y = max(60, (screen_height // 5))
-            root.geometry(f"520x110+{x}+{y}")
+            root.geometry(f"560x290+{x}+{y}")
 
             container = tk.Frame(root, bg="#111827", padx=16, pady=14)
             container.pack(fill="both", expand=True)
@@ -95,6 +158,30 @@ def show_quick_overlay(on_submit):
             )
             hint.pack(anchor="w")
 
+            suggestion_label = tk.Label(
+                container,
+                text="Quick Suggestions",
+                fg="#d1d5db",
+                bg="#111827",
+                font=("Segoe UI", 10, "bold"),
+            )
+            suggestion_label.pack(anchor="w", pady=(14, 4))
+
+            suggestion_frame = tk.Frame(container, bg="#111827")
+            suggestion_frame.pack(fill="x", anchor="w")
+
+            recent_label = tk.Label(
+                container,
+                text="Recent Commands",
+                fg="#d1d5db",
+                bg="#111827",
+                font=("Segoe UI", 10, "bold"),
+            )
+            recent_label.pack(anchor="w", pady=(12, 4))
+
+            recent_frame = tk.Frame(container, bg="#111827")
+            recent_frame.pack(fill="x", anchor="w")
+
             def submit(_event=None):
                 text = entry.get().strip()
                 if not text:
@@ -115,6 +202,9 @@ def show_quick_overlay(on_submit):
 
             _overlay_root = root
             _overlay_entry = entry
+            _overlay_suggestion_frame = suggestion_frame
+            _overlay_recent_frame = recent_frame
+            _refresh_overlay_lists(suggestions=suggestions, recent_commands=recent_commands)
             entry.focus_force()
             root.mainloop()
         finally:
@@ -135,7 +225,14 @@ def hide_quick_overlay():
         return False, "I could not hide the quick command overlay right now."
 
 
-def register_overlay_hotkey(callback, hotkey="ctrl+shift+space"):
+def register_overlay_hotkey(
+    callback,
+    hotkey="ctrl+shift+space",
+    suggestions=None,
+    recent_commands=None,
+    suggestions_provider=None,
+    recent_provider=None,
+):
     global _overlay_hotkey_handler, _overlay_hotkey_registered
 
     if keyboard is None or not hotkey:
@@ -149,7 +246,17 @@ def register_overlay_hotkey(callback, hotkey="ctrl+shift+space"):
 
         def worker():
             try:
-                show_quick_overlay(callback)
+                resolved_suggestions = (
+                    suggestions_provider() if suggestions_provider else suggestions
+                )
+                resolved_recent = (
+                    recent_provider() if recent_provider else recent_commands
+                )
+                show_quick_overlay(
+                    callback,
+                    suggestions=resolved_suggestions,
+                    recent_commands=resolved_recent,
+                )
             finally:
                 _overlay_lock.release()
 

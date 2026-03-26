@@ -7,6 +7,7 @@ import time
 
 from colorama import Fore, Style, init
 
+from brain.database import get_recent_commands
 from core.command_router import process_command
 from core.quick_overlay import (
     hide_quick_overlay,
@@ -52,6 +53,17 @@ stop_event = threading.Event()
 hand_mouse_thread = None
 
 
+def _overlay_suggestions():
+    return [
+        "weather",
+        "dashboard",
+        "show settings",
+        "system status",
+        "summarize current browser page",
+        "copy selected area text",
+    ]
+
+
 def exit_assistant():
     hide_quick_overlay()
     unregister_overlay_hotkey()
@@ -82,6 +94,14 @@ def _handle_overlay_command(command_text):
     print(f"\nOverlay command: {command_text}")
     process_command(command_text.lower().strip(), INSTALLED_APPS, input_mode="text")
     play_sound("success")
+
+
+def _open_overlay():
+    return show_quick_overlay(
+        _handle_overlay_command,
+        suggestions=_overlay_suggestions(),
+        recent_commands=get_recent_commands(),
+    )
 
 
 def glowing_cursor():
@@ -283,6 +303,8 @@ def main(start_in_tray=False):
         register_overlay_hotkey(
             _handle_overlay_command,
             get_setting("overlay.hotkey", "ctrl+shift+space"),
+            suggestions_provider=_overlay_suggestions,
+            recent_provider=get_recent_commands,
         )
     play_sound("start")
 

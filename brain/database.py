@@ -158,3 +158,34 @@ def log_command(command_text, source="unknown"):
         connection.commit()
     finally:
         connection.close()
+
+
+def get_recent_commands(limit=6):
+    initialize_database()
+
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            """
+            SELECT command_text
+            FROM command_history
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit * 3,),
+        ).fetchall()
+    finally:
+        connection.close()
+
+    recent = []
+    seen = set()
+    for row in rows:
+        command_text = (row["command_text"] or "").strip()
+        if not command_text or command_text in seen:
+            continue
+        seen.add(command_text)
+        recent.append(command_text)
+        if len(recent) >= limit:
+            break
+
+    return recent

@@ -6,7 +6,7 @@ import threading
 import time
 
 from brain.ai_engine import ask_ollama, clear_memory
-from brain.database import log_command
+from brain.database import get_recent_commands, log_command
 from brain.memory_engine import (
     get_memory,
     remove_memory_field,
@@ -551,7 +551,16 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         success, message = show_quick_overlay(
             lambda overlay_command: process_command(
                 overlay_command, INSTALLED_APPS, input_mode="text"
-            )
+            ),
+            suggestions=[
+                "weather",
+                "dashboard",
+                "show settings",
+                "system status",
+                "summarize current browser page",
+                "copy selected area text",
+            ],
+            recent_commands=get_recent_commands(),
         )
         speak(message if message else "Quick command overlay updated.")
         return
