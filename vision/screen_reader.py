@@ -15,6 +15,11 @@ try:
 except ImportError:
     pytesseract = None
 
+try:
+    import pyperclip
+except ImportError:
+    pyperclip = None
+
 import cv2
 import numpy as np
 import pyautogui
@@ -38,6 +43,17 @@ def _ocr_ready():
     return bool(configured_path and os.path.exists(configured_path)) or bool(
         shutil.which("tesseract")
     )
+
+
+def _copy_text_to_clipboard(text):
+    if pyperclip is None:
+        return False
+
+    try:
+        pyperclip.copy(text)
+        return True
+    except Exception:
+        return False
 
 
 def _prepare_image():
@@ -498,6 +514,21 @@ def read_named_screen_region(region_name):
     return _clean_ocr_text("\n".join(lines))
 
 
+def copy_named_screen_region_text(region_name):
+    text = read_named_screen_region(region_name)
+    if text in [
+        "Tesseract OCR is not installed or not available in PATH.",
+        "That screen region is not supported.",
+        "Readable text was not clearly detected on the screen.",
+    ]:
+        return text
+
+    if _copy_text_to_clipboard(text):
+        return f"{region_name.title()} area text copied to clipboard."
+
+    return "I could not copy the OCR text to the clipboard right now."
+
+
 def read_selected_area_text(selection_wait_seconds=3):
     if not _ocr_ready():
         return "Tesseract OCR is not installed or not available in PATH."
@@ -521,6 +552,40 @@ def read_selected_area_text(selection_wait_seconds=3):
         "text": text,
         "bounds": region,
     }
+
+
+def copy_selected_area_text(selection_wait_seconds=3):
+    result = read_selected_area_text(selection_wait_seconds=selection_wait_seconds)
+
+    if not isinstance(result, dict):
+        return result
+
+    text = result.get("text", "")
+    if not text or text == "Readable text was not clearly detected on the screen.":
+        return "Readable text was not clearly detected on the selected area."
+
+    if _copy_text_to_clipboard(text):
+        return {
+            "text": text,
+            "bounds": result.get("bounds"),
+            "message": "Selected area text copied to clipboard.",
+        }
+
+    return "I could not copy the selected area text to the clipboard right now."
+
+
+def copy_screen_text():
+    text = read_screen_text()
+    if text in [
+        "Tesseract OCR is not installed or not available in PATH.",
+        "Readable text was not clearly detected on the screen.",
+    ]:
+        return text
+
+    if _copy_text_to_clipboard(text):
+        return "Screen text copied to clipboard."
+
+    return "I could not copy the screen text to the clipboard right now."
 
 
 def capture_selected_region(selection_wait_seconds=3):

@@ -69,6 +69,9 @@ from vision.screen_reader import (
     capture_selected_region,
     click_on_text,
     click_on_text_in_region,
+    copy_named_screen_region_text,
+    copy_screen_text,
+    copy_selected_area_text,
     find_text_details,
     find_text_details_in_region,
     is_text_visible,
@@ -534,6 +537,25 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             speak(result)
         return
 
+    if command in [
+        "copy selected area text",
+        "copy selected region text",
+        "copy text from selected area",
+    ]:
+        speak(
+            "Move your mouse to the first corner now. I will capture the second corner in three seconds."
+        )
+        result = copy_selected_area_text()
+
+        if isinstance(result, dict):
+            print("\n===== SELECTED AREA TEXT =====\n")
+            print(result["text"])
+            print("\n==============================\n")
+            speak(result["message"])
+        else:
+            speak(result)
+        return
+
     if command.startswith("find in selected area "):
         target = command.replace("find in selected area", "", 1).strip()
         if not target:
@@ -605,6 +627,20 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(f"{region_name} area content printed")
         return
 
+    named_region_copy_commands = {
+        "copy top left area text": "top left",
+        "copy top right area text": "top right",
+        "copy bottom left area text": "bottom left",
+        "copy bottom right area text": "bottom right",
+        "copy center area text": "center",
+    }
+    if command in named_region_copy_commands:
+        region_name = named_region_copy_commands[command]
+        speak(f"Copying text from the {region_name} area")
+        result = copy_named_screen_region_text(region_name)
+        speak(result)
+        return
+
     if "read screen" in command or "what is on screen" in command:
         speak("Scanning screen")
 
@@ -615,6 +651,12 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         print("\n========================\n")
 
         speak("Screen content printed")
+        return
+
+    if command in ["copy screen text", "copy text from screen"]:
+        speak("Scanning screen and copying text")
+        result = copy_screen_text()
+        speak(result)
         return
 
     if command in [
