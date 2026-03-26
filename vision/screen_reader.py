@@ -97,6 +97,64 @@ def _show_region_overlay(region, duration_seconds=1.2, color="#3ddc97", border_w
     return True
 
 
+def _show_live_region_preview(
+    start_position,
+    duration_seconds=3,
+    color="#4cc9f0",
+    border_width=3,
+    update_interval_ms=40,
+):
+    def worker():
+        try:
+            root = tk.Tk()
+            root.overrideredirect(True)
+            root.attributes("-topmost", True)
+            root.attributes("-alpha", 0.28)
+            root.configure(bg="black")
+
+            canvas = tk.Canvas(
+                root,
+                width=2,
+                height=2,
+                highlightthickness=0,
+                bg="black",
+            )
+            canvas.pack(fill="both", expand=True)
+            start_time = time.time()
+
+            def update_box():
+                if time.time() - start_time >= duration_seconds:
+                    root.destroy()
+                    return
+
+                current_position = pyautogui.position()
+                left = min(start_position.x, current_position.x)
+                top = min(start_position.y, current_position.y)
+                width = max(2, abs(current_position.x - start_position.x))
+                height = max(2, abs(current_position.y - start_position.y))
+
+                root.geometry(f"{width}x{height}+{left}+{top}")
+                canvas.config(width=width, height=height)
+                canvas.delete("all")
+                canvas.create_rectangle(
+                    border_width,
+                    border_width,
+                    max(border_width + 1, width - border_width),
+                    max(border_width + 1, height - border_width),
+                    outline=color,
+                    width=border_width,
+                )
+                root.after(update_interval_ms, update_box)
+
+            root.after(0, update_box)
+            root.mainloop()
+        except Exception:
+            return
+
+    threading.Thread(target=worker, daemon=True).start()
+    return True
+
+
 def _clean_line(line):
     line = re.sub(r"\s+", " ", line).strip()
     line = re.sub(r"[|`~_=*<>]+", " ", line)
@@ -452,6 +510,7 @@ def read_selected_area_text(selection_wait_seconds=3):
 
 def capture_selected_region(selection_wait_seconds=3):
     start_position = pyautogui.position()
+    _show_live_region_preview(start_position, duration_seconds=selection_wait_seconds)
     time.sleep(selection_wait_seconds)
     end_position = pyautogui.position()
 
