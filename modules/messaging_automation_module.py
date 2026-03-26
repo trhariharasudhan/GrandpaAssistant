@@ -11,6 +11,8 @@ from brain.memory_engine import load_memory
 
 _scheduled_whatsapp_jobs = []
 _scheduled_job_lock = threading.Lock()
+_scheduled_gmail_jobs = []
+_scheduled_gmail_lock = threading.Lock()
 
 
 def _clean_text(text):
@@ -241,6 +243,89 @@ def _format_schedule_time(dt):
     return dt.strftime("%d %B %Y %I:%M %p")
 
 
+def _parse_scheduled_recipient_subject_body(text):
+    if " subject " not in text or " body " not in text:
+        return None
+
+    to_part, remainder = text.split(" subject ", 1)
+    subject_part, body_part = remainder.split(" body ", 1)
+
+    recipient, recipient_error = _resolve_email_target(to_part)
+    if recipient_error:
+        return {"error": recipient_error}
+
+    subject = _clean_text(subject_part)
+    body = _clean_text(body_part)
+    if not recipient or not subject or not body:
+        return {"error": "Please give recipient, subject, and body for the Gmail schedule."}
+
+    return {
+        "recipient": recipient,
+        "subject": subject,
+        "body": body,
+    }
+
+
+def _parse_scheduled_gmail_command(command):
+    if " after " in command:
+        prefix_match = re.match(
+            r"^(?:schedule gmail draft to|send gmail draft to)\s+(.+?)\s+after\s+(\d+)\s+minutes?\s+subject\s+(.+?)\s+body\s+(.+)$",
+            command,
+        )
+        if not prefix_match:
+            return None
+
+        recipient, recipient_error = _resolve_email_target(prefix_match.group(1))
+        if recipient_error:
+            return {"error": recipient_error}
+
+        minutes = int(prefix_match.group(2))
+        subject = _clean_text(prefix_match.group(3))
+        body = _clean_text(prefix_match.group(4))
+        scheduled_for = datetime.datetime.now() + datetime.timedelta(minutes=minutes)
+        return {
+            "recipient": recipient,
+            "subject": subject,
+            "body": body,
+            "delay_seconds": minutes * 60,
+            "scheduled_for": scheduled_for,
+        }
+
+    prefix_match = re.match(
+        r"^(?:schedule gmail draft to|send gmail draft to)\s+(.+?)\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+subject\s+(.+?)\s+body\s+(.+)$",
+        command,
+    )
+    if not prefix_match:
+        return None
+
+    recipient, recipient_error = _resolve_email_target(prefix_match.group(1))
+    if recipient_error:
+        return {"error": recipient_error}
+
+    hour = int(prefix_match.group(2))
+    minute = int(prefix_match.group(3) or 0)
+    meridiem = (prefix_match.group(4) or "").lower()
+
+    if meridiem:
+        if hour == 12:
+            hour = 0
+        if meridiem == "pm":
+            hour += 12
+
+    now = datetime.datetime.now()
+    scheduled_for = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if scheduled_for <= now:
+        scheduled_for += datetime.timedelta(days=1)
+
+    return {
+        "recipient": recipient,
+        "subject": _clean_text(prefix_match.group(5)),
+        "body": _clean_text(prefix_match.group(6)),
+        "delay_seconds": int((scheduled_for - now).total_seconds()),
+        "scheduled_for": scheduled_for,
+    }
+
+
 def _enqueue_whatsapp_job(contact_name, message_text, scheduled_for, delay_seconds):
     job_id = int(time.time() * 1000)
 
@@ -258,6 +343,31 @@ def _enqueue_whatsapp_job(contact_name, message_text, scheduled_for, delay_secon
                 "id": job_id,
                 "contact": contact_name,
                 "message": message_text,
+                "scheduled_for": scheduled_for,
+            }
+        )
+
+    threading.Thread(target=worker, daemon=True).start()
+    return job_id
+
+
+def _enqueue_gmail_job(recipient, subject, body, scheduled_for, delay_seconds):
+    job_id = int(time.time() * 1000)
+
+    def worker():
+        time.sleep(max(1, delay_seconds))
+        _open_gmail_draft(recipient, subject, body)
+        with _scheduled_gmail_lock:
+            _scheduled_gmail_jobs[:] = [
+                job for job in _scheduled_gmail_jobs if job["id"] != job_id
+            ]
+
+    with _scheduled_gmail_lock:
+        _scheduled_gmail_jobs.append(
+            {
+                "id": job_id,
+                "recipient": recipient,
+                "subject": subject,
                 "scheduled_for": scheduled_for,
             }
         )
@@ -323,6 +433,71 @@ def cancel_scheduled_whatsapp_message(command):
 
     return (
         f"Cancelled scheduled WhatsApp message to {removed['contact']} at "
+        f"{_format_schedule_time(removed['scheduled_for'])}."
+    )
+
+
+def schedule_gmail_draft(command):
+    parsed = _parse_scheduled_gmail_command(command)
+    if not parsed:
+        return (
+            "Use this format: schedule gmail draft to my email after 15 minutes subject Test body Hello "
+            "or send gmail draft to my email at 10:30 pm subject Test body Hello."
+        )
+
+    if parsed.get("error"):
+        return parsed["error"]
+
+    _enqueue_gmail_job(
+        parsed["recipient"],
+        parsed["subject"],
+        parsed["body"],
+        parsed["scheduled_for"],
+        parsed["delay_seconds"],
+    )
+    return (
+        f"Okay, I will open the Gmail draft to {parsed['recipient']} at "
+        f"{_format_schedule_time(parsed['scheduled_for'])}."
+    )
+
+
+def list_scheduled_gmail_drafts():
+    with _scheduled_gmail_lock:
+        jobs = sorted(_scheduled_gmail_jobs, key=lambda item: item["scheduled_for"])
+
+    if not jobs:
+        return "You do not have any scheduled Gmail drafts right now."
+
+    lines = []
+    for index, job in enumerate(jobs[:10], start=1):
+        lines.append(
+            f"{index}. to {job['recipient']} at {_format_schedule_time(job['scheduled_for'])} subject {job['subject']}"
+        )
+    return "Scheduled Gmail drafts: " + " | ".join(lines)
+
+
+def cancel_scheduled_gmail_draft(command):
+    raw = (
+        command.replace("cancel scheduled gmail draft", "", 1)
+        .replace("delete scheduled gmail draft", "", 1)
+        .strip()
+    )
+    if not raw.isdigit():
+        return "Tell me the scheduled Gmail draft number to cancel."
+
+    index = int(raw) - 1
+    with _scheduled_gmail_lock:
+        jobs = sorted(_scheduled_gmail_jobs, key=lambda item: item["scheduled_for"])
+        if index < 0 or index >= len(jobs):
+            return "That scheduled Gmail draft number does not exist."
+        job_id = jobs[index]["id"]
+        removed = jobs[index]
+        _scheduled_gmail_jobs[:] = [
+            job for job in _scheduled_gmail_jobs if job["id"] != job_id
+        ]
+
+    return (
+        f"Cancelled scheduled Gmail draft to {removed['recipient']} at "
         f"{_format_schedule_time(removed['scheduled_for'])}."
     )
 
