@@ -1,6 +1,6 @@
 import pygetwindow as gw
 
-from vision.screen_reader import read_screen_text
+from vision.screen_reader import click_on_text, find_text_details, read_named_screen_region, read_screen_text
 
 
 BROWSER_APPS = {"chrome", "msedge", "microsoft edge", "firefox", "brave", "opera"}
@@ -186,6 +186,94 @@ def summarize_browser_page():
         return "The active window does not look like a browser right now."
 
     return summarize_if_browser()
+
+
+def _browser_only_info():
+    info = get_active_window_info()
+    if not info or info["app_key"] not in BROWSER_APPS:
+        return None
+    return info
+
+
+def get_current_browser_page_title():
+    info = _browser_only_info()
+    if not info:
+        return "The active window does not look like a browser right now."
+
+    tab_title = _extract_browser_tab_title(info["title"])
+    return f"The current browser page title looks like {tab_title}."
+
+
+def summarize_visible_browser_section():
+    info = _browser_only_info()
+    if not info:
+        return "The active window does not look like a browser right now."
+
+    region_text = read_named_screen_region("center")
+    if not region_text or "not installed" in region_text.lower():
+        return "I could not read the visible browser section clearly."
+
+    lines = [line.strip() for line in region_text.splitlines() if line.strip()]
+    if not lines:
+        return "I could not read the visible browser section clearly."
+
+    preview = " | ".join(lines[:6])
+    return f"The visible browser section includes: {preview}."
+
+
+def find_on_current_browser_page(command):
+    info = _browser_only_info()
+    if not info:
+        return "The active window does not look like a browser right now."
+
+    target = command
+    prefixes = [
+        "search this page for",
+        "find on this page",
+        "find this page",
+        "search page for",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            target = command.replace(prefix, "", 1).strip()
+            break
+
+    if not target:
+        return "Tell me what you want me to find on this page."
+
+    details = find_text_details(target)
+    if not details:
+        return f"I could not find {target} on the current browser page."
+
+    x, y = details["center"]
+    return f"I found {details['text']} on the current browser page near position {x}, {y}."
+
+
+def click_on_current_browser_page(command):
+    info = _browser_only_info()
+    if not info:
+        return "The active window does not look like a browser right now."
+
+    target = command
+    prefixes = [
+        "click on this page",
+        "click this page",
+        "click first matching result for",
+        "click first result for",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            target = command.replace(prefix, "", 1).strip()
+            break
+
+    if not target:
+        return "Tell me what you want me to click on this page."
+
+    found = click_on_text(target)
+    if found:
+        return f"I clicked {target} on the current browser page."
+
+    return f"I could not find {target} on the current browser page to click."
 
 
 def summarize_code_editor():

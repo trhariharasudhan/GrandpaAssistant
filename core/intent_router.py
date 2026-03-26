@@ -74,15 +74,19 @@ from modules.profile_module import (
 )
 from modules.weather_module import get_weather_report
 from modules.window_context_module import (
+    click_on_current_browser_page,
     describe_active_window,
+    find_on_current_browser_page,
     get_active_app_name,
     get_active_window_title,
+    get_current_browser_page_title,
     summarize_active_window,
     summarize_browser_page,
     summarize_code_editor,
     summarize_if_browser,
     summarize_if_code_editor,
     summarize_if_file_explorer,
+    summarize_visible_browser_section,
     summarize_current_folder,
     summarize_whatsapp_context,
 )
@@ -715,6 +719,58 @@ COMMAND_REGISTRY = [
         "handler": lambda command: summarize_browser_page(),
         "category": "app_intelligence",
         "confidence": 0.96,
+    },
+    {
+        "intent": "app.browser.title",
+        "patterns": [
+            "what is the current page title",
+            "what page am i on",
+            "current page title",
+            "browser page title",
+        ],
+        "type": "exact",
+        "handler": lambda command: get_current_browser_page_title(),
+        "category": "app_intelligence",
+        "confidence": 0.96,
+    },
+    {
+        "intent": "app.browser.section",
+        "patterns": [
+            "summarize current visible section",
+            "summarize visible section",
+            "read current visible section",
+            "read visible browser section",
+        ],
+        "type": "exact",
+        "handler": lambda command: summarize_visible_browser_section(),
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "app.browser.find",
+        "patterns": [
+            "search this page for",
+            "find on this page",
+            "find this page",
+            "search page for",
+        ],
+        "type": "startswith",
+        "handler": find_on_current_browser_page,
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "app.browser.click",
+        "patterns": [
+            "click on this page",
+            "click this page",
+            "click first matching result for",
+            "click first result for",
+        ],
+        "type": "startswith",
+        "handler": click_on_current_browser_page,
+        "category": "app_intelligence",
+        "confidence": 0.95,
     },
     {
         "intent": "window.editor",
