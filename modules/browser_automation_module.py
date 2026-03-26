@@ -1,17 +1,26 @@
 import urllib.parse
 import webbrowser
+import time
+
+from utils.config import get_setting
 
 
 def _clean_query(text):
     return " ".join(text.strip().split())
 
 
-def _open_url(url):
-    try:
-        webbrowser.open(url)
-        return True
-    except Exception:
-        return False
+def _open_url(url, retries=2, delay_seconds=None):
+    delay_seconds = delay_seconds or get_setting("browser.page_load_delay_seconds", 3)
+
+    for attempt in range(max(1, retries)):
+        try:
+            if webbrowser.open(url, new=2):
+                return True
+        except Exception:
+            pass
+        if attempt < retries - 1:
+            time.sleep(delay_seconds)
+    return False
 
 
 def open_whatsapp_web():

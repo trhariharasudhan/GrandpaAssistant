@@ -10,6 +10,7 @@ import webbrowser
 import keyboard
 
 from brain.memory_engine import load_memory
+from utils.config import get_setting
 
 
 DATA_FILE = os.path.join(
@@ -116,7 +117,7 @@ def _prune_expired_jobs():
 
 def _open_url(url):
     try:
-        webbrowser.open(url)
+        webbrowser.open(url, new=2)
         return True
     except Exception:
         return False
@@ -258,6 +259,7 @@ def _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seco
 
 
 def _open_whatsapp_and_queue_message(contact_name, message_text, launch_delay=8):
+    launch_delay = get_setting("browser.whatsapp_load_delay_seconds", launch_delay)
     if not _open_url("https://web.whatsapp.com/"):
         return False
 
@@ -622,7 +624,7 @@ def open_whatsapp_and_type(command):
     if not _open_url("https://web.whatsapp.com/"):
         return "I could not open WhatsApp Web right now."
 
-    _type_after_delay(text, delay_seconds=8)
+    _type_after_delay(text, delay_seconds=get_setting("browser.whatsapp_load_delay_seconds", 8))
     return "Opening WhatsApp Web and I will type your message in a few seconds."
 
 
@@ -648,7 +650,7 @@ def open_gmail_and_type(command):
     if not _open_url(compose_url):
         return "I could not open Gmail compose right now."
 
-    _type_after_delay(text, delay_seconds=8)
+    _type_after_delay(text, delay_seconds=get_setting("browser.gmail_load_delay_seconds", 8))
     return "Opening Gmail compose and I will type your message in a few seconds."
 
 
@@ -980,5 +982,9 @@ def whatsapp_message_contact(command):
     if not _open_url("https://web.whatsapp.com/"):
         return "I could not open WhatsApp Web right now."
 
-    _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seconds=8)
+    _whatsapp_contact_message_after_delay(
+        contact_name,
+        message_text,
+        delay_seconds=get_setting("browser.whatsapp_load_delay_seconds", 8),
+    )
     return f"Opening WhatsApp Web and I will search for {contact_name} and type your message."

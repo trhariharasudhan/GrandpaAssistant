@@ -35,6 +35,11 @@ DEFAULT_SETTINGS = {
         "persona": "friendly",
         "model": "phi3",
     },
+    "browser": {
+        "page_load_delay_seconds": 3,
+        "whatsapp_load_delay_seconds": 8,
+        "gmail_load_delay_seconds": 8,
+    },
     "notifications": {
         "reminder_monitor_enabled": True,
         "reminder_check_interval_minutes": 15,

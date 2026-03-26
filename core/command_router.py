@@ -131,6 +131,30 @@ def _handle_config_command(command):
         update_setting("active_timeout", timeout_value)
         return f"Active timeout updated to {timeout_value} seconds."
 
+    browser_delay_match = re.match(
+        r"^(?:set|change|update)\s+browser load delay\s+to\s+(\d+)$", command
+    )
+    if browser_delay_match:
+        delay_value = max(1, int(browser_delay_match.group(1)))
+        update_setting("browser.page_load_delay_seconds", delay_value)
+        return f"Browser load delay updated to {delay_value} seconds."
+
+    whatsapp_delay_match = re.match(
+        r"^(?:set|change|update)\s+whatsapp load delay\s+to\s+(\d+)$", command
+    )
+    if whatsapp_delay_match:
+        delay_value = max(1, int(whatsapp_delay_match.group(1)))
+        update_setting("browser.whatsapp_load_delay_seconds", delay_value)
+        return f"WhatsApp load delay updated to {delay_value} seconds."
+
+    gmail_delay_match = re.match(
+        r"^(?:set|change|update)\s+gmail load delay\s+to\s+(\d+)$", command
+    )
+    if gmail_delay_match:
+        delay_value = max(1, int(gmail_delay_match.group(1)))
+        update_setting("browser.gmail_load_delay_seconds", delay_value)
+        return f"Gmail load delay updated to {delay_value} seconds."
+
     if command in ["show settings", "show config", "settings"]:
         wake_word = get_setting("wake_word", "hey grandpa")
         tray_mode = get_setting("startup.tray_mode", False)
@@ -142,6 +166,9 @@ def _handle_config_command(command):
         error_sound = get_setting("sounds.error", True)
         initial_timeout = get_setting("initial_timeout", 15)
         active_timeout = get_setting("active_timeout", 60)
+        browser_delay = get_setting("browser.page_load_delay_seconds", 3)
+        whatsapp_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
+        gmail_delay = get_setting("browser.gmail_load_delay_seconds", 8)
         reminder_monitor = get_setting("notifications.reminder_monitor_enabled", True)
         reminder_interval = get_setting("notifications.reminder_check_interval_minutes", 15)
         event_monitor = get_setting("notifications.event_monitor_enabled", True)
@@ -152,6 +179,9 @@ def _handle_config_command(command):
             f"Persona mode is {persona_mode}. "
             f"Initial timeout is {initial_timeout} seconds. "
             f"Active timeout is {active_timeout} seconds. "
+            f"Browser load delay is {browser_delay} seconds. "
+            f"WhatsApp load delay is {whatsapp_delay} seconds. "
+            f"Gmail load delay is {gmail_delay} seconds. "
             f"Tray startup is {'on' if tray_mode else 'off'}. "
             f"Reminder monitor is {'on' if reminder_monitor else 'off'}. "
             f"Reminder interval is {reminder_interval} minutes. "
