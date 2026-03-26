@@ -67,7 +67,12 @@ from utils.config import APP_ALIASES, get_setting, update_setting
 from vision.hand_mouse_control import run_hand_mouse
 from vision.screen_reader import click_on_text, find_text_details, is_text_visible, read_screen_text
 from voice.listen import apply_voice_profile, current_voice_mode
-from voice.speak import speak
+from voice.speak import (
+    append_streaming_reply,
+    end_streaming_reply,
+    speak,
+    start_streaming_reply,
+)
 
 mouse_stop_event = None
 mouse_stop_requested_by_command = False
@@ -130,6 +135,7 @@ def _handle_config_command(command):
         wake_word = get_setting("wake_word", "hey grandpa")
         tray_mode = get_setting("startup.tray_mode", False)
         voice_mode = current_voice_mode()
+        persona_mode = get_setting("assistant.persona", "friendly")
         sounds_enabled = get_setting("sounds.enabled", True)
         start_sound = get_setting("sounds.start", True)
         success_sound = get_setting("sounds.success", True)
@@ -143,6 +149,7 @@ def _handle_config_command(command):
         return (
             f"Current settings: wake word is {wake_word}. "
             f"Voice mode is {voice_mode}. "
+            f"Persona mode is {persona_mode}. "
             f"Initial timeout is {initial_timeout} seconds. "
             f"Active timeout is {active_timeout} seconds. "
             f"Tray startup is {'on' if tray_mode else 'off'}. "
@@ -195,6 +202,18 @@ def _handle_config_command(command):
     if command in ["disable tray startup", "turn off tray startup"]:
         update_setting("startup.tray_mode", False)
         return "Tray startup disabled."
+
+    if command in ["friendly mode", "set persona to friendly", "change persona to friendly"]:
+        update_setting("assistant.persona", "friendly")
+        return "Persona mode changed to Friendly."
+
+    if command in ["professional mode", "set persona to professional", "change persona to professional"]:
+        update_setting("assistant.persona", "professional")
+        return "Persona mode changed to Professional."
+
+    if command in ["funny mode", "set persona to funny", "change persona to funny"]:
+        update_setting("assistant.persona", "funny")
+        return "Persona mode changed to Funny."
 
     if command in ["enable reminder monitor", "turn on reminder monitor", "enable notification monitor"]:
         update_setting("notifications.reminder_monitor_enabled", True)
@@ -694,17 +713,35 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     if app_scan_module.LAST_TOPIC and any(
         word in command for word in ["he", "she", "his", "her", "they", "him"]
     ):
-        response = ask_ollama(
-            f"The user is asking about {app_scan_module.LAST_TOPIC}. {command}"
-        )
-        speak(response)
+        stream_output = input_mode == "text"
+        if stream_output:
+            start_streaming_reply()
+        try:
+            response = ask_ollama(
+                f"The user is asking about {app_scan_module.LAST_TOPIC}. {command}",
+                stream_callback=append_streaming_reply if stream_output else None,
+            )
+        finally:
+            if stream_output:
+                end_streaming_reply()
+        speak(response, already_printed=stream_output)
         return
 
     # -------- GENERAL AI RESPONSE --------
     try:
-        response = ask_ollama(command)
+        stream_output = input_mode == "text"
+        if stream_output:
+            start_streaming_reply()
+        try:
+            response = ask_ollama(
+                command,
+                stream_callback=append_streaming_reply if stream_output else None,
+            )
+        finally:
+            if stream_output:
+                end_streaming_reply()
         if response:
-            speak(response)
+            speak(response, already_printed=stream_output)
         else:
             speak("I did not get a proper response.")
 

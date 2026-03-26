@@ -1,87 +1,145 @@
+import json
+
 import requests
+
 from brain.memory_engine import get_memory
+from utils.config import get_setting
 
-# ===== GLOBAL CONVERSATION HISTORY =====
+
 conversation_history = []
+MAX_MESSAGES = 12
+OLLAMA_URL = "http://localhost:11434/api/generate"
 
-MAX_MESSAGES = 8  # last 8 exchanges only
+PERSONA_INSTRUCTIONS = {
+    "friendly": (
+        "Be warm, casual, encouraging, and supportive. "
+        "Sound like a caring personal assistant."
+    ),
+    "professional": (
+        "Be polished, clear, concise, and business-like. "
+        "Keep a respectful professional tone."
+    ),
+    "funny": (
+        "Be light, witty, and playful without becoming distracting. "
+        "Keep replies useful and easy to understand."
+    ),
+}
 
 
-def ask_ollama(prompt):
-    """
-    Send prompt to local Ollama model with conversation memory.
-    Maintains limited structured history.
-    """
+def _memory_context_lines():
+    lines = []
+    remembered_items = {
+        "User name": get_memory("personal.identity.name"),
+        "Preferred name": get_memory("personal.assistant.preferred_name_for_user"),
+        "Preferred language": get_memory("personal.assistant.preferred_response_language"),
+        "Preferred tone": get_memory("personal.assistant.preferred_response_tone"),
+        "Current job status": get_memory("professional.career_preferences.current_job_status"),
+        "Preferred job role": get_memory("professional.career_preferences.preferred_job_role"),
+        "Strongest skill": get_memory("professional.career_preferences.strongest_skill"),
+        "One year goal": get_memory("professional.goal_timeline.one_year_goal"),
+        "Five year goal": get_memory("professional.goal_timeline.five_year_goal"),
+        "Ten year goal": get_memory("professional.goal_timeline.ten_year_goal"),
+    }
 
-    global conversation_history
+    for label, value in remembered_items.items():
+        if not value:
+            continue
+        if isinstance(value, list):
+            value = ", ".join(map(str, value))
+        lines.append(f"{label}: {value}")
 
-    url = "http://localhost:11434/api/generate"
+    return lines
 
-    # Add user message
-    conversation_history.append({"role": "user", "content": prompt})
 
-    # Keep memory limited
-    conversation_history = conversation_history[-MAX_MESSAGES:]
-
-    # Get stored user name
+def _build_prompt(prompt):
+    persona = get_setting("assistant.persona", "friendly").lower()
+    persona_instruction = PERSONA_INSTRUCTIONS.get(
+        persona, PERSONA_INSTRUCTIONS["friendly"]
+    )
     user_name = get_memory("personal.identity.name") or "Captain"
 
-    # Base prompt
-    formatted_prompt = f"""
-        You are Grandpa, a friendly AI assistant created by Captain.
-        The user's name is {user_name}.
+    formatted_prompt = (
+        "You are Grandpa, a personal AI assistant.\n"
+        f"Current persona mode: {persona}.\n"
+        f"Persona behavior: {persona_instruction}\n"
+        f"The user's name is {user_name}.\n"
+        "Use remembered personal details when relevant.\n"
+        "Give direct, natural answers.\n"
+        "Keep spoken replies compact unless the user asks for detail.\n"
+    )
 
-        Speak naturally and clearly.
-        Give helpful answers.
-        Keep responses short so they can be spoken aloud.
-        """
+    memory_lines = _memory_context_lines()
+    if memory_lines:
+        formatted_prompt += "\nRemembered user context:\n"
+        for line in memory_lines:
+            formatted_prompt += f"- {line}\n"
 
-    # Add conversation history
-    for msg in conversation_history:
-        if msg["role"] == "user":
-            formatted_prompt += f"\nUser: {msg['content']}"
-        else:
-            formatted_prompt += f"\nAssistant: {msg['content']}"
+    if conversation_history:
+        formatted_prompt += "\nRecent conversation:\n"
+        for message in conversation_history:
+            role = "User" if message["role"] == "user" else "Assistant"
+            formatted_prompt += f"{role}: {message['content']}\n"
 
-    formatted_prompt += "\nAssistant:"
+    formatted_prompt += f"\nUser: {prompt}\nAssistant:"
+    return formatted_prompt
+
+
+def ask_ollama(prompt, stream_callback=None):
+    global conversation_history
+
+    conversation_history.append({"role": "user", "content": prompt})
+    conversation_history = conversation_history[-MAX_MESSAGES:]
 
     payload = {
-        "model": "phi3",
-        "prompt": formatted_prompt,
-        "stream": False,
+        "model": get_setting("assistant.model", "phi3"),
+        "prompt": _build_prompt(prompt),
+        "stream": bool(stream_callback),
         "options": {
-            "num_predict": 120,
-            "temperature": 0.5,
+            "num_predict": 180,
+            "temperature": 0.6,
         },
     }
 
     try:
-        response = requests.post(url, json=payload, timeout=60)
+        response = requests.post(
+            OLLAMA_URL,
+            json=payload,
+            timeout=90,
+            stream=bool(stream_callback),
+        )
         response.raise_for_status()
 
-        data = response.json()
-        reply = data.get("response", "No response from model.")
+        if stream_callback:
+            chunks = []
+            for line in response.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                data = json.loads(line)
+                chunk = data.get("response", "")
+                if chunk:
+                    chunks.append(chunk)
+                    stream_callback(chunk)
+                if data.get("done"):
+                    break
+            reply = "".join(chunks).strip()
+        else:
+            data = response.json()
+            reply = data.get("response", "").strip()
 
-        # limit response length for TTS
-        reply = reply.strip()
-        reply = reply[:400]
+        reply = reply[:600] if reply else "No response from model."
 
     except requests.exceptions.Timeout:
         print("AI Timeout Error")
         reply = "AI is taking too long to respond."
-
     except requests.exceptions.ConnectionError:
         print("AI Connection Error")
         reply = "AI server is not running."
-
-    except Exception as e:
-        print("AI Error:", e)
+    except Exception as error:
+        print("AI Error:", error)
         reply = "AI server not responding."
 
-    # Add assistant reply to memory
     conversation_history.append({"role": "assistant", "content": reply})
     conversation_history = conversation_history[-MAX_MESSAGES:]
-
     return reply
 
 

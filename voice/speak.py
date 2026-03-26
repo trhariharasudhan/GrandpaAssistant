@@ -11,8 +11,10 @@ init(autoreset=True)
 _engine = None
 _sapi_voice = None
 _engine_lock = threading.Lock()
+_stream_lock = threading.Lock()
 _response_mode = "hybrid"
 _mirror_voice_replies = True
+_stream_active = False
 
 SVS_FLAGS_ASYNC = 1
 SVS_FPURGE_BEFORE_SPEAK = 2
@@ -53,18 +55,47 @@ def typing_effect(text, delay=0.02):
     print()
 
 
+def start_streaming_reply():
+    global _stream_active
+    with _stream_lock:
+        if _stream_active:
+            return
+        _stream_active = True
+        sys.stdout.write(Fore.GREEN + "Grandpa: " + Style.RESET_ALL)
+        sys.stdout.flush()
+
+
+def append_streaming_reply(text):
+    if not text:
+        return
+
+    with _stream_lock:
+        if not _stream_active:
+            sys.stdout.write(Fore.GREEN + "Grandpa: " + Style.RESET_ALL)
+        sys.stdout.write(text)
+        sys.stdout.flush()
+
+
+def end_streaming_reply():
+    global _stream_active
+    with _stream_lock:
+        if _stream_active:
+            print()
+        _stream_active = False
+
+
 def set_response_mode(mode):
     global _response_mode
     if mode in {"text", "voice", "hybrid"}:
         _response_mode = mode
 
 
-def speak(text):
+def speak(text, already_printed=False):
     should_print = _response_mode in {"text", "hybrid"} or (
         _response_mode == "voice" and _mirror_voice_replies
     )
 
-    if should_print:
+    if should_print and not already_printed:
         typing_effect(text)
 
     if _response_mode in {"voice", "hybrid"}:
