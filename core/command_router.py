@@ -65,7 +65,14 @@ from controls.volume_control import handle_volume, set_volume_percentage
 from utils.sound import play_sound
 from utils.config import APP_ALIASES, get_setting, update_setting
 from vision.hand_mouse_control import run_hand_mouse
-from vision.screen_reader import click_on_text, find_text_details, is_text_visible, read_screen_text
+from vision.screen_reader import (
+    click_on_text,
+    find_text_details,
+    is_text_visible,
+    read_named_screen_region,
+    read_screen_text,
+    read_selected_area_text,
+)
 from voice.listen import apply_voice_profile, current_voice_mode
 from voice.speak import (
     append_streaming_reply,
@@ -422,6 +429,47 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             pending_confirmation = None
             speak("Cancelled.")
             return
+
+    if command in [
+        "read selected area",
+        "scan selected area",
+        "read selected region",
+    ]:
+        speak(
+            "Move your mouse to the first corner now. I will capture the second corner in three seconds."
+        )
+        result = read_selected_area_text()
+
+        if isinstance(result, dict):
+            print("\n===== SELECTED AREA TEXT =====\n")
+            print(result["text"])
+            print("\n==============================\n")
+            speak("Selected area content printed")
+        else:
+            speak(result)
+        return
+
+    named_region_commands = {
+        "read top left area": "top left",
+        "read top right area": "top right",
+        "read bottom left area": "bottom left",
+        "read bottom right area": "bottom right",
+        "read center area": "center",
+        "scan top left area": "top left",
+        "scan top right area": "top right",
+        "scan bottom left area": "bottom left",
+        "scan bottom right area": "bottom right",
+        "scan center area": "center",
+    }
+    if command in named_region_commands:
+        region_name = named_region_commands[command]
+        speak(f"Scanning the {region_name} area")
+        text = read_named_screen_region(region_name)
+        print(f"\n===== {region_name.upper()} AREA TEXT =====\n")
+        print(text)
+        print("\n========================\n")
+        speak(f"{region_name} area content printed")
+        return
 
     if "read screen" in command or "what is on screen" in command:
         speak("Scanning screen")

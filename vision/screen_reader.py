@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+import time
 
 try:
     import pytesseract
@@ -32,6 +33,10 @@ def _ocr_ready():
 def _prepare_image():
     screenshot = pyautogui.screenshot()
     img = np.array(screenshot)
+    return _prepare_image_array(img)
+
+
+def _prepare_image_array(img):
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
     # Improve OCR quality for small UI text.
@@ -41,6 +46,12 @@ def _prepare_image():
         denoised, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
     )
     return thresholded
+
+
+def _capture_region(region):
+    screenshot = pyautogui.screenshot(region=region)
+    img = np.array(screenshot)
+    return _prepare_image_array(img)
 
 
 def _clean_line(line):
@@ -225,3 +236,79 @@ def read_screen_text():
         return _clean_ocr_text(raw_text)
 
     return _clean_ocr_text("\n".join(lines))
+
+
+def _region_from_name(region_name):
+    screen_width, screen_height = pyautogui.size()
+    half_width = screen_width // 2
+    half_height = screen_height // 2
+    quarter_width = screen_width // 4
+    quarter_height = screen_height // 4
+
+    regions = {
+        "top left": (0, 0, half_width, half_height),
+        "top right": (half_width, 0, screen_width - half_width, half_height),
+        "bottom left": (0, half_height, half_width, screen_height - half_height),
+        "bottom right": (
+            half_width,
+            half_height,
+            screen_width - half_width,
+            screen_height - half_height,
+        ),
+        "center": (
+            quarter_width,
+            quarter_height,
+            half_width,
+            half_height,
+        ),
+    }
+    return regions.get(region_name)
+
+
+def read_named_screen_region(region_name):
+    if not _ocr_ready():
+        return "Tesseract OCR is not installed or not available in PATH."
+
+    region = _region_from_name(region_name)
+    if not region:
+        return "That screen region is not supported."
+
+    img = _capture_region(region)
+    lines = _extract_text_lines(img)
+
+    if not lines:
+        raw_text = pytesseract.image_to_string(img, config=OCR_CONFIG)
+        return _clean_ocr_text(raw_text)
+
+    return _clean_ocr_text("\n".join(lines))
+
+
+def read_selected_area_text(selection_wait_seconds=3):
+    if not _ocr_ready():
+        return "Tesseract OCR is not installed or not available in PATH."
+
+    start_position = pyautogui.position()
+    time.sleep(selection_wait_seconds)
+    end_position = pyautogui.position()
+
+    left = min(start_position.x, end_position.x)
+    top = min(start_position.y, end_position.y)
+    width = abs(end_position.x - start_position.x)
+    height = abs(end_position.y - start_position.y)
+
+    if width < 20 or height < 20:
+        return "Selected area was too small. Move the mouse to two different corners and try again."
+
+    img = _capture_region((left, top, width, height))
+    lines = _extract_text_lines(img)
+
+    if not lines:
+        raw_text = pytesseract.image_to_string(img, config=OCR_CONFIG)
+        text = _clean_ocr_text(raw_text)
+    else:
+        text = _clean_ocr_text("\n".join(lines))
+
+    return {
+        "text": text,
+        "bounds": (left, top, width, height),
+    }
