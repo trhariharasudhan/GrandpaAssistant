@@ -62,6 +62,12 @@ def _make_chip(parent, text, command_text, on_submit, bg="#1f2937", fg="white"):
     return button
 
 
+def _normalize_chip_item(item):
+    if isinstance(item, (tuple, list)) and len(item) >= 2:
+        return str(item[0]), str(item[1])
+    return str(item), str(item)
+
+
 def _refresh_overlay_lists(suggestions=None, recent_commands=None):
     if _overlay_recent_frame is None or _overlay_suggestion_frame is None or _overlay_handler is None:
         return
@@ -73,10 +79,11 @@ def _refresh_overlay_lists(suggestions=None, recent_commands=None):
     recent_commands = recent_commands or []
 
     for index, item in enumerate(suggestions):
+        label, command_text = _normalize_chip_item(item)
         chip = _make_chip(
             _overlay_suggestion_frame,
-            item,
-            item,
+            label,
+            command_text,
             _overlay_handler,
             bg="#0f766e",
         )

@@ -19,9 +19,11 @@ from core.tray_manager import set_tray_exit_callback, start_tray, stop_tray
 from modules.app_scan_module import categorize_apps, get_all_apps, scan_store_apps
 from modules.briefing_module import build_daily_brief, build_due_reminder_alert
 from modules.dictation_module import handle_dictation_text, is_dictation_active, stop_dictation
+from modules.event_module import get_event_data
 from modules.notification_module import show_startup_notifications, start_notification_monitor
 from modules.profile_module import build_proactive_nudge
 from modules.messaging_automation_module import restore_scheduled_jobs
+from modules.task_module import get_task_data
 from utils.config import get_setting
 from utils.sound import play_sound
 from vision.hand_mouse_control import run_hand_mouse
@@ -54,17 +56,57 @@ hand_mouse_thread = None
 
 
 def _overlay_suggestions():
+    today = datetime.date.today()
+    now = datetime.datetime.now()
+    data = get_task_data()
+    events = get_event_data().get("events", [])
+
+    pending_task_count = sum(1 for task in data.get("tasks", []) if not task.get("completed"))
+    due_today_count = 0
+    overdue_count = 0
+
+    for reminder in data.get("reminders", []):
+        due_at = reminder.get("due_at")
+        due_date = reminder.get("due_date")
+        due_datetime = None
+
+        if due_at:
+            try:
+                due_datetime = datetime.datetime.fromisoformat(due_at)
+            except ValueError:
+                due_datetime = None
+
+        if due_datetime is None and due_date:
+            try:
+                due_datetime = datetime.datetime.combine(
+                    datetime.date.fromisoformat(due_date),
+                    datetime.time(hour=9, minute=0),
+                )
+            except ValueError:
+                due_datetime = None
+
+        if due_datetime is None:
+            continue
+
+        if due_datetime < now:
+            overdue_count += 1
+        elif due_datetime.date() == today:
+            due_today_count += 1
+
+    today_event_count = sum(1 for event in events if event.get("date") == today.isoformat())
+
     return [
-        "what is due today",
-        "show overdue items",
-        "latest task",
-        "latest reminder",
-        "weather",
-        "dashboard",
-        "show settings",
-        "system status",
-        "complete latest task",
-        "copy selected area text",
+        (f"Agenda Today ({today_event_count} events)", "today agenda"),
+        (f"Due Today ({due_today_count})", "what is due today"),
+        (f"Overdue ({overdue_count})", "show overdue items"),
+        (f"Pending Tasks ({pending_task_count})", "latest task"),
+        ("Latest Reminder", "latest reminder"),
+        ("Weather", "weather"),
+        ("Dashboard", "dashboard"),
+        ("Show Settings", "show settings"),
+        ("System Status", "system status"),
+        ("Complete Latest Task", "complete latest task"),
+        ("Copy Selected Area Text", "copy selected area text"),
     ]
 
 
