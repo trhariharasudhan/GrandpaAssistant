@@ -34,6 +34,7 @@ from modules.notification_module import (
 )
 from modules.profile_module import build_proactive_nudge
 from modules.messaging_automation_module import restore_scheduled_jobs
+from modules.google_contacts_module import start_google_contacts_auto_refresh
 from modules.task_module import get_task_data
 from utils.config import get_setting
 from utils.sound import play_sound
@@ -476,6 +477,8 @@ def main(start_in_tray=False):
     run_startup_daily_automations()
     start_notification_monitor()
     restore_scheduled_jobs()
+    if get_setting("google_contacts.auto_refresh_enabled", True):
+        start_google_contacts_auto_refresh(get_setting("google_contacts.auto_refresh_hours", 24))
     if get_setting("ocr.region_hotkey_enabled", True):
         register_region_hotkey(
             _handle_ocr_hotkey_result,

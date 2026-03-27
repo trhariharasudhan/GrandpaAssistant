@@ -474,21 +474,35 @@ def get_named_contact_field(contact_name, field_name):
         return None, f"I can check email or phone for {resolved_name or contact_name} right now."
 
     if not contact:
-        google_value, google_name = get_google_contact_field(contact_name, normalized_field)
+        google_value, google_name, google_suggestions = get_google_contact_field(contact_name, normalized_field)
         if google_value:
             return (
                 google_value,
                 f"I found {google_name}'s {normalized_field} from Google Contacts. It is {google_value}.",
             )
+        if google_suggestions:
+            return (
+                None,
+                f"I found multiple Google contacts for {contact_name}: "
+                + " | ".join(google_suggestions)
+                + ". Say the exact name or set a contact alias.",
+            )
         return None, f"I could not find a saved contact matching {contact_name}."
 
     value = contact.get(normalized_field)
     if _is_blank(value):
-        google_value, google_name = get_google_contact_field(contact_name, normalized_field)
+        google_value, google_name, google_suggestions = get_google_contact_field(contact_name, normalized_field)
         if google_value:
             return (
                 google_value,
                 f"I found {google_name}'s {normalized_field} from Google Contacts. It is {google_value}.",
+            )
+        if google_suggestions:
+            return (
+                None,
+                f"I found multiple Google contacts for {contact_name}: "
+                + " | ".join(google_suggestions)
+                + ". Say the exact name or set a contact alias.",
             )
         return None, f"I do not have {resolved_name}'s {normalized_field} saved yet."
 

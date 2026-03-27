@@ -80,7 +80,13 @@ from modules.system_module import (
 from modules.web_module import wikipedia_search
 from modules.notes_module import add_note
 from modules.task_module import add_reminder
-from modules.google_contacts_module import list_google_contacts, sync_google_contacts
+from modules.google_contacts_module import (
+    list_contact_aliases,
+    list_google_contacts,
+    remove_contact_alias,
+    set_contact_alias,
+    sync_google_contacts,
+)
 from modules.messaging_automation_module import quick_email_shortcut, quick_whatsapp_message
 from controls.brightness_control import handle_brightness
 from controls.volume_control import handle_volume, set_volume_percentage
@@ -152,6 +158,7 @@ def _normalize_voice_friendly_command(command):
         "start night routine": "run night routine",
         "sync contacts": "sync google contacts",
         "refresh contacts": "refresh google contacts",
+        "list contacts": "list google contacts",
         "read this selected text": "read selected text aloud",
         "read selected text": "read selected text aloud",
         "translate this selected text to tamil": "translate selected text to tamil",
@@ -371,6 +378,27 @@ def _handle_contact_lookup_command(command):
     if command in ["list google contacts", "show google contacts", "show synced contacts"]:
         return list_google_contacts()
 
+    if command in ["list contact aliases", "show contact aliases"]:
+        return list_contact_aliases()
+
+    set_alias_match = re.match(
+        r"^(?:set|save|remember)\s+contact alias\s+(.+?)\s+to\s+(.+)$",
+        command,
+    )
+    if set_alias_match:
+        return set_contact_alias(set_alias_match.group(1).strip(), set_alias_match.group(2).strip())[1]
+
+    means_match = re.match(r"^(.+?)\s+means\s+(.+)$", command)
+    if means_match:
+        return set_contact_alias(means_match.group(1).strip(), means_match.group(2).strip())[1]
+
+    remove_alias_match = re.match(
+        r"^(?:remove|delete|clear)\s+contact alias\s+(.+)$",
+        command,
+    )
+    if remove_alias_match:
+        return remove_contact_alias(remove_alias_match.group(1).strip())[1]
+
     match = re.match(
         r"^what is\s+(.+?)\s+(email|mail|phone|mobile|number|whatsapp)$",
         command,
@@ -385,6 +413,23 @@ def _handle_contact_lookup_command(command):
 
 
 def _handle_config_command(command):
+    if command in ["enable google contacts auto refresh", "enable contact auto refresh"]:
+        update_setting("google_contacts.auto_refresh_enabled", True)
+        return "Google Contacts auto refresh enabled."
+
+    if command in ["disable google contacts auto refresh", "disable contact auto refresh"]:
+        update_setting("google_contacts.auto_refresh_enabled", False)
+        return "Google Contacts auto refresh disabled."
+
+    google_refresh_match = re.match(
+        r"^(?:set|change|update)\s+google contacts auto refresh(?: interval)?\s+to\s+(\d+)$",
+        command,
+    )
+    if google_refresh_match:
+        hours = max(1, int(google_refresh_match.group(1)))
+        update_setting("google_contacts.auto_refresh_hours", hours)
+        return f"Google Contacts auto refresh interval updated to {hours} hours."
+
     wake_word_match = re.match(r"^(?:set|change|update)\s+wake word\s+to\s+(.+)$", command)
     if wake_word_match:
         new_wake_word = wake_word_match.group(1).strip().strip("\"'")

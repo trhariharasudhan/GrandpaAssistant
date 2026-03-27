@@ -1,6 +1,8 @@
 import json
 import os
 import re
+import threading
+import time
 from difflib import SequenceMatcher
 
 
@@ -9,6 +11,8 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 CREDENTIALS_PATH = os.path.join(BASE_DIR, "credentials.json")
 TOKEN_PATH = os.path.join(DATA_DIR, "google_token.json")
 CACHE_PATH = os.path.join(DATA_DIR, "google_contacts_cache.json")
+ALIAS_PATH = os.path.join(DATA_DIR, "contact_aliases.json")
+META_PATH = os.path.join(DATA_DIR, "google_contacts_meta.json")
 SCOPES = ["https://www.googleapis.com/auth/contacts.readonly"]
 
 
@@ -40,6 +44,44 @@ def _save_cache(contacts):
     _ensure_data_dir()
     with open(CACHE_PATH, "w", encoding="utf-8") as file:
         json.dump(contacts, file, indent=4, ensure_ascii=False)
+
+
+def _load_aliases():
+    if not os.path.exists(ALIAS_PATH):
+        return {}
+    try:
+        with open(ALIAS_PATH, "r", encoding="utf-8") as file:
+            data = json.load(file)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return {}
+
+
+def _save_aliases(aliases):
+    _ensure_data_dir()
+    with open(ALIAS_PATH, "w", encoding="utf-8") as file:
+        json.dump(aliases, file, indent=4, ensure_ascii=False)
+
+
+def _load_meta():
+    if not os.path.exists(META_PATH):
+        return {}
+    try:
+        with open(META_PATH, "r", encoding="utf-8") as file:
+            data = json.load(file)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return {}
+
+
+def _save_meta(meta):
+    _ensure_data_dir()
+    with open(META_PATH, "w", encoding="utf-8") as file:
+        json.dump(meta, file, indent=4, ensure_ascii=False)
 
 
 def _build_contact_entry(person):
@@ -172,6 +214,7 @@ def sync_google_contacts():
         deduped.append(entry)
 
     _save_cache(deduped)
+    _save_meta({"last_synced_at": time.time(), "contact_count": len(deduped)})
     return True, f"Google Contacts synced. I cached {len(deduped)} contacts."
 
 
@@ -191,37 +234,68 @@ def _score_contact(query, contact):
             token_overlap = len(alias_tokens & query_tokens) / max(len(query_tokens), 1)
         similarity = SequenceMatcher(None, normalized_query, alias).ratio()
         contains_bonus = 0.15 if normalized_query in alias or alias in normalized_query else 0.0
-        score = max(similarity, token_overlap) + contains_bonus
+        prefix_bonus = 0.2 if alias.startswith(normalized_query) else 0.0
+        exact_token_bonus = 0.25 if normalized_query in alias_tokens else 0.0
+        score = max(similarity, token_overlap) + contains_bonus + prefix_bonus + exact_token_bonus
         best_score = max(best_score, score)
     return best_score
 
 
-def find_google_contact(contact_name):
+def get_google_contact_matches(contact_name, limit=3):
     contacts = _load_cache()
     if not contacts:
-        return None
+        return []
+
+    aliases = _load_aliases()
+    normalized_query = _normalize_name(contact_name)
+    raw_query = " ".join(str(contact_name or "").strip().lower().split())
+    aliased_target = aliases.get(normalized_query)
+    if aliased_target:
+        for contact in contacts:
+            if _normalize_name(contact.get("display_name")) == _normalize_name(aliased_target):
+                return [(contact, 1.0)]
+
+    for contact in contacts:
+        raw_candidates = [contact.get("display_name", "")] + list(contact.get("aliases", []))
+        for candidate in raw_candidates:
+            if raw_query and raw_query == " ".join(str(candidate or "").strip().lower().split()):
+                return [(contact, 1.0)]
 
     ranked = sorted(
         ((contact, _score_contact(contact_name, contact)) for contact in contacts),
         key=lambda item: item[1],
         reverse=True,
     )
+    ranked = [item for item in ranked if item[1] >= 0.55]
+    return ranked[:limit]
+
+
+def find_google_contact(contact_name):
+    ranked = get_google_contact_matches(contact_name, limit=3)
+    if not ranked:
+        return None
     best_contact, best_score = ranked[0]
-    if best_score < 0.55:
+    if len(ranked) > 1 and best_score - ranked[1][1] < 0.12:
         return None
     return best_contact
 
 
 def get_google_contact_field(contact_name, field_name):
-    contact = find_google_contact(contact_name)
-    if not contact:
-        return None, None
+    ranked = get_google_contact_matches(contact_name, limit=3)
+    if not ranked:
+        return None, None, []
+
+    if len(ranked) > 1 and ranked[0][1] - ranked[1][1] < 0.12:
+        suggestions = [item[0].get("display_name") for item in ranked]
+        return None, None, suggestions
+
+    contact = ranked[0][0]
 
     normalized_field = "phone" if field_name in {"phone", "mobile", "number", "whatsapp"} else "email"
     value = contact.get(normalized_field)
     if not value:
-        return None, contact.get("display_name")
-    return value, contact.get("display_name")
+        return None, contact.get("display_name"), []
+    return value, contact.get("display_name"), []
 
 
 def list_google_contacts(limit=25):
@@ -236,3 +310,62 @@ def list_google_contacts(limit=25):
         reply += f" | and {extra} more."
     return reply
 
+
+def set_contact_alias(alias_text, contact_name):
+    ranked = get_google_contact_matches(contact_name, limit=3)
+    if not ranked:
+        return False, f"I could not find a Google contact matching {contact_name}."
+
+    if len(ranked) > 1 and ranked[0][1] - ranked[1][1] < 0.12:
+        options = " | ".join(item[0].get("display_name") for item in ranked)
+        return False, f"I found multiple contacts for {contact_name}: {options}. Tell me the exact one."
+
+    alias_key = _normalize_name(alias_text)
+    if not alias_key:
+        return False, "Tell me the alias name clearly."
+
+    aliases = _load_aliases()
+    resolved_name = ranked[0][0].get("display_name")
+    aliases[alias_key] = resolved_name
+    _save_aliases(aliases)
+    return True, f"Okay, {alias_text} will now mean {resolved_name}."
+
+
+def remove_contact_alias(alias_text):
+    alias_key = _normalize_name(alias_text)
+    aliases = _load_aliases()
+    if alias_key not in aliases:
+        return False, f"I do not have a saved contact alias for {alias_text}."
+    del aliases[alias_key]
+    _save_aliases(aliases)
+    return True, f"I removed the contact alias {alias_text}."
+
+
+def list_contact_aliases():
+    aliases = _load_aliases()
+    if not aliases:
+        return "I do not have any saved contact aliases yet."
+    parts = [f"{alias} -> {target}" for alias, target in sorted(aliases.items())]
+    return "Saved contact aliases: " + " | ".join(parts[:20])
+
+
+def auto_refresh_google_contacts(refresh_hours=24):
+    if not os.path.exists(CREDENTIALS_PATH) or not os.path.exists(TOKEN_PATH):
+        return False, "Google Contacts auto refresh skipped."
+
+    meta = _load_meta()
+    last_synced_at = float(meta.get("last_synced_at") or 0)
+    if last_synced_at and (time.time() - last_synced_at) < max(1, refresh_hours) * 3600:
+        return False, "Google Contacts already fresh."
+
+    try:
+        return sync_google_contacts()
+    except Exception:
+        return False, "Google Contacts auto refresh failed."
+
+
+def start_google_contacts_auto_refresh(refresh_hours=24):
+    def worker():
+        auto_refresh_google_contacts(refresh_hours=refresh_hours)
+
+    threading.Thread(target=worker, daemon=True).start()

@@ -62,6 +62,10 @@ DEFAULT_SETTINGS = {
         "hotkey_enabled": True,
         "hotkey": "ctrl+shift+space",
     },
+    "google_contacts": {
+        "auto_refresh_enabled": True,
+        "auto_refresh_hours": 24,
+    },
     "notifications": {
         "reminder_monitor_enabled": True,
         "reminder_check_interval_minutes": 15,
