@@ -58,6 +58,28 @@ def _extract_event_date(command):
     return date_obj.isoformat()
 
 
+def _extract_relative_event_datetime(command):
+    match = re.search(
+        r"\bin\s+(\d+)\s*(minute|minutes|hour|hours|day|days|week|weeks)\b",
+        command,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    amount = int(match.group(1))
+    unit = match.group(2).lower()
+    now = datetime.datetime.now()
+
+    if "minute" in unit:
+        return now + datetime.timedelta(minutes=amount)
+    if "hour" in unit:
+        return now + datetime.timedelta(hours=amount)
+    if "week" in unit:
+        return now + datetime.timedelta(days=amount * 7)
+    return now + datetime.timedelta(days=amount)
+
+
 def _extract_event_time(command):
     match = re.search(
         r"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b",
@@ -83,9 +105,36 @@ def _extract_event_time(command):
     return f"{hour:02d}:{minute:02d}"
 
 
+def _extract_event_datetime(command):
+    relative_value = _extract_relative_event_datetime(command)
+    if relative_value is not None:
+        return relative_value.replace(second=0, microsecond=0)
+
+    date_value = get_relative_base(command) or extract_specific_date(command)
+    time_value = _extract_event_time(command)
+
+    if isinstance(date_value, datetime.datetime):
+        date_value = date_value.date()
+
+    if date_value is None and time_value is None:
+        return None
+
+    if time_value is not None:
+        hour, minute = map(int, time_value.split(":"))
+        time_obj = datetime.time(hour=hour, minute=minute)
+    else:
+        time_obj = datetime.time(hour=9, minute=0)
+
+    if date_value is None:
+        date_value = datetime.date.today()
+
+    return datetime.datetime.combine(date_value, time_obj)
+
+
 def _remove_date_phrases(text):
     patterns = [
         r"\b(today|tomorrow|yesterday|next week|last week|next month|last month|next year|last year)\b",
+        r"\bin\s+\d+\s*(minute|minutes|hour|hours|day|days|week|weeks)\b",
         r"\bon\s+\d{1,2}\s+[a-zA-Z]+\s+\d{4}\b",
         r"\b\d{1,2}\s+[a-zA-Z]+\s+\d{4}\b",
         r"\bon\s+\d{1,2}\s+\d{1,2}\s+\d{4}\b",
@@ -142,8 +191,9 @@ def _format_event_line(index, event):
 
 
 def add_event(command):
-    date_value = _extract_event_date(command)
-    time_value = _extract_event_time(command)
+    event_datetime = _extract_event_datetime(command)
+    date_value = event_datetime.date().isoformat() if event_datetime else _extract_event_date(command)
+    time_value = event_datetime.strftime("%H:%M") if event_datetime else _extract_event_time(command)
     title = command
 
     prefixes = [
