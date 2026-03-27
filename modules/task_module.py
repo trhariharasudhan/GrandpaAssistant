@@ -62,6 +62,10 @@ def _extract_priority(command):
 
 def _extract_category(command):
     normalized = (command or "").lower()
+    match = re.search(r"\b([a-z0-9_-]+)\s+category\b", normalized)
+    if match:
+        return match.group(1)
+
     match = re.search(r"\bcategory\s+([a-z0-9_-]+)\b", normalized)
     if match:
         return match.group(1)
@@ -484,6 +488,7 @@ def add_task(command):
     task_text = re.sub(r"\bpriority\s+(high|medium|low)\b", " ", task_text, flags=re.IGNORECASE)
     task_text = re.sub(r"\burgent task\b", " ", task_text, flags=re.IGNORECASE)
     task_text = re.sub(r"\bimportant task\b", " ", task_text, flags=re.IGNORECASE)
+    task_text = re.sub(r"\b[a-z0-9_-]+\s+category\b", " ", task_text, flags=re.IGNORECASE)
     task_text = re.sub(r"\bcategory\s+[a-z0-9_-]+\b", " ", task_text, flags=re.IGNORECASE)
     task_text = re.sub(r"\b(work|study|personal|health|finance|family)\s+task\b", " ", task_text, flags=re.IGNORECASE)
     task_text = _clean_text(task_text)
