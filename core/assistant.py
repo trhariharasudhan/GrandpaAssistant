@@ -22,6 +22,7 @@ from modules.dictation_module import handle_dictation_text, is_dictation_active,
 from modules.event_module import get_event_data
 from modules.notification_module import (
     show_startup_agenda_popup,
+    show_startup_health_popup,
     show_startup_notifications,
     start_notification_monitor,
 )
@@ -402,6 +403,7 @@ def main(start_in_tray=False):
     speak(build_proactive_nudge())
     show_startup_notifications()
     show_startup_agenda_popup()
+    show_startup_health_popup()
     start_notification_monitor()
     restore_scheduled_jobs()
     if get_setting("ocr.region_hotkey_enabled", True):

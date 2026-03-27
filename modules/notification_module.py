@@ -17,6 +17,7 @@ _monitor_thread = None
 _monitor_stop_event = threading.Event()
 _last_monitor_message = None
 _last_agenda_popup_signature = None
+_last_health_popup_signature = None
 _popup_history = {}
 STATE_FILE = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
@@ -280,6 +281,26 @@ def show_startup_agenda_popup():
     return agenda
 
 
+def show_startup_health_popup():
+    if not get_setting("notifications.health_popup_on_startup", False):
+        return None
+
+    health_status = get_system_status()
+    previous_status = _get_state_value("last_startup_health_status")
+    if previous_status == health_status:
+        return health_status
+
+    shown = _show_popup(
+        _notification_title("System Health"),
+        health_status,
+        timeout=max(_default_popup_timeout(), 12),
+        dedupe_key="startup_health",
+    )
+    if shown:
+        _set_state_value("last_startup_health_status", health_status)
+    return health_status
+
+
 def show_health_popup():
     message = get_system_status()
     if _show_popup(_notification_title("System Health"), message, force=True):
@@ -329,7 +350,7 @@ def _build_due_monitor_message():
 
 
 def _monitor_worker():
-    global _last_monitor_message, _last_agenda_popup_signature
+    global _last_monitor_message, _last_agenda_popup_signature, _last_health_popup_signature
 
     while not _monitor_stop_event.is_set():
         if get_setting("notifications.reminder_monitor_enabled", True) or get_setting(
@@ -372,6 +393,28 @@ def _monitor_worker():
                 if shown:
                     _last_agenda_popup_signature = agenda_signature
 
+        if get_setting("notifications.health_popup_enabled", False):
+            health_interval = max(
+                5, int(get_setting("notifications.health_popup_interval_minutes", 60))
+            )
+            now = datetime.datetime.now()
+            minute_slot = now.replace(
+                minute=(now.minute // health_interval) * health_interval,
+                second=0,
+                microsecond=0,
+            )
+            health_signature = minute_slot.isoformat()
+            if health_signature != _last_health_popup_signature:
+                health_message = get_system_status()
+                shown = _show_popup(
+                    _notification_title("System Health"),
+                    health_message,
+                    dedupe_key="health_monitor",
+                    force=False,
+                )
+                if shown:
+                    _last_health_popup_signature = health_signature
+
         reminder_interval = max(
             1, int(get_setting("notifications.reminder_check_interval_minutes", 15))
         )
@@ -384,6 +427,10 @@ def _monitor_worker():
         interval_candidates = [reminder_interval, event_interval]
         if get_setting("notifications.agenda_popup_enabled", False):
             interval_candidates.append(agenda_interval)
+        if get_setting("notifications.health_popup_enabled", False):
+            interval_candidates.append(
+                max(5, int(get_setting("notifications.health_popup_interval_minutes", 60)))
+            )
         interval = min(interval_candidates)
         sleep_seconds = interval * 60
 
