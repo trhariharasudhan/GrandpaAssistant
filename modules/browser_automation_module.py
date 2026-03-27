@@ -1,6 +1,7 @@
 import urllib.parse
 import webbrowser
 import time
+import re
 
 import keyboard
 import pyperclip
@@ -456,7 +457,7 @@ def send_selected_text_to_whatsapp(command):
         r"^(?:send|message)\s+selected text to\s+(.+)$",
         r"^(?:whatsapp)\s+selected text to\s+(.+)$",
     ]:
-        match = __import__("re").match(pattern, command)
+        match = re.match(pattern, command)
         if match:
             break
 
@@ -478,7 +479,7 @@ def send_selected_text_to_email(command):
         r"^(?:mail|email)\s+selected text to\s+(.+)$",
         r"^(?:send)\s+selected text by email to\s+(.+)$",
     ]:
-        match = __import__("re").match(pattern, command)
+        match = re.match(pattern, command)
         if match:
             break
 

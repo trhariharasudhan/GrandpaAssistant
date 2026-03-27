@@ -522,9 +522,19 @@ def run_contact_morning_routine(command):
     if not relation:
         return "Tell me which contact you want me to use for the routine."
 
+    from modules.messaging_automation_module import relationship_whatsapp_message
+    from modules.task_module import add_contact_reminder
+
+    message_result = relationship_whatsapp_message(
+        f"message {relation} about today's plan"
+    )
+    reminder_result = add_contact_reminder(
+        f"remind {relation} about check in tonight at 8 pm"
+    )
+
     return (
-        f"Morning combo ready for {relation}. "
-        f"Use message {relation} about today's plan and remind {relation} about check-in tonight."
+        f"Contact combo finished for {relation}. "
+        f"{message_result} {reminder_result}"
     )
 
 
