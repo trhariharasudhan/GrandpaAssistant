@@ -65,6 +65,8 @@ DEFAULT_SETTINGS = {
     "google_contacts": {
         "auto_refresh_enabled": True,
         "auto_refresh_hours": 24,
+        "live_refresh_enabled": True,
+        "live_refresh_minutes": 1,
     },
     "notifications": {
         "reminder_monitor_enabled": True,

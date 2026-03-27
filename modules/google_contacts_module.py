@@ -6,6 +6,7 @@ import time
 from difflib import SequenceMatcher
 
 from brain.database import LEGACY_MEMORY_PATH
+from utils.config import get_setting
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -35,6 +36,7 @@ TRANSLITERATION_EQUIVALENTS = {
     "periyamma": ["பெரியம்மா"],
     "periyappa": ["பெரியப்பா"],
 }
+DEFAULT_LIVE_REFRESH_MINUTES = 1
 
 
 def _ensure_data_dir():
@@ -103,6 +105,14 @@ def _save_meta(meta):
     _ensure_data_dir()
     with open(META_PATH, "w", encoding="utf-8") as file:
         json.dump(meta, file, indent=4, ensure_ascii=False)
+
+
+def _cache_age_seconds():
+    meta = _load_meta()
+    last_synced_at = float(meta.get("last_synced_at") or 0)
+    if not last_synced_at:
+        return None
+    return max(0.0, time.time() - last_synced_at)
 
 
 def _load_memory_file():
@@ -259,6 +269,31 @@ def sync_google_contacts():
     return True, f"Google Contacts synced. I cached {len(deduped)} contacts."
 
 
+def ensure_google_contacts_fresh(force=False, max_age_minutes=None):
+    if not get_setting("google_contacts.live_refresh_enabled", True) and not force:
+        return False, "Google Contacts live refresh disabled."
+
+    if not os.path.exists(CREDENTIALS_PATH) or not os.path.exists(TOKEN_PATH):
+        return False, "Google Contacts live refresh skipped."
+
+    if max_age_minutes is None:
+        max_age_minutes = float(
+            get_setting("google_contacts.live_refresh_minutes", DEFAULT_LIVE_REFRESH_MINUTES)
+        )
+
+    cache_missing = not os.path.exists(CACHE_PATH)
+    cache_age = _cache_age_seconds()
+    is_stale = cache_missing or cache_age is None or cache_age >= max(0.05, max_age_minutes) * 60
+
+    if not force and not is_stale:
+        return False, "Google Contacts cache already fresh."
+
+    try:
+        return sync_google_contacts()
+    except Exception:
+        return False, "Google Contacts live refresh failed."
+
+
 def _score_contact(query, contact):
     normalized_query = _normalize_name(query)
     if not normalized_query:
@@ -293,6 +328,7 @@ def _candidate_queries(contact_name):
 
 
 def get_google_contact_matches(contact_name, limit=3):
+    ensure_google_contacts_fresh()
     contacts = _load_cache()
     if not contacts:
         return []
@@ -323,6 +359,19 @@ def get_google_contact_matches(contact_name, limit=3):
 
     ranked = sorted(scored, key=lambda item: item[1], reverse=True)
     ranked = [item for item in ranked if item[1] >= 0.55]
+    if not ranked:
+        refreshed, _message = ensure_google_contacts_fresh(force=True)
+        if refreshed:
+            contacts = _load_cache()
+            scored = []
+            for contact in contacts:
+                best_score = 0.0
+                for query in queries:
+                    score = _score_contact(query, contact)
+                    best_score = max(best_score, score)
+                scored.append((contact, best_score))
+            ranked = sorted(scored, key=lambda item: item[1], reverse=True)
+            ranked = [item for item in ranked if item[1] >= 0.55]
     return ranked[:limit]
 
 
@@ -350,6 +399,15 @@ def get_google_contact_field(contact_name, field_name):
     normalized_field = "phone" if field_name in {"phone", "mobile", "number", "whatsapp"} else "email"
     value = contact.get(normalized_field)
     if not value:
+        refreshed, _message = ensure_google_contacts_fresh(force=True)
+        if refreshed:
+            reranked = get_google_contact_matches(contact_name, limit=3)
+            if reranked:
+                contact = reranked[0][0]
+                if len(reranked) > 1 and reranked[0][1] - reranked[1][1] < 0.12:
+                    suggestions = [item[0].get("display_name") for item in reranked]
+                    return None, None, suggestions
+                value = contact.get(normalized_field)
         return None, contact.get("display_name"), []
     return value, contact.get("display_name"), []
 

@@ -456,6 +456,25 @@ def _handle_config_command(command):
         update_setting("google_contacts.auto_refresh_hours", hours)
         return f"Google Contacts auto refresh interval updated to {hours} hours."
 
+    if command in ["enable google contacts live refresh", "enable live contact refresh"]:
+        update_setting("google_contacts.live_refresh_enabled", True)
+        return "Google Contacts live refresh enabled."
+
+    if command in ["disable google contacts live refresh", "disable live contact refresh"]:
+        update_setting("google_contacts.live_refresh_enabled", False)
+        return "Google Contacts live refresh disabled."
+
+    google_live_refresh_match = re.match(
+        r"^(?:set|change|update)\s+google contacts live refresh(?: interval)?\s+to\s+(\d+(?:\.\d+)?)$",
+        command,
+    )
+    if google_live_refresh_match:
+        minutes = max(0.1, float(google_live_refresh_match.group(1)))
+        update_setting("google_contacts.live_refresh_minutes", minutes)
+        if minutes == int(minutes):
+            minutes = int(minutes)
+        return f"Google Contacts live refresh interval updated to {minutes} minutes."
+
     wake_word_match = re.match(r"^(?:set|change|update)\s+wake word\s+to\s+(.+)$", command)
     if wake_word_match:
         new_wake_word = wake_word_match.group(1).strip().strip("\"'")
