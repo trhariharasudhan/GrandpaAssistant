@@ -273,6 +273,14 @@ def _handle_config_command(command):
         update_setting("notifications.popup_cooldown_seconds", cooldown_value)
         return f"Popup cooldown updated to {cooldown_value} seconds."
 
+    agenda_interval_match = re.match(
+        r"^(?:set|change|update)\s+agenda popup interval\s+to\s+(\d+)$", command
+    )
+    if agenda_interval_match:
+        interval_value = max(5, int(agenda_interval_match.group(1)))
+        update_setting("notifications.agenda_popup_interval_minutes", interval_value)
+        return f"Agenda popup interval updated to {interval_value} minutes."
+
     ocr_hotkey_match = re.match(
         r"^(?:set|change|update)\s+ocr hotkey\s+to\s+(.+)$", command
     )
@@ -328,6 +336,9 @@ def _handle_config_command(command):
         reminder_interval = get_setting("notifications.reminder_check_interval_minutes", 15)
         event_monitor = get_setting("notifications.event_monitor_enabled", True)
         event_interval = get_setting("notifications.event_check_interval_minutes", 15)
+        agenda_popup_enabled = get_setting("notifications.agenda_popup_enabled", False)
+        agenda_popup_on_startup = get_setting("notifications.agenda_popup_on_startup", False)
+        agenda_popup_interval = get_setting("notifications.agenda_popup_interval_minutes", 60)
         popup_timeout = get_setting("notifications.popup_timeout_seconds", 10)
         popup_cooldown = get_setting("notifications.popup_cooldown_seconds", 180)
         return (
@@ -360,6 +371,9 @@ def _handle_config_command(command):
             f"Reminder interval is {reminder_interval} minutes. "
             f"Event monitor is {'on' if event_monitor else 'off'}. "
             f"Event interval is {event_interval} minutes. "
+            f"Agenda popup is {'on' if agenda_popup_enabled else 'off'}. "
+            f"Agenda popup on startup is {'on' if agenda_popup_on_startup else 'off'}. "
+            f"Agenda popup interval is {agenda_popup_interval} minutes. "
             f"Popup timeout is {popup_timeout} seconds. "
             f"Popup cooldown is {popup_cooldown} seconds. "
             f"Sounds are {'on' if sounds_enabled else 'off'}. "
@@ -407,6 +421,22 @@ def _handle_config_command(command):
     if command in ["disable tray startup", "turn off tray startup"]:
         update_setting("startup.tray_mode", False)
         return "Tray startup disabled."
+
+    if command in ["enable agenda popup", "turn on agenda popup"]:
+        update_setting("notifications.agenda_popup_enabled", True)
+        return "Agenda popup monitor enabled."
+
+    if command in ["disable agenda popup", "turn off agenda popup"]:
+        update_setting("notifications.agenda_popup_enabled", False)
+        return "Agenda popup monitor disabled."
+
+    if command in ["enable startup agenda popup", "turn on startup agenda popup"]:
+        update_setting("notifications.agenda_popup_on_startup", True)
+        return "Startup agenda popup enabled."
+
+    if command in ["disable startup agenda popup", "turn off startup agenda popup"]:
+        update_setting("notifications.agenda_popup_on_startup", False)
+        return "Startup agenda popup disabled."
 
     if command in ["enable ocr hotkey", "turn on ocr hotkey", "enable region hotkey"]:
         update_setting("ocr.region_hotkey_enabled", True)

@@ -16,6 +16,7 @@ from utils.config import get_setting
 _monitor_thread = None
 _monitor_stop_event = threading.Event()
 _last_monitor_message = None
+_last_agenda_popup_signature = None
 _popup_history = {}
 STATE_FILE = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
@@ -259,6 +260,26 @@ def show_startup_notifications():
     return summary
 
 
+def show_startup_agenda_popup():
+    if not get_setting("notifications.agenda_popup_on_startup", False):
+        return None
+
+    agenda = build_today_agenda()
+    previous_agenda = _get_state_value("last_startup_agenda")
+    if previous_agenda == agenda:
+        return agenda
+
+    shown = _show_popup(
+        _notification_title("Today Agenda"),
+        agenda,
+        timeout=max(_default_popup_timeout(), 12),
+        dedupe_key="startup_agenda",
+    )
+    if shown:
+        _set_state_value("last_startup_agenda", agenda)
+    return agenda
+
+
 def show_health_popup():
     message = get_system_status()
     if _show_popup(_notification_title("System Health"), message, force=True):
@@ -308,7 +329,7 @@ def _build_due_monitor_message():
 
 
 def _monitor_worker():
-    global _last_monitor_message
+    global _last_monitor_message, _last_agenda_popup_signature
 
     while not _monitor_stop_event.is_set():
         if get_setting("notifications.reminder_monitor_enabled", True) or get_setting(
@@ -329,13 +350,41 @@ def _monitor_worker():
                         _last_monitor_message = message
                         _set_state_value("last_monitor_message", message)
 
+        if get_setting("notifications.agenda_popup_enabled", False):
+            agenda_interval = max(
+                5, int(get_setting("notifications.agenda_popup_interval_minutes", 60))
+            )
+            now = datetime.datetime.now()
+            minute_slot = now.replace(
+                minute=(now.minute // agenda_interval) * agenda_interval,
+                second=0,
+                microsecond=0,
+            )
+            agenda_signature = minute_slot.isoformat()
+            if agenda_signature != _last_agenda_popup_signature:
+                agenda_message = build_today_agenda()
+                shown = _show_popup(
+                    _notification_title("Today Agenda"),
+                    agenda_message,
+                    dedupe_key="agenda_monitor",
+                    force=False,
+                )
+                if shown:
+                    _last_agenda_popup_signature = agenda_signature
+
         reminder_interval = max(
             1, int(get_setting("notifications.reminder_check_interval_minutes", 15))
         )
         event_interval = max(
             1, int(get_setting("notifications.event_check_interval_minutes", 15))
         )
-        interval = min(reminder_interval, event_interval)
+        agenda_interval = max(
+            5, int(get_setting("notifications.agenda_popup_interval_minutes", 60))
+        )
+        interval_candidates = [reminder_interval, event_interval]
+        if get_setting("notifications.agenda_popup_enabled", False):
+            interval_candidates.append(agenda_interval)
+        interval = min(interval_candidates)
         sleep_seconds = interval * 60
 
         for _ in range(sleep_seconds):

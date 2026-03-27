@@ -20,7 +20,11 @@ from modules.app_scan_module import categorize_apps, get_all_apps, scan_store_ap
 from modules.briefing_module import build_daily_brief, build_due_reminder_alert
 from modules.dictation_module import handle_dictation_text, is_dictation_active, stop_dictation
 from modules.event_module import get_event_data
-from modules.notification_module import show_startup_notifications, start_notification_monitor
+from modules.notification_module import (
+    show_startup_agenda_popup,
+    show_startup_notifications,
+    start_notification_monitor,
+)
 from modules.profile_module import build_proactive_nudge
 from modules.messaging_automation_module import restore_scheduled_jobs
 from modules.task_module import get_task_data
@@ -367,6 +371,7 @@ def main(start_in_tray=False):
         speak(urgent_alert)
     speak(build_proactive_nudge())
     show_startup_notifications()
+    show_startup_agenda_popup()
     start_notification_monitor()
     restore_scheduled_jobs()
     if get_setting("ocr.region_hotkey_enabled", True):
