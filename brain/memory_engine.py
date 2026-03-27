@@ -164,6 +164,22 @@ CONTACT_FIELD_ALIASES = {
 }
 
 
+CONTACT_REFERENCE_ALIASES = {
+    "my father": ("personal.family.father", "name"),
+    "father": ("personal.family.father", "name"),
+    "my mother": ("personal.family.mother", "name"),
+    "mother": ("personal.family.mother", "name"),
+    "my sister": ("personal.family.siblings.0", "name"),
+    "sister": ("personal.family.siblings.0", "name"),
+    "my emergency contact": ("personal.contact.emergency_contact", "name"),
+    "emergency contact": ("personal.contact.emergency_contact", "name"),
+    "my best friend": ("personal.friends.close_friends.0", "name"),
+    "my close friend": ("personal.friends.close_friends.0", "name"),
+    "myself": ("personal.identity", "name"),
+    "me": ("personal.identity", "name"),
+}
+
+
 initialize_database()
 migrate_legacy_memory()
 
@@ -421,6 +437,17 @@ def _find_named_contact(memory, contact_name):
     return best_match if best_match else (None, None, None)
 
 
+def _resolve_contact_reference(memory, contact_reference):
+    normalized = _normalize_alias(contact_reference)
+    if normalized in CONTACT_REFERENCE_ALIASES:
+        base_path, field_name = CONTACT_REFERENCE_ALIASES[normalized]
+        base_value = _get_nested_value(memory, base_path)
+        if isinstance(base_value, dict):
+            label = base_value.get(field_name)
+            return base_value, label, base_path
+    return _find_named_contact(memory, contact_reference)
+
+
 def update_named_contact_field(contact_name, field_name, raw_value):
     memory = load_memory()
     contact, resolved_name, contact_path = _find_named_contact(memory, contact_name)
@@ -439,7 +466,7 @@ def update_named_contact_field(contact_name, field_name, raw_value):
 
 def get_named_contact_field(contact_name, field_name):
     memory = load_memory()
-    contact, resolved_name, _contact_path = _find_named_contact(memory, contact_name)
+    contact, resolved_name, _contact_path = _resolve_contact_reference(memory, contact_name)
     if not contact:
         return None, f"I could not find a saved contact matching {contact_name}."
 
@@ -456,7 +483,7 @@ def get_named_contact_field(contact_name, field_name):
 
 def remove_named_contact_field(contact_name, field_name):
     memory = load_memory()
-    contact, resolved_name, contact_path = _find_named_contact(memory, contact_name)
+    contact, resolved_name, contact_path = _resolve_contact_reference(memory, contact_name)
     if not contact:
         return False, f"I could not find a saved contact matching {contact_name}."
 
@@ -471,6 +498,27 @@ def remove_named_contact_field(contact_name, field_name):
     _save_memory_file(memory)
     set_memory_value(f"{contact_path}.{normalized_field}", None)
     return True, f"I removed {resolved_name}'s {normalized_field}."
+
+
+def get_portal_link(name):
+    memory = load_memory()
+    normalized = _normalize_alias(name)
+    portal_map = {
+        "my portfolio": "personal.contact.portfolio_website",
+        "portfolio": "personal.contact.portfolio_website",
+        "my github": "personal.social_media.github_url",
+        "github": "personal.social_media.github_url",
+        "my linkedin": "personal.social_media.linkedin_url",
+        "linkedin": "personal.social_media.linkedin_url",
+        "my instagram": "personal.social_media.instagram_url",
+        "instagram": "personal.social_media.instagram_url",
+        "my twitter": "personal.social_media.twitter_url",
+        "twitter": "personal.social_media.twitter_url",
+    }
+    path = portal_map.get(normalized)
+    if not path:
+        return None
+    return _get_nested_value(memory, path)
 
 
 def _build_person_detail_response(title, details):

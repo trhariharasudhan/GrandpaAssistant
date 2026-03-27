@@ -94,6 +94,34 @@ def list_pinned_commands():
     )
 
 
+def move_pinned_command(command_text, direction):
+    command_text = (command_text or "").strip().lower()
+    direction = (direction or "").strip().lower()
+    if not command_text:
+        return False, "Tell me which pinned command you want to move."
+    if direction not in {"up", "down", "top", "bottom"}:
+        return False, "Use up, down, top, or bottom for pinned command move."
+
+    state = _load_overlay_state()
+    pinned = [item.strip().lower() for item in state.get("pinned_commands", []) if item]
+    if command_text not in pinned:
+        return False, f"{command_text} is not pinned right now."
+
+    index = pinned.index(command_text)
+    if direction == "up" and index > 0:
+        pinned[index - 1], pinned[index] = pinned[index], pinned[index - 1]
+    elif direction == "down" and index < len(pinned) - 1:
+        pinned[index + 1], pinned[index] = pinned[index], pinned[index + 1]
+    elif direction == "top":
+        pinned.insert(0, pinned.pop(index))
+    elif direction == "bottom":
+        pinned.append(pinned.pop(index))
+
+    state["pinned_commands"] = pinned
+    _save_overlay_state(state)
+    return True, f"Moved {command_text} {direction} in pinned commands."
+
+
 def _destroy_overlay():
     global _overlay_root, _overlay_entry, _overlay_recent_frame, _overlay_action_frame, _overlay_suggestion_frame, _overlay_context_frame
 

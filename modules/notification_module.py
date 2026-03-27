@@ -61,6 +61,24 @@ def _set_state_value(key, value):
     _save_notification_state(state)
 
 
+def _parse_hhmm(time_text, fallback_minutes):
+    try:
+        hour_text, minute_text = str(time_text).split(":", 1)
+        hour = int(hour_text)
+        minute = int(minute_text)
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return hour * 60 + minute
+    except Exception:
+        pass
+    return fallback_minutes
+
+
+def _automation_weekday_allowed():
+    if not get_setting("notifications.automation_weekdays_only", False):
+        return True
+    return datetime.datetime.now().weekday() < 5
+
+
 def _notification_title(suffix=None):
     return f"Grandpa Assistant - {suffix}" if suffix else "Grandpa Assistant"
 
@@ -391,13 +409,22 @@ def show_startup_recap_popup():
 def run_startup_daily_automations():
     now = datetime.datetime.now()
     results = []
+    if not _automation_weekday_allowed():
+        return results
 
-    if get_setting("notifications.morning_brief_automation_enabled", False) and 5 <= now.hour < 12:
-        results.append(show_startup_brief_popup())
+    now_minutes = now.hour * 60 + now.minute
+    brief_target = _parse_hhmm(get_setting("notifications.morning_brief_time", "08:00"), 8 * 60)
+    recap_target = _parse_hhmm(get_setting("notifications.night_summary_time", "21:00"), 21 * 60)
+    today_str = now.date().isoformat()
 
-    if get_setting("notifications.night_summary_export_enabled", False) and now.hour >= 20:
+    if get_setting("notifications.morning_brief_automation_enabled", False) and now_minutes >= brief_target:
+        last_brief_date = _get_state_value("last_morning_brief_automation_date")
+        if last_brief_date != today_str:
+            results.append(show_startup_brief_popup())
+            _set_state_value("last_morning_brief_automation_date", today_str)
+
+    if get_setting("notifications.night_summary_export_enabled", False) and now_minutes >= recap_target:
         last_export_date = _get_state_value("last_night_summary_export_date")
-        today_str = now.date().isoformat()
         if last_export_date != today_str:
             export_result = export_daily_recap_summary()
             _set_state_value("last_night_summary_export_date", today_str)
@@ -493,6 +520,8 @@ def _monitor_worker():
     global _last_weather_popup_signature, _last_status_popup_signature, _last_brief_popup_signature, _last_recap_popup_signature
 
     while not _monitor_stop_event.is_set():
+        run_startup_daily_automations()
+
         if get_setting("notifications.reminder_monitor_enabled", True) or get_setting(
             "notifications.event_monitor_enabled", True
         ):

@@ -410,12 +410,42 @@ def open_numbered_result_and_summarize(command):
     if not info:
         return "The active window does not look like a browser right now."
 
+    normalized_command = command.strip()
+    if normalized_command.endswith("in new tab"):
+        return open_result_in_new_tab(normalized_command)
+    if not normalized_command.endswith("and summarize"):
+        return open_browser_result(normalized_command)
+
     open_message = open_browser_result(command.replace(" and summarize", ""))
     if not open_message.lower().startswith("i opened result"):
         return open_message
 
     time.sleep(1.2)
     return f"{open_message} {get_current_browser_page_title()} {summarize_visible_browser_section()}"
+
+
+def open_result_in_new_tab(command):
+    info = _browser_only_info()
+    if not info:
+        return "The active window does not look like a browser right now."
+
+    match = re.match(r"^open result (\d+) in new tab$", command.strip())
+    if not match:
+        return "Tell me which visible result you want to open in a new tab."
+
+    ordinal = max(1, int(match.group(1)))
+    candidates = _candidate_browser_results()
+    if len(candidates) < ordinal:
+        return f"I could not find a visible result number {ordinal} on this browser page."
+
+    chosen = candidates[ordinal - 1]
+    try:
+        pyautogui.keyDown("ctrl")
+        pyautogui.click(chosen["center"])
+    finally:
+        pyautogui.keyUp("ctrl")
+
+    return f"I opened result {ordinal} in a new tab: {chosen['text']}."
 
 
 def summarize_browser_selection():

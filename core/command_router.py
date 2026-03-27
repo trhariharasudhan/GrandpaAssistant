@@ -4,12 +4,14 @@ import re
 import subprocess
 import threading
 import time
+import webbrowser
 
 from brain.ai_engine import ask_ollama, clear_memory
 from brain.database import get_recent_commands, log_command
 from brain.memory_engine import (
     get_memory,
     get_named_contact_field,
+    get_portal_link,
     remove_named_contact_field,
     remove_memory_field,
     search_memory,
@@ -17,12 +19,14 @@ from brain.memory_engine import (
     update_named_contact_field,
     update_memory_field,
 )
+import pyperclip
 from brain.question_analyzer import is_personal_question
 from core.intent_router import try_handle_intent
 from core.quick_overlay import (
     get_pinned_commands,
     hide_quick_overlay,
     list_pinned_commands,
+    move_pinned_command,
     pin_overlay_command,
     show_quick_overlay,
     unpin_overlay_command,
@@ -164,6 +168,57 @@ def _handle_memory_edit_command(command):
 def _normalize_contact_target(contact_name):
     normalized = " ".join(contact_name.lower().split())
     return normalized not in {"my", "me", "mine"}
+
+
+def _copy_to_clipboard(value):
+    try:
+        pyperclip.copy(value)
+        return True
+    except Exception:
+        return False
+
+
+def _handle_contact_action_command(command):
+    copy_match = re.match(r"^copy\s+(.+?)\s+(phone|number|email|mail)$", command)
+    if copy_match:
+        target = copy_match.group(1).strip()
+        field = copy_match.group(2).strip()
+        value, reply = get_named_contact_field(target, field)
+        if not value:
+            return reply
+        if _copy_to_clipboard(str(value)):
+            return f"{reply} I copied it to the clipboard."
+        return reply
+
+    call_match = re.match(r"^call\s+(.+)$", command)
+    if call_match:
+        target = call_match.group(1).strip()
+        value, reply = get_named_contact_field(target, "phone")
+        if not value:
+            return reply
+        copied = _copy_to_clipboard(str(value))
+        try:
+            webbrowser.open(f"tel:{value}")
+            return (
+                f"{reply} I also tried opening the dial action."
+                + (" I copied the number to the clipboard too." if copied else "")
+            )
+        except Exception:
+            if copied:
+                return f"{reply} I copied the number to the clipboard so you can call now."
+            return reply
+
+    if command in ["open my portfolio", "open portfolio", "open my github", "open github", "open my linkedin", "open linkedin"]:
+        url = get_portal_link(command.replace("open ", "", 1))
+        if not url:
+            return "I could not find that saved link in memory."
+        try:
+            webbrowser.open(url, new=2)
+            return f"Opening {url}."
+        except Exception:
+            return "I could not open that saved link right now."
+
+    return None
 
 
 def _handle_contact_lookup_command(command):
@@ -381,6 +436,20 @@ def _handle_config_command(command):
         update_setting("notifications.recap_popup_interval_minutes", interval_value)
         return f"Recap popup interval updated to {interval_value} minutes."
 
+    morning_time_match = re.match(
+        r"^(?:set|change|update)\s+morning brief time\s+to\s+(\d{1,2}:\d{2})$", command
+    )
+    if morning_time_match:
+        update_setting("notifications.morning_brief_time", morning_time_match.group(1))
+        return f"Morning brief time updated to {morning_time_match.group(1)}."
+
+    night_time_match = re.match(
+        r"^(?:set|change|update)\s+night summary time\s+to\s+(\d{1,2}:\d{2})$", command
+    )
+    if night_time_match:
+        update_setting("notifications.night_summary_time", night_time_match.group(1))
+        return f"Night summary time updated to {night_time_match.group(1)}."
+
     ocr_hotkey_match = re.match(
         r"^(?:set|change|update)\s+ocr hotkey\s+to\s+(.+)$", command
     )
@@ -449,7 +518,10 @@ def _handle_config_command(command):
         brief_popup_on_startup = get_setting("notifications.brief_popup_on_startup", False)
         brief_popup_interval = get_setting("notifications.brief_popup_interval_minutes", 180)
         morning_brief_automation = get_setting("notifications.morning_brief_automation_enabled", False)
+        morning_brief_time = get_setting("notifications.morning_brief_time", "08:00")
         night_summary_export = get_setting("notifications.night_summary_export_enabled", False)
+        night_summary_time = get_setting("notifications.night_summary_time", "21:00")
+        weekdays_only = get_setting("notifications.automation_weekdays_only", False)
         compact_voice_replies = get_setting("assistant.compact_voice_replies", True)
         agenda_popup_enabled = get_setting("notifications.agenda_popup_enabled", False)
         agenda_popup_on_startup = get_setting("notifications.agenda_popup_on_startup", False)
@@ -502,7 +574,10 @@ def _handle_config_command(command):
             f"Brief popup on startup is {'on' if brief_popup_on_startup else 'off'}. "
             f"Brief popup interval is {brief_popup_interval} minutes. "
             f"Morning brief automation is {'on' if morning_brief_automation else 'off'}. "
+            f"Morning brief time is {morning_brief_time}. "
             f"Night summary export is {'on' if night_summary_export else 'off'}. "
+            f"Night summary time is {night_summary_time}. "
+            f"Weekday only automations are {'on' if weekdays_only else 'off'}. "
             f"Compact voice replies are {'on' if compact_voice_replies else 'off'}. "
             f"Agenda popup is {'on' if agenda_popup_enabled else 'off'}. "
             f"Agenda popup on startup is {'on' if agenda_popup_on_startup else 'off'}. "
@@ -637,6 +712,14 @@ def _handle_config_command(command):
     if command in ["disable night summary export", "turn off night summary export"]:
         update_setting("notifications.night_summary_export_enabled", False)
         return "Night summary export disabled."
+
+    if command in ["enable weekday only automations", "turn on weekday only automations"]:
+        update_setting("notifications.automation_weekdays_only", True)
+        return "Weekday only automations enabled."
+
+    if command in ["disable weekday only automations", "turn off weekday only automations"]:
+        update_setting("notifications.automation_weekdays_only", False)
+        return "Weekday only automations disabled."
 
     if command in ["enable compact voice replies", "turn on compact voice replies"]:
         update_setting("assistant.compact_voice_replies", True)
@@ -805,6 +888,11 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(unpin_overlay_command(unpin_match.group(1).strip())[1])
         return
 
+    move_pin_match = re.match(r"^move pinned command\s+(.+?)\s+(up|down|top|bottom)$", command)
+    if move_pin_match:
+        speak(move_pinned_command(move_pin_match.group(1).strip(), move_pin_match.group(2).strip())[1])
+        return
+
     if command in ["list pinned commands", "show pinned commands", "pinned commands"]:
         speak(list_pinned_commands())
         return
@@ -817,6 +905,11 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     contact_lookup_reply = _handle_contact_lookup_command(command)
     if contact_lookup_reply:
         speak(contact_lookup_reply)
+        return
+
+    contact_action_reply = _handle_contact_action_command(command)
+    if contact_action_reply:
+        speak(contact_action_reply)
         return
 
     if pending_confirmation:

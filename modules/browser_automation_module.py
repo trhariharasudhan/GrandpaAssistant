@@ -3,6 +3,7 @@ import webbrowser
 import time
 
 import keyboard
+import pyperclip
 
 from utils.config import get_setting
 
@@ -171,3 +172,50 @@ def copy_current_page_title(command=None):
         return "I copied the current page title or address focus text to the clipboard."
     except Exception:
         return "I could not copy the current page title right now."
+
+
+def copy_selected_browser_text(command=None):
+    try:
+        previous = pyperclip.paste()
+    except Exception:
+        previous = None
+
+    try:
+        keyboard.send("ctrl+c")
+        time.sleep(0.25)
+        selected = (pyperclip.paste() or "").strip()
+    except Exception:
+        selected = ""
+
+    if previous is not None and selected == previous:
+        selected = ""
+
+    if not selected:
+        return "I could not copy selected browser text right now."
+
+    return "Copied selected browser text to the clipboard."
+
+
+def search_selected_text_on_google(command=None):
+    try:
+        previous = pyperclip.paste()
+    except Exception:
+        previous = None
+
+    try:
+        keyboard.send("ctrl+c")
+        time.sleep(0.25)
+        selected = (pyperclip.paste() or "").strip()
+    except Exception:
+        selected = ""
+
+    if previous is not None and selected == previous:
+        selected = ""
+
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    url = "https://www.google.com/search?q=" + urllib.parse.quote_plus(selected)
+    if _open_url(url):
+        return _with_feedback(f"Searching Google for selected text: {selected[:80]}.", None)
+    return "I could not search the selected browser text right now."
