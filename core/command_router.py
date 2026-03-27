@@ -281,6 +281,14 @@ def _handle_config_command(command):
         update_setting("notifications.health_popup_interval_minutes", interval_value)
         return f"Health popup interval updated to {interval_value} minutes."
 
+    weather_interval_match = re.match(
+        r"^(?:set|change|update)\s+weather popup interval\s+to\s+(\d+)$", command
+    )
+    if weather_interval_match:
+        interval_value = max(15, int(weather_interval_match.group(1)))
+        update_setting("notifications.weather_popup_interval_minutes", interval_value)
+        return f"Weather popup interval updated to {interval_value} minutes."
+
     agenda_interval_match = re.match(
         r"^(?:set|change|update)\s+agenda popup interval\s+to\s+(\d+)$", command
     )
@@ -347,6 +355,9 @@ def _handle_config_command(command):
         health_popup_enabled = get_setting("notifications.health_popup_enabled", False)
         health_popup_on_startup = get_setting("notifications.health_popup_on_startup", False)
         health_popup_interval = get_setting("notifications.health_popup_interval_minutes", 60)
+        weather_popup_enabled = get_setting("notifications.weather_popup_enabled", False)
+        weather_popup_on_startup = get_setting("notifications.weather_popup_on_startup", False)
+        weather_popup_interval = get_setting("notifications.weather_popup_interval_minutes", 120)
         agenda_popup_enabled = get_setting("notifications.agenda_popup_enabled", False)
         agenda_popup_on_startup = get_setting("notifications.agenda_popup_on_startup", False)
         agenda_popup_interval = get_setting("notifications.agenda_popup_interval_minutes", 60)
@@ -385,6 +396,9 @@ def _handle_config_command(command):
             f"Health popup is {'on' if health_popup_enabled else 'off'}. "
             f"Health popup on startup is {'on' if health_popup_on_startup else 'off'}. "
             f"Health popup interval is {health_popup_interval} minutes. "
+            f"Weather popup is {'on' if weather_popup_enabled else 'off'}. "
+            f"Weather popup on startup is {'on' if weather_popup_on_startup else 'off'}. "
+            f"Weather popup interval is {weather_popup_interval} minutes. "
             f"Agenda popup is {'on' if agenda_popup_enabled else 'off'}. "
             f"Agenda popup on startup is {'on' if agenda_popup_on_startup else 'off'}. "
             f"Agenda popup interval is {agenda_popup_interval} minutes. "
@@ -444,6 +458,14 @@ def _handle_config_command(command):
         update_setting("notifications.health_popup_enabled", False)
         return "Health popup monitor disabled."
 
+    if command in ["enable weather popup", "turn on weather popup"]:
+        update_setting("notifications.weather_popup_enabled", True)
+        return "Weather popup monitor enabled."
+
+    if command in ["disable weather popup", "turn off weather popup"]:
+        update_setting("notifications.weather_popup_enabled", False)
+        return "Weather popup monitor disabled."
+
     if command in ["enable startup health popup", "turn on startup health popup"]:
         update_setting("notifications.health_popup_on_startup", True)
         return "Startup health popup enabled."
@@ -451,6 +473,14 @@ def _handle_config_command(command):
     if command in ["disable startup health popup", "turn off startup health popup"]:
         update_setting("notifications.health_popup_on_startup", False)
         return "Startup health popup disabled."
+
+    if command in ["enable startup weather popup", "turn on startup weather popup"]:
+        update_setting("notifications.weather_popup_on_startup", True)
+        return "Startup weather popup enabled."
+
+    if command in ["disable startup weather popup", "turn off startup weather popup"]:
+        update_setting("notifications.weather_popup_on_startup", False)
+        return "Startup weather popup disabled."
 
     if command in ["enable agenda popup", "turn on agenda popup"]:
         update_setting("notifications.agenda_popup_enabled", True)
@@ -612,14 +642,24 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             lambda overlay_command: process_command(
                 overlay_command, INSTALLED_APPS, input_mode="text"
             ),
-            suggestions=[
-                "weather",
-                "dashboard",
-                "show settings",
-                "system status",
-                "summarize current browser page",
-                "copy selected area text",
-            ],
+            suggestions={
+                "Planning": [
+                    "today agenda",
+                    "what is due today",
+                    "show overdue items",
+                ],
+                "System": [
+                    "weather",
+                    "dashboard",
+                    "show settings",
+                    "system status",
+                    "export productivity summary",
+                ],
+                "OCR": [
+                    "copy selected area text",
+                    "read selected area",
+                ],
+            },
             recent_commands=get_recent_commands(),
         )
         speak(message if message else "Quick command overlay updated.")

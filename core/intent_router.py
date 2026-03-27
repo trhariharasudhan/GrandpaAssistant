@@ -32,6 +32,7 @@ from modules.event_module import (
     today_events,
     upcoming_events,
 )
+from modules.export_module import export_productivity_summary
 from modules.file_intelligence_module import (
     ask_found_file,
     find_file,
@@ -73,6 +74,7 @@ from modules.notification_module import (
     show_notification_summary,
     show_reminder_popup,
     show_task_popup,
+    show_weather_popup,
 )
 from modules.notes_module import (
     add_note,
@@ -273,6 +275,19 @@ COMMAND_REGISTRY = [
         "handler": lambda command: build_today_agenda(),
         "category": "dashboard",
         "confidence": 0.98,
+    },
+    {
+        "intent": "export.summary",
+        "patterns": [
+            "export summary",
+            "export productivity summary",
+            "export task reminder event summary",
+            "save summary report",
+        ],
+        "type": "exact",
+        "handler": export_productivity_summary,
+        "category": "export",
+        "confidence": 0.97,
     },
     {
         "intent": "events.add",
@@ -1076,6 +1091,14 @@ COMMAND_REGISTRY = [
         "patterns": ["show health popup", "health popup", "system health popup"],
         "type": "exact",
         "handler": lambda command: show_health_popup(),
+        "category": "notifications",
+        "confidence": 0.96,
+    },
+    {
+        "intent": "notifications.weather",
+        "patterns": ["show weather popup", "weather popup", "popup weather", "desktop weather popup"],
+        "type": "exact",
+        "handler": lambda command: show_weather_popup(),
         "category": "notifications",
         "confidence": 0.96,
     },

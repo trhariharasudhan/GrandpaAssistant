@@ -1,5 +1,6 @@
 import threading
 import tkinter as tk
+from tkinter import ttk
 
 try:
     import keyboard
@@ -79,11 +80,15 @@ def _refresh_overlay_lists(suggestions=None, recent_commands=None, context_items
     ):
         return
 
-    _clear_frame(_overlay_suggestion_frame)
+    if isinstance(_overlay_suggestion_frame, dict):
+        for frame in _overlay_suggestion_frame.values():
+            _clear_frame(frame)
+    else:
+        _clear_frame(_overlay_suggestion_frame)
     _clear_frame(_overlay_recent_frame)
     _clear_frame(_overlay_context_frame)
 
-    suggestions = suggestions or []
+    suggestions = suggestions or {}
     recent_commands = recent_commands or []
     context_items = context_items or []
 
@@ -98,16 +103,37 @@ def _refresh_overlay_lists(suggestions=None, recent_commands=None, context_items
         )
         chip.grid(row=index // 2, column=index % 2, padx=4, pady=4, sticky="w")
 
-    for index, item in enumerate(suggestions):
-        label, command_text = _normalize_chip_item(item)
-        chip = _make_chip(
-            _overlay_suggestion_frame,
-            label,
-            command_text,
-            _overlay_handler,
-            bg="#0f766e",
+    if isinstance(suggestions, dict):
+        for category_name, items in suggestions.items():
+            frame = _overlay_suggestion_frame.get(category_name)
+            if frame is None:
+                continue
+            for index, item in enumerate(items):
+                label, command_text = _normalize_chip_item(item)
+                chip = _make_chip(
+                    frame,
+                    label,
+                    command_text,
+                    _overlay_handler,
+                    bg="#0f766e",
+                )
+                chip.grid(row=index // 2, column=index % 2, padx=4, pady=4, sticky="w")
+    else:
+        target_frame = (
+            next(iter(_overlay_suggestion_frame.values()))
+            if isinstance(_overlay_suggestion_frame, dict)
+            else _overlay_suggestion_frame
         )
-        chip.grid(row=index // 3, column=index % 3, padx=4, pady=4, sticky="w")
+        for index, item in enumerate(suggestions):
+            label, command_text = _normalize_chip_item(item)
+            chip = _make_chip(
+                target_frame,
+                label,
+                command_text,
+                _overlay_handler,
+                bg="#0f766e",
+            )
+            chip.grid(row=index // 3, column=index % 3, padx=4, pady=4, sticky="w")
 
     for index, item in enumerate(recent_commands):
         chip = _make_chip(
@@ -147,16 +173,16 @@ def show_quick_overlay(on_submit, suggestions=None, recent_commands=None, contex
         try:
             root = tk.Tk()
             root.title("Grandpa Assistant")
-            root.geometry("560x370")
+            root.geometry("620x430")
             root.attributes("-topmost", True)
             root.configure(bg="#111827")
             root.resizable(False, False)
 
             screen_width = root.winfo_screenwidth()
             screen_height = root.winfo_screenheight()
-            x = (screen_width // 2) - 280
+            x = (screen_width // 2) - 310
             y = max(60, (screen_height // 5))
-            root.geometry(f"560x370+{x}+{y}")
+            root.geometry(f"620x430+{x}+{y}")
 
             container = tk.Frame(root, bg="#111827", padx=16, pady=14)
             container.pack(fill="both", expand=True)
@@ -210,8 +236,19 @@ def show_quick_overlay(on_submit, suggestions=None, recent_commands=None, contex
             )
             suggestion_label.pack(anchor="w", pady=(14, 4))
 
-            suggestion_frame = tk.Frame(container, bg="#111827")
-            suggestion_frame.pack(fill="x", anchor="w")
+            notebook = ttk.Notebook(container)
+            notebook.pack(fill="both", expand=False, anchor="w")
+
+            categories = (
+                list(suggestions.keys())
+                if isinstance(suggestions, dict) and suggestions
+                else ["Suggestions"]
+            )
+            suggestion_frames = {}
+            for category in categories:
+                tab_frame = tk.Frame(notebook, bg="#111827")
+                notebook.add(tab_frame, text=category)
+                suggestion_frames[category] = tab_frame
 
             recent_label = tk.Label(
                 container,
@@ -246,7 +283,7 @@ def show_quick_overlay(on_submit, suggestions=None, recent_commands=None, contex
             _overlay_root = root
             _overlay_entry = entry
             _overlay_context_frame = context_frame
-            _overlay_suggestion_frame = suggestion_frame
+            _overlay_suggestion_frame = suggestion_frames
             _overlay_recent_frame = recent_frame
             _refresh_overlay_lists(
                 suggestions=suggestions,

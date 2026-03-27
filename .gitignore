@@ -12,3 +12,4 @@ data/notes.json
 data/events.json
 data/scheduled_messages.json
 data/notification_state.json
+data/exports/

@@ -10,6 +10,7 @@ from modules.dashboard_module import build_today_agenda
 from modules.event_module import get_due_event_titles
 from modules.health_module import get_system_status
 from modules.task_module import get_task_data
+from modules.weather_module import get_weather_report
 from utils.config import get_setting
 
 
@@ -18,6 +19,7 @@ _monitor_stop_event = threading.Event()
 _last_monitor_message = None
 _last_agenda_popup_signature = None
 _last_health_popup_signature = None
+_last_weather_popup_signature = None
 _popup_history = {}
 STATE_FILE = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
@@ -301,11 +303,38 @@ def show_startup_health_popup():
     return health_status
 
 
+def show_startup_weather_popup():
+    if not get_setting("notifications.weather_popup_on_startup", False):
+        return None
+
+    weather_status = get_weather_report("weather")
+    previous_status = _get_state_value("last_startup_weather_status")
+    if previous_status == weather_status:
+        return weather_status
+
+    shown = _show_popup(
+        _notification_title("Weather"),
+        weather_status,
+        timeout=max(_default_popup_timeout(), 12),
+        dedupe_key="startup_weather",
+    )
+    if shown:
+        _set_state_value("last_startup_weather_status", weather_status)
+    return weather_status
+
+
 def show_health_popup():
     message = get_system_status()
     if _show_popup(_notification_title("System Health"), message, force=True):
         return "System health popup shown."
     return "I could not show the system health popup right now."
+
+
+def show_weather_popup():
+    message = get_weather_report("weather")
+    if _show_popup(_notification_title("Weather"), message, force=True):
+        return "Weather popup shown."
+    return "I could not show the weather popup right now."
 
 
 def show_event_popup():
@@ -350,7 +379,7 @@ def _build_due_monitor_message():
 
 
 def _monitor_worker():
-    global _last_monitor_message, _last_agenda_popup_signature, _last_health_popup_signature
+    global _last_monitor_message, _last_agenda_popup_signature, _last_health_popup_signature, _last_weather_popup_signature
 
     while not _monitor_stop_event.is_set():
         if get_setting("notifications.reminder_monitor_enabled", True) or get_setting(
@@ -415,6 +444,28 @@ def _monitor_worker():
                 if shown:
                     _last_health_popup_signature = health_signature
 
+        if get_setting("notifications.weather_popup_enabled", False):
+            weather_interval = max(
+                15, int(get_setting("notifications.weather_popup_interval_minutes", 120))
+            )
+            now = datetime.datetime.now()
+            minute_slot = now.replace(
+                minute=(now.minute // weather_interval) * weather_interval,
+                second=0,
+                microsecond=0,
+            )
+            weather_signature = minute_slot.isoformat()
+            if weather_signature != _last_weather_popup_signature:
+                weather_message = get_weather_report("weather")
+                shown = _show_popup(
+                    _notification_title("Weather"),
+                    weather_message,
+                    dedupe_key="weather_monitor",
+                    force=False,
+                )
+                if shown:
+                    _last_weather_popup_signature = weather_signature
+
         reminder_interval = max(
             1, int(get_setting("notifications.reminder_check_interval_minutes", 15))
         )
@@ -430,6 +481,10 @@ def _monitor_worker():
         if get_setting("notifications.health_popup_enabled", False):
             interval_candidates.append(
                 max(5, int(get_setting("notifications.health_popup_interval_minutes", 60)))
+            )
+        if get_setting("notifications.weather_popup_enabled", False):
+            interval_candidates.append(
+                max(15, int(get_setting("notifications.weather_popup_interval_minutes", 120)))
             )
         interval = min(interval_candidates)
         sleep_seconds = interval * 60
