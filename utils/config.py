@@ -67,6 +67,7 @@ DEFAULT_SETTINGS = {
         "auto_refresh_hours": 24,
         "live_refresh_enabled": True,
         "live_refresh_minutes": 1,
+        "change_popup_enabled": True,
     },
     "notifications": {
         "reminder_monitor_enabled": True,

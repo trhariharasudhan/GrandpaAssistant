@@ -4,6 +4,7 @@ import re
 import threading
 import time
 from difflib import SequenceMatcher
+from datetime import datetime
 
 from brain.database import LEGACY_MEMORY_PATH
 from utils.config import get_setting
@@ -16,6 +17,7 @@ TOKEN_PATH = os.path.join(DATA_DIR, "google_token.json")
 CACHE_PATH = os.path.join(DATA_DIR, "google_contacts_cache.json")
 ALIAS_PATH = os.path.join(DATA_DIR, "contact_aliases.json")
 META_PATH = os.path.join(DATA_DIR, "google_contacts_meta.json")
+CHANGE_LOG_PATH = os.path.join(DATA_DIR, "google_contact_change_log.json")
 SCOPES = ["https://www.googleapis.com/auth/contacts.readonly"]
 TRANSLITERATION_EQUIVALENTS = {
     "appa": ["அப்பா", "அப்பா ❤️", "அப்பா🙏"],
@@ -107,12 +109,119 @@ def _save_meta(meta):
         json.dump(meta, file, indent=4, ensure_ascii=False)
 
 
+def _load_change_log():
+    if not os.path.exists(CHANGE_LOG_PATH):
+        return []
+    try:
+        with open(CHANGE_LOG_PATH, "r", encoding="utf-8") as file:
+            data = json.load(file)
+        if isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    return []
+
+
+def _save_change_log(entries):
+    _ensure_data_dir()
+    with open(CHANGE_LOG_PATH, "w", encoding="utf-8") as file:
+        json.dump(entries[:100], file, indent=4, ensure_ascii=False)
+
+
 def _cache_age_seconds():
     meta = _load_meta()
     last_synced_at = float(meta.get("last_synced_at") or 0)
     if not last_synced_at:
         return None
     return max(0.0, time.time() - last_synced_at)
+
+
+def _contact_identity_key(contact):
+    return (
+        contact.get("phone") or "",
+        contact.get("email") or "",
+        _normalize_name(contact.get("display_name")),
+    )
+
+
+def _contact_snapshot(contact):
+    return {
+        "display_name": contact.get("display_name") or "",
+        "phone": contact.get("phone") or "",
+        "email": contact.get("email") or "",
+    }
+
+
+def _summarize_contact_changes(previous_contacts, new_contacts):
+    previous_by_key = {_contact_identity_key(contact): _contact_snapshot(contact) for contact in previous_contacts}
+    new_by_key = {_contact_identity_key(contact): _contact_snapshot(contact) for contact in new_contacts}
+
+    previous_names = {_normalize_name(contact.get("display_name")): _contact_snapshot(contact) for contact in previous_contacts}
+    new_names = {_normalize_name(contact.get("display_name")): _contact_snapshot(contact) for contact in new_contacts}
+
+    added = [item for key, item in new_by_key.items() if key not in previous_by_key]
+    removed = [item for key, item in previous_by_key.items() if key not in new_by_key]
+
+    updated = []
+    for name_key, previous in previous_names.items():
+        current = new_names.get(name_key)
+        if not current:
+            continue
+        if previous.get("phone") != current.get("phone") or previous.get("email") != current.get("email"):
+            updated.append(
+                {
+                    "display_name": current.get("display_name") or previous.get("display_name") or "Unknown",
+                    "old_phone": previous.get("phone") or "",
+                    "new_phone": current.get("phone") or "",
+                    "old_email": previous.get("email") or "",
+                    "new_email": current.get("email") or "",
+                }
+            )
+
+    return added, updated, removed
+
+
+def _record_contact_changes(added, updated, removed):
+    if not (added or updated or removed):
+        return
+
+    entries = _load_change_log()
+    entry = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "summary": {
+            "added": len(added),
+            "updated": len(updated),
+            "removed": len(removed),
+        },
+        "details": {
+            "added": [item.get("display_name", "Unknown") for item in added[:10]],
+            "updated": [item.get("display_name", "Unknown") for item in updated[:10]],
+            "removed": [item.get("display_name", "Unknown") for item in removed[:10]],
+        },
+    }
+    entries.insert(0, entry)
+    _save_change_log(entries)
+
+    if get_setting("google_contacts.change_popup_enabled", True):
+        try:
+            from modules.notification_module import show_custom_popup
+
+            parts = []
+            if added:
+                parts.append(f"Added: {', '.join(item.get('display_name', 'Unknown') for item in added[:3])}")
+            if updated:
+                parts.append(f"Updated: {', '.join(item.get('display_name', 'Unknown') for item in updated[:3])}")
+            if removed:
+                parts.append(f"Removed: {', '.join(item.get('display_name', 'Unknown') for item in removed[:3])}")
+            message = "\n".join(parts)
+            show_custom_popup(
+                "Contacts",
+                f"Google Contacts updated.\n\n{message}",
+                dedupe_key=f"google_contacts_change_{entry['timestamp']}",
+                force=True,
+            )
+        except Exception:
+            pass
 
 
 def _load_memory_file():
@@ -251,6 +360,7 @@ def sync_google_contacts():
         if not page_token:
             break
 
+    previous_contacts = _load_cache()
     deduped = []
     seen = set()
     for entry in people:
@@ -265,8 +375,33 @@ def sync_google_contacts():
         deduped.append(entry)
 
     _save_cache(deduped)
+    added, updated, removed = _summarize_contact_changes(previous_contacts, deduped)
+    _record_contact_changes(added, updated, removed)
     _save_meta({"last_synced_at": time.time(), "contact_count": len(deduped)})
     return True, f"Google Contacts synced. I cached {len(deduped)} contacts."
+
+
+def get_recent_contact_change_summary():
+    entries = _load_change_log()
+    if not entries:
+        return "I do not have any recent Google contact changes logged yet."
+
+    latest = entries[0]
+    summary = latest.get("summary", {})
+    details = latest.get("details", {})
+    parts = []
+    if details.get("added"):
+        parts.append(f"added: {', '.join(details['added'][:3])}")
+    if details.get("updated"):
+        parts.append(f"updated: {', '.join(details['updated'][:3])}")
+    if details.get("removed"):
+        parts.append(f"removed: {', '.join(details['removed'][:3])}")
+    detail_text = " | ".join(parts) if parts else "No named changes."
+    return (
+        f"Latest Google Contacts sync changes: "
+        f"{summary.get('added', 0)} added, {summary.get('updated', 0)} updated, "
+        f"{summary.get('removed', 0)} removed. {detail_text}"
+    )
 
 
 def ensure_google_contacts_fresh(force=False, max_age_minutes=None):

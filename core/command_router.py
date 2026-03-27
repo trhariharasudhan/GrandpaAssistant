@@ -81,6 +81,8 @@ from modules.web_module import wikipedia_search
 from modules.notes_module import add_note
 from modules.task_module import add_reminder
 from modules.google_contacts_module import (
+    ensure_google_contacts_fresh,
+    get_recent_contact_change_summary,
     import_google_contact_to_memory,
     list_contact_aliases,
     list_google_contacts,
@@ -272,6 +274,140 @@ def _copy_to_clipboard(value):
         return False
 
 
+def _extract_contact_suggestions(reply):
+    match = re.search(
+        r"I found multiple Google contacts for .+?: (.+?)\. Say the exact name or set a contact alias\.",
+        reply or "",
+    )
+    if not match:
+        return []
+    return [item.strip() for item in match.group(1).split("|") if item.strip()]
+
+
+def _queue_contact_choice(kind, target, options, field=None, message_text=None, topic=None):
+    global pending_confirmation
+    pending_confirmation = {
+        "type": "contact_choice",
+        "kind": kind,
+        "target": target,
+        "field": field,
+        "message_text": message_text,
+        "topic": topic,
+        "options": options,
+    }
+    option_text = " | ".join(f"{index + 1}. {name}" for index, name in enumerate(options[:3]))
+    return (
+        f"I found multiple contacts for {target}. "
+        f"Say first one, second one, third one, or the exact name. {option_text}"
+    )
+
+
+def _resolve_contact_choice_command(command, options):
+    normalized = " ".join((command or "").lower().strip().split())
+    index_map = {
+        "1": 0,
+        "one": 0,
+        "first": 0,
+        "first one": 0,
+        "2": 1,
+        "two": 1,
+        "second": 1,
+        "second one": 1,
+        "3": 2,
+        "three": 2,
+        "third": 2,
+        "third one": 2,
+    }
+    if normalized in index_map and index_map[normalized] < len(options):
+        return options[index_map[normalized]]
+    for option in options:
+        if normalized == " ".join(option.lower().split()):
+            return option
+    return None
+
+
+def _execute_contact_choice(choice_state, selected_name):
+    kind = choice_state.get("kind")
+    if kind == "lookup":
+        _value, reply = get_named_contact_field(selected_name, choice_state.get("field", "phone"))
+        return reply
+    if kind == "call":
+        ensure_google_contacts_fresh(force=True)
+        value, reply = get_named_contact_field(selected_name, "phone")
+        if not value:
+            return reply
+        copied = _copy_to_clipboard(str(value))
+        try:
+            webbrowser.open(f"tel:{value}")
+            _try_auto_confirm_phone_call()
+            return (
+                f"{reply} I opened the dial action and also tried to auto-confirm the call."
+                + (" I copied the number to the clipboard too." if copied else "")
+            )
+        except Exception:
+            if copied:
+                return f"{reply} I copied the number to the clipboard so you can call now."
+            return reply
+    if kind == "message":
+        return quick_whatsapp_message(f"message {selected_name} saying {choice_state.get('message_text', '')}")
+    if kind == "mail":
+        return quick_email_shortcut(f"mail {selected_name} {choice_state.get('topic', '')}")
+    return "I could not finish that contact choice right now."
+
+
+def _queue_contact_choice_from_reply(command, reply):
+    suggestions = _extract_contact_suggestions(reply)
+    if not suggestions:
+        return None
+
+    clean_text = lambda value: " ".join((value or "").split())
+
+    call_match = re.match(r"^call\s+(.+)$", command)
+    if call_match:
+        return _queue_contact_choice("call", call_match.group(1).strip(), suggestions)
+
+    lookup_match = re.match(
+        r"^what is\s+(.+?)\s+(email|mail|phone|mobile|number|whatsapp)$",
+        command,
+    )
+    if lookup_match:
+        return _queue_contact_choice(
+            "lookup",
+            lookup_match.group(1).strip(),
+            suggestions,
+            field=lookup_match.group(2).strip(),
+        )
+
+    message_match = re.match(r"^(?:message|whatsapp)\s+(.+?)\s+(?:saying|that)\s+(.+)$", command)
+    if message_match:
+        return _queue_contact_choice(
+            "message",
+            message_match.group(1).strip(),
+            suggestions,
+            message_text=clean_text(message_match.group(2)),
+        )
+
+    mail_match = re.match(r"^(?:mail|email)\s+(.+?)\s+about\s+(.+)$", command)
+    if mail_match:
+        return _queue_contact_choice(
+            "mail",
+            mail_match.group(1).strip(),
+            suggestions,
+            topic=clean_text(mail_match.group(2)),
+        )
+
+    quick_mail_match = re.match(r"^(?:mail|email)\s+(.+?)\s+(.+)$", command)
+    if quick_mail_match:
+        return _queue_contact_choice(
+            "mail",
+            quick_mail_match.group(1).strip(),
+            suggestions,
+            topic=clean_text(quick_mail_match.group(2)),
+        )
+
+    return None
+
+
 def _handle_followup_command(command):
     context_text = get_best_followup_text()
     if not context_text:
@@ -339,6 +475,7 @@ def _handle_contact_action_command(command):
     if copy_match:
         target = copy_match.group(1).strip()
         field = copy_match.group(2).strip()
+        ensure_google_contacts_fresh(force=True)
         value, reply = get_named_contact_field(target, field)
         if not value:
             return reply
@@ -349,8 +486,12 @@ def _handle_contact_action_command(command):
     call_match = re.match(r"^call\s+(.+)$", command)
     if call_match:
         target = call_match.group(1).strip()
+        ensure_google_contacts_fresh(force=True)
         value, reply = get_named_contact_field(target, "phone")
         if not value:
+            suggestions = _extract_contact_suggestions(reply)
+            if suggestions:
+                return _queue_contact_choice("call", target, suggestions)
             return reply
         copied = _copy_to_clipboard(str(value))
         try:
@@ -389,6 +530,9 @@ def _handle_contact_lookup_command(command):
 
     if command in ["list google contacts", "show google contacts", "show synced contacts"]:
         return list_google_contacts()
+
+    if command in ["show google contact changes", "google contact changes", "recent contact changes"]:
+        return get_recent_contact_change_summary()
 
     if command in [
         "merge google contacts to memory",
@@ -434,7 +578,11 @@ def _handle_contact_lookup_command(command):
 
     contact_name = match.group(1).strip()
     field_name = match.group(2).strip()
+    ensure_google_contacts_fresh(force=True)
     _, reply = get_named_contact_field(contact_name, field_name)
+    suggestions = _extract_contact_suggestions(reply)
+    if suggestions:
+        return _queue_contact_choice("lookup", contact_name, suggestions, field=field_name)
     return reply
 
 
@@ -474,6 +622,14 @@ def _handle_config_command(command):
         if minutes == int(minutes):
             minutes = int(minutes)
         return f"Google Contacts live refresh interval updated to {minutes} minutes."
+
+    if command in ["enable google contact change popup", "enable contact change popup"]:
+        update_setting("google_contacts.change_popup_enabled", True)
+        return "Google contact change popup enabled."
+
+    if command in ["disable google contact change popup", "disable contact change popup"]:
+        update_setting("google_contacts.change_popup_enabled", False)
+        return "Google contact change popup disabled."
 
     wake_word_match = re.match(r"^(?:set|change|update)\s+wake word\s+to\s+(.+)$", command)
     if wake_word_match:
@@ -1149,6 +1305,18 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     if command:
         log_command(command, source=input_mode)
 
+    if pending_confirmation and pending_confirmation.get("type") == "contact_choice":
+        selected_name = _resolve_contact_choice_command(
+            command, pending_confirmation.get("options", [])
+        )
+        if selected_name:
+            choice_state = pending_confirmation
+            pending_confirmation = None
+            reply = _execute_contact_choice(choice_state, selected_name)
+            speak(reply)
+            set_last_result(reply)
+            return
+
     pin_match = re.match(r"^pin command\s+(.+)$", command)
     if pin_match:
         speak(pin_overlay_command(pin_match.group(1).strip())[1])
@@ -1581,8 +1749,9 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
 
     intent_result = try_handle_intent(command)
     if intent_result["handled"]:
-        speak(intent_result["reply"])
-        set_last_result(intent_result["reply"])
+        final_reply = _queue_contact_choice_from_reply(command, intent_result["reply"]) or intent_result["reply"]
+        speak(final_reply)
+        set_last_result(final_reply)
         return
 
     # ----- calendar queries -----

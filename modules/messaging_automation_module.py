@@ -10,7 +10,7 @@ import webbrowser
 import keyboard
 
 from brain.memory_engine import get_named_contact_field, load_memory
-from modules.google_contacts_module import get_google_contact_field
+from modules.google_contacts_module import ensure_google_contacts_fresh, get_google_contact_field
 from modules.notification_module import show_custom_popup
 from utils.config import get_setting
 
@@ -136,6 +136,7 @@ def _normalize_phone_number(value):
 
 
 def _open_whatsapp_direct_chat(contact_name, message_text=""):
+    ensure_google_contacts_fresh(force=True)
     phone_value, _reply = get_named_contact_field(contact_name, "phone")
     phone_number = _normalize_phone_number(phone_value)
     if not phone_number:
@@ -213,6 +214,7 @@ def _resolve_contact_alias(target_text):
 
 
 def _resolve_email_target(target_text):
+    ensure_google_contacts_fresh(force=True)
     memory = load_memory()
     normalized = _clean_text(target_text).lower()
 
