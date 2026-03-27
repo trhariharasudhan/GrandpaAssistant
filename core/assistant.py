@@ -21,6 +21,7 @@ from modules.briefing_module import build_daily_brief, build_due_reminder_alert
 from modules.dictation_module import handle_dictation_text, is_dictation_active, stop_dictation
 from modules.event_module import get_event_data
 from modules.notification_module import (
+    run_startup_daily_automations,
     show_startup_brief_popup,
     show_startup_status_popup,
     show_startup_agenda_popup,
@@ -425,6 +426,7 @@ def main(start_in_tray=False):
     show_startup_health_popup()
     show_startup_weather_popup()
     show_startup_status_popup()
+    run_startup_daily_automations()
     start_notification_monitor()
     restore_scheduled_jobs()
     if get_setting("ocr.region_hotkey_enabled", True):

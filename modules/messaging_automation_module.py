@@ -1091,3 +1091,53 @@ def whatsapp_message_contact(command):
         f"Opening WhatsApp Web. I will search for {contact_name} and send your message "
         f"in about {load_delay} seconds. If search misses, I will retry automatically."
     )
+
+
+def memory_whatsapp_message(command):
+    match = re.match(r"^(?:message|whatsapp)\s+(.+?)\s+about\s+(.+)$", command)
+    if not match:
+        return "Use this format: message Jeevan about the meeting moved to 6 PM."
+
+    contact_name = _extract_known_contact(match.group(1))
+    topic = _clean_text(match.group(2))
+    if not contact_name or not topic:
+        return "Tell me the contact and what message you want to send."
+
+    message_text = topic[0].upper() + topic[1:] if topic else topic
+    load_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
+    if not _open_url("https://web.whatsapp.com/"):
+        return "I could not open WhatsApp Web right now."
+
+    _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seconds=load_delay)
+    return (
+        f"Opening WhatsApp Web. I will message {contact_name} about {topic} "
+        f"in about {load_delay} seconds."
+    )
+
+
+def memory_email_shortcut(command):
+    match = re.match(r"^(?:mail|email)\s+(.+?)\s+about\s+(.+)$", command)
+    if not match:
+        return "Use this format: mail my primary email about project update."
+
+    recipient, recipient_error = _resolve_email_target(match.group(1))
+    topic = _clean_text(match.group(2))
+
+    if recipient_error:
+        return recipient_error
+    if not recipient or not topic:
+        return "Tell me who to mail and what it should be about."
+
+    subject = topic.title()
+    body = (
+        "Hello,\n\n"
+        f"This is regarding {topic}. "
+        "Please review it when convenient.\n\n"
+        "Regards,\n"
+        "Hari Hara Sudhan"
+    )
+
+    if _open_gmail_draft(recipient, subject, body):
+        delay = get_setting("browser.gmail_load_delay_seconds", 8)
+        return f"Opening a mail draft to {recipient} about {topic}. Give it about {delay} seconds to load."
+    return "I could not open the email draft right now."

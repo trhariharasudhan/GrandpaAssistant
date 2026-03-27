@@ -380,6 +380,9 @@ def _handle_config_command(command):
         brief_popup_enabled = get_setting("notifications.brief_popup_enabled", False)
         brief_popup_on_startup = get_setting("notifications.brief_popup_on_startup", False)
         brief_popup_interval = get_setting("notifications.brief_popup_interval_minutes", 180)
+        morning_brief_automation = get_setting("notifications.morning_brief_automation_enabled", False)
+        night_summary_export = get_setting("notifications.night_summary_export_enabled", False)
+        compact_voice_replies = get_setting("assistant.compact_voice_replies", True)
         agenda_popup_enabled = get_setting("notifications.agenda_popup_enabled", False)
         agenda_popup_on_startup = get_setting("notifications.agenda_popup_on_startup", False)
         agenda_popup_interval = get_setting("notifications.agenda_popup_interval_minutes", 60)
@@ -427,6 +430,9 @@ def _handle_config_command(command):
             f"Brief popup is {'on' if brief_popup_enabled else 'off'}. "
             f"Brief popup on startup is {'on' if brief_popup_on_startup else 'off'}. "
             f"Brief popup interval is {brief_popup_interval} minutes. "
+            f"Morning brief automation is {'on' if morning_brief_automation else 'off'}. "
+            f"Night summary export is {'on' if night_summary_export else 'off'}. "
+            f"Compact voice replies are {'on' if compact_voice_replies else 'off'}. "
             f"Agenda popup is {'on' if agenda_popup_enabled else 'off'}. "
             f"Agenda popup on startup is {'on' if agenda_popup_on_startup else 'off'}. "
             f"Agenda popup interval is {agenda_popup_interval} minutes. "
@@ -541,6 +547,30 @@ def _handle_config_command(command):
     if command in ["disable startup brief popup", "turn off startup brief popup"]:
         update_setting("notifications.brief_popup_on_startup", False)
         return "Startup brief popup disabled."
+
+    if command in ["enable morning brief automation", "turn on morning brief automation"]:
+        update_setting("notifications.morning_brief_automation_enabled", True)
+        return "Morning brief automation enabled."
+
+    if command in ["disable morning brief automation", "turn off morning brief automation"]:
+        update_setting("notifications.morning_brief_automation_enabled", False)
+        return "Morning brief automation disabled."
+
+    if command in ["enable night summary export", "turn on night summary export"]:
+        update_setting("notifications.night_summary_export_enabled", True)
+        return "Night summary export enabled."
+
+    if command in ["disable night summary export", "turn off night summary export"]:
+        update_setting("notifications.night_summary_export_enabled", False)
+        return "Night summary export disabled."
+
+    if command in ["enable compact voice replies", "turn on compact voice replies"]:
+        update_setting("assistant.compact_voice_replies", True)
+        return "Compact voice replies enabled."
+
+    if command in ["disable compact voice replies", "turn off compact voice replies"]:
+        update_setting("assistant.compact_voice_replies", False)
+        return "Compact voice replies disabled."
 
     if command in ["enable agenda popup", "turn on agenda popup"]:
         update_setting("notifications.agenda_popup_enabled", True)
@@ -1265,12 +1295,14 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         word in command for word in ["he", "she", "his", "her", "they", "him"]
     ):
         stream_output = input_mode == "text"
+        compact_reply = input_mode == "voice" and get_setting("assistant.compact_voice_replies", True)
         if stream_output:
             start_streaming_reply()
         try:
             response = ask_ollama(
                 f"The user is asking about {app_scan_module.LAST_TOPIC}. {command}",
                 stream_callback=append_streaming_reply if stream_output else None,
+                compact=compact_reply,
             )
         finally:
             if stream_output:
@@ -1281,12 +1313,14 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     # -------- GENERAL AI RESPONSE --------
     try:
         stream_output = input_mode == "text"
+        compact_reply = input_mode == "voice" and get_setting("assistant.compact_voice_replies", True)
         if stream_output:
             start_streaming_reply()
         try:
             response = ask_ollama(
                 command,
                 stream_callback=append_streaming_reply if stream_output else None,
+                compact=compact_reply,
             )
         finally:
             if stream_output:

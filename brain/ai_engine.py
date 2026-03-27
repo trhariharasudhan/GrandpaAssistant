@@ -51,7 +51,7 @@ def _memory_context_lines():
     return lines
 
 
-def _build_prompt(prompt):
+def _build_prompt(prompt, compact=False):
     persona = get_setting("assistant.persona", "friendly").lower()
     persona_instruction = PERSONA_INSTRUCTIONS.get(
         persona, PERSONA_INSTRUCTIONS["friendly"]
@@ -67,6 +67,8 @@ def _build_prompt(prompt):
         "Give direct, natural answers.\n"
         "Keep spoken replies compact unless the user asks for detail.\n"
     )
+    if compact:
+        formatted_prompt += "Reply in 1 or 2 short sentences. Keep it easy to hear in voice mode.\n"
 
     memory_lines = _memory_context_lines()
     if memory_lines:
@@ -84,7 +86,7 @@ def _build_prompt(prompt):
     return formatted_prompt
 
 
-def ask_ollama(prompt, stream_callback=None):
+def ask_ollama(prompt, stream_callback=None, compact=False):
     global conversation_history
 
     conversation_history.append({"role": "user", "content": prompt})
@@ -92,10 +94,10 @@ def ask_ollama(prompt, stream_callback=None):
 
     payload = {
         "model": get_setting("assistant.model", "phi3"),
-        "prompt": _build_prompt(prompt),
+        "prompt": _build_prompt(prompt, compact=compact),
         "stream": bool(stream_callback),
         "options": {
-            "num_predict": 180,
+            "num_predict": 90 if compact else 180,
             "temperature": 0.6,
         },
     }

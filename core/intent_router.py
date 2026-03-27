@@ -59,6 +59,8 @@ from modules.messaging_automation_module import (
     draft_thank_you_email,
     list_scheduled_gmail_drafts,
     list_scheduled_whatsapp_messages,
+    memory_email_shortcut,
+    memory_whatsapp_message,
     open_gmail_and_type,
     open_whatsapp_and_type,
     schedule_gmail_draft,
@@ -94,8 +96,13 @@ from modules.profile_module import (
 )
 from modules.weather_module import get_weather_report
 from modules.window_context_module import (
+    browser_close_tab,
+    browser_new_tab,
     click_on_current_browser_page,
     describe_active_window,
+    editor_run_current_file,
+    editor_save_current_file,
+    explorer_open_selected_item,
     find_on_current_browser_page,
     get_active_app_name,
     get_active_window_title,
@@ -663,6 +670,22 @@ COMMAND_REGISTRY = [
         "confidence": 0.98,
     },
     {
+        "intent": "messaging.whatsapp.memory_shortcut",
+        "patterns": ["message ", "whatsapp "],
+        "type": "startswith",
+        "handler": memory_whatsapp_message,
+        "category": "messaging_automation",
+        "confidence": 0.94,
+    },
+    {
+        "intent": "messaging.gmail.memory_shortcut",
+        "patterns": ["mail ", "email "],
+        "type": "startswith",
+        "handler": memory_email_shortcut,
+        "category": "messaging_automation",
+        "confidence": 0.94,
+    },
+    {
         "intent": "notes.add",
         "patterns": ["take a note", "save this idea", "save note", "add note", "note this"],
         "type": "startswith",
@@ -814,6 +837,22 @@ COMMAND_REGISTRY = [
         "handler": open_browser_result,
         "category": "browser_automation",
         "confidence": 0.93,
+    },
+    {
+        "intent": "browser.action.new_tab",
+        "patterns": ["new tab", "open new tab"],
+        "type": "exact",
+        "handler": lambda command: browser_new_tab(),
+        "category": "browser_automation",
+        "confidence": 0.94,
+    },
+    {
+        "intent": "browser.action.close_tab",
+        "patterns": ["close tab", "close current tab"],
+        "type": "exact",
+        "handler": lambda command: browser_close_tab(),
+        "category": "browser_automation",
+        "confidence": 0.94,
     },
     {
         "intent": "notes.delete",
@@ -1003,6 +1042,22 @@ COMMAND_REGISTRY = [
         "confidence": 0.96,
     },
     {
+        "intent": "app.editor.save",
+        "patterns": ["save current file", "save file", "save this file"],
+        "type": "exact",
+        "handler": lambda command: editor_save_current_file(),
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "app.editor.run",
+        "patterns": ["run current file", "run this file", "execute current file"],
+        "type": "exact",
+        "handler": lambda command: editor_run_current_file(),
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
         "intent": "app.editor.summary",
         "patterns": [
             "summarize current code editor",
@@ -1025,6 +1080,14 @@ COMMAND_REGISTRY = [
         "handler": lambda command: summarize_if_file_explorer(),
         "category": "window_context",
         "confidence": 0.96,
+    },
+    {
+        "intent": "app.explorer.open_selected",
+        "patterns": ["open selected item", "open selected file", "open selected folder"],
+        "type": "exact",
+        "handler": lambda command: explorer_open_selected_item(),
+        "category": "app_intelligence",
+        "confidence": 0.95,
     },
     {
         "intent": "app.explorer.summary",

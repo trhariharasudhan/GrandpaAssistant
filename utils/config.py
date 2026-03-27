@@ -41,6 +41,7 @@ DEFAULT_SETTINGS = {
     "assistant": {
         "persona": "friendly",
         "model": "phi3",
+        "compact_voice_replies": True,
     },
     "browser": {
         "page_load_delay_seconds": 3,
@@ -72,6 +73,8 @@ DEFAULT_SETTINGS = {
         "brief_popup_enabled": False,
         "brief_popup_on_startup": False,
         "brief_popup_interval_minutes": 180,
+        "morning_brief_automation_enabled": False,
+        "night_summary_export_enabled": False,
         "health_popup_enabled": False,
         "health_popup_on_startup": False,
         "health_popup_interval_minutes": 60,

@@ -12,6 +12,7 @@ from modules.health_module import get_system_status
 from modules.task_module import get_task_data
 from modules.weather_module import get_weather_report
 from modules.briefing_module import build_brief_details
+from modules.export_module import export_productivity_summary
 from utils.config import get_setting
 
 
@@ -364,6 +365,24 @@ def show_startup_brief_popup():
     if shown:
         _set_state_value("last_startup_brief_popup", brief_message)
     return brief_message
+
+
+def run_startup_daily_automations():
+    now = datetime.datetime.now()
+    results = []
+
+    if get_setting("notifications.morning_brief_automation_enabled", False) and 5 <= now.hour < 12:
+        results.append(show_startup_brief_popup())
+
+    if get_setting("notifications.night_summary_export_enabled", False) and now.hour >= 20:
+        last_export_date = _get_state_value("last_night_summary_export_date")
+        today_str = now.date().isoformat()
+        if last_export_date != today_str:
+            export_result = export_productivity_summary()
+            _set_state_value("last_night_summary_export_date", today_str)
+            results.append(export_result)
+
+    return [item for item in results if item]
 
 
 def show_health_popup():
