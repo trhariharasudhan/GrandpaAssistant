@@ -6,6 +6,8 @@ import keyboard
 import pyperclip
 
 from brain.ai_engine import ask_ollama
+from modules.notes_module import add_note
+from modules.task_module import add_reminder
 from utils.config import get_setting
 
 
@@ -280,3 +282,50 @@ def ask_selected_browser_text_ai(command):
     )
     reply = ask_ollama(prompt, compact=True)
     return f"From the selected text: {reply}"
+
+
+def read_selected_browser_text_aloud(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    cleaned = " ".join(selected.split())
+    if len(cleaned) > 700:
+        cleaned = cleaned[:700].rsplit(" ", 1)[0] + " ..."
+    return f"Selected text says: {cleaned}"
+
+
+def save_selected_browser_text_as_note(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    cleaned = " ".join(selected.split())
+    return add_note(f"add note {cleaned[:1200]}")
+
+
+def create_reminder_from_selected_browser_text(command):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    suffix = command
+    prefixes = [
+        "remind me about selected text",
+        "create reminder from selected text",
+        "remind me to review selected text",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            suffix = command.replace(prefix, "", 1).strip()
+            break
+
+    selected_summary = " ".join(selected.split())
+    if len(selected_summary) > 140:
+        selected_summary = selected_summary[:140].rsplit(" ", 1)[0] + " ..."
+
+    reminder_command = f"remind me to review {selected_summary}"
+    if suffix:
+        reminder_command = f"{reminder_command} {suffix}"
+
+    return add_reminder(reminder_command)

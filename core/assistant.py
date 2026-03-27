@@ -120,13 +120,16 @@ def _overlay_suggestions():
             ("Open My Portfolio", "open my portfolio"),
             ("Mail My Mother About Today Plan", "mail my mother about today plan"),
         ],
-        "Browser (6)": [
+        "Browser (9)": [
             ("Open Result 2 In New Tab", "open result 2 in new tab"),
             ("Copy Selected Browser Text", "copy selected browser text"),
             ("Search Selected Text On Google", "search selected text on google"),
             ("Search Selected Text On YouTube", "search selected text on youtube"),
             ("Summarize Selected Text With AI", "summarize selected text with ai"),
             ("Explain Selected Text", "explain selected text"),
+            ("Read Selected Text Aloud", "read selected text aloud"),
+            ("Save Selected Text As Note", "save selected text as note"),
+            ("Remind Me About Selected Text Tomorrow At 8 PM", "remind me about selected text tomorrow at 8 pm"),
         ],
         "System (5)": [
             ("Weather", "weather"),
