@@ -120,7 +120,7 @@ def _overlay_suggestions():
             ("Open My Portfolio", "open my portfolio"),
             ("Mail My Mother About Today Plan", "mail my mother about today plan"),
         ],
-        "Browser (18)": [
+        "Browser (22)": [
             ("Open Result 2 In New Tab", "open result 2 in new tab"),
             ("Copy Selected Browser Text", "copy selected browser text"),
             ("Search Selected Text On Google", "search selected text on google"),
@@ -139,6 +139,10 @@ def _overlay_suggestions():
             ("Create Event From Selected Text Tomorrow At 6 PM", "create event from selected text tomorrow at 6 pm"),
             ("Send Selected Text To Jeevan", "send selected text to jeevan"),
             ("Mail Selected Text To My Mother", "mail selected text to my mother"),
+            ("Translate Selected Text To Tamil", "translate selected text to tamil"),
+            ("Extract Action Items From Selected Text", "extract action items from selected text"),
+            ("Save Action Items From Selected Text", "extract action items from selected text and save note"),
+            ("Translate Selected Text To English", "translate selected text to english"),
         ],
         "System (5)": [
             ("Weather", "weather"),

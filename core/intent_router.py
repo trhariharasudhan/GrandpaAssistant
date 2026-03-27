@@ -12,6 +12,8 @@ from modules.browser_automation_module import (
     create_reminder_from_selected_browser_text,
     copy_selected_browser_text,
     copy_current_page_title,
+    extract_action_items_and_save_note,
+    extract_action_items_from_selected_text,
     explain_selected_browser_text_ai,
     explain_selected_text_and_save_note,
     open_gmail,
@@ -32,6 +34,7 @@ from modules.browser_automation_module import (
     summarize_selected_browser_text_ai,
     summarize_selected_text_and_read_aloud,
     summarize_selected_text_and_save_note,
+    translate_selected_browser_text,
 )
 from modules.calendar_module import get_date, get_day, get_period, get_time
 from modules.dashboard_module import build_dashboard_report, build_daily_recap, build_today_agenda
@@ -1361,6 +1364,41 @@ COMMAND_REGISTRY = [
         ],
         "type": "startswith",
         "handler": send_selected_text_to_email,
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "app.browser.selection_translate",
+        "patterns": [
+            "translate selected text to",
+            "translate browser selection to",
+            "translate selected browser text to",
+        ],
+        "type": "startswith",
+        "handler": translate_selected_browser_text,
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "app.browser.selection_actions",
+        "patterns": [
+            "extract action items from selected text",
+            "action items from selected text",
+            "extract tasks from selected text",
+        ],
+        "type": "exact",
+        "handler": lambda command: extract_action_items_from_selected_text(),
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "app.browser.selection_actions_note",
+        "patterns": [
+            "extract action items from selected text and save note",
+            "save action items from selected text",
+        ],
+        "type": "exact",
+        "handler": lambda command: extract_action_items_and_save_note(),
         "category": "app_intelligence",
         "confidence": 0.95,
     },

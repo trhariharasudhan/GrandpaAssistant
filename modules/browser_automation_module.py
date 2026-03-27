@@ -489,3 +489,54 @@ def send_selected_text_to_email(command):
     target = " ".join(match.group(1).split())
     cleaned = " ".join(selected.split())
     return quick_email_shortcut(f"mail {target} {cleaned[:900]}")
+
+
+def translate_selected_browser_text(command):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    target_language = "Tamil"
+    match = re.search(
+        r"(?:translate selected text to|translate browser selection to|translate selected browser text to)\s+(.+)$",
+        command,
+    )
+    if match:
+        target_language = " ".join(match.group(1).split()).strip().title() or "Tamil"
+
+    prompt = (
+        f"Translate this selected browser text into {target_language}. "
+        "Keep names and technical terms sensible.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    reply = ask_ollama(prompt, compact=False)
+    return f"Selected text translated to {target_language}: {reply}"
+
+
+def extract_action_items_from_selected_text(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    prompt = (
+        "Extract the action items from this selected browser text. "
+        "Return short actionable bullet-style sentences in plain text.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    reply = ask_ollama(prompt, compact=False)
+    return f"Action items from selected text: {reply}"
+
+
+def extract_action_items_and_save_note(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    prompt = (
+        "Extract the action items from this selected browser text. "
+        "Keep them concise and practical.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    reply = ask_ollama(prompt, compact=False)
+    note_result = add_note(f"add note Action items: {reply}")
+    return f"Action items from selected text: {reply} {note_result}"

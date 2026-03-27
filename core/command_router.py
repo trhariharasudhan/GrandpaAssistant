@@ -108,6 +108,51 @@ mouse_stop_requested_by_command = False
 pending_confirmation = None
 
 
+def _normalize_voice_friendly_command(command):
+    normalized = " ".join((command or "").lower().strip().split())
+    if not normalized:
+        return normalized
+
+    exact_aliases = {
+        "what are my settings": "show settings",
+        "show me settings": "show settings",
+        "open settings": "show settings",
+        "what's due today": "what is due today",
+        "show due today": "what is due today",
+        "what's overdue": "show overdue items",
+        "open overlay": "open quick overlay",
+        "show overlay": "open quick overlay",
+        "close overlay": "hide quick overlay",
+        "hide overlay": "hide quick overlay",
+        "open quick command": "open quick overlay",
+        "close quick command": "hide quick overlay",
+        "start morning routine": "run morning routine",
+        "start night routine": "run night routine",
+        "read this selected text": "read selected text aloud",
+        "read selected text": "read selected text aloud",
+        "translate this selected text to tamil": "translate selected text to tamil",
+        "translate this selected text to english": "translate selected text to english",
+        "extract action items": "extract action items from selected text",
+    }
+    if normalized in exact_aliases:
+        return exact_aliases[normalized]
+
+    prefix_aliases = [
+        ("show me ", ""),
+        ("open up ", "open "),
+    ]
+    for prefix, replacement in prefix_aliases:
+        if normalized.startswith(prefix):
+            normalized = replacement + normalized[len(prefix):]
+
+    normalized = re.sub(r"^what(?:'s| is)\s+the\s+time(?:\s+now)?$", "what is the time now", normalized)
+    normalized = re.sub(r"^what(?:'s| is)\s+the\s+date$", "what is the date", normalized)
+    normalized = re.sub(r"^what(?:'s| is)\s+my\s+agenda$", "today agenda", normalized)
+    normalized = re.sub(r"^show\s+me\s+my\s+agenda$", "today agenda", normalized)
+
+    return normalized
+
+
 def _handle_memory_edit_command(command):
     named_contact_remove = re.match(
         r"^(?:remove|delete|clear)\s+(.+?)\s+(email|mail|phone|mobile|number|whatsapp)$",
@@ -907,7 +952,7 @@ def _handle_config_command(command):
 def process_command(command, INSTALLED_APPS, input_mode="text"):
     global mouse_stop_event, mouse_stop_requested_by_command, pending_confirmation
 
-    command = command.lower().strip()
+    command = _normalize_voice_friendly_command(command)
     if command:
         log_command(command, source=input_mode)
 
