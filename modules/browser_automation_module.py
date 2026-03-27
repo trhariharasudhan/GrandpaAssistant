@@ -5,6 +5,7 @@ import time
 import keyboard
 import pyperclip
 
+from brain.ai_engine import ask_ollama
 from utils.config import get_setting
 
 
@@ -33,6 +34,25 @@ def _with_feedback(success_message, failure_message, delay_seconds=None):
         if success_message
         else failure_message
     )
+
+
+def _get_selected_browser_text():
+    try:
+        previous = pyperclip.paste()
+    except Exception:
+        previous = None
+
+    try:
+        keyboard.send("ctrl+c")
+        time.sleep(0.25)
+        selected = (pyperclip.paste() or "").strip()
+    except Exception:
+        selected = ""
+
+    if previous is not None and selected == previous:
+        selected = ""
+
+    return selected
 
 
 def open_whatsapp_web():
@@ -175,20 +195,7 @@ def copy_current_page_title(command=None):
 
 
 def copy_selected_browser_text(command=None):
-    try:
-        previous = pyperclip.paste()
-    except Exception:
-        previous = None
-
-    try:
-        keyboard.send("ctrl+c")
-        time.sleep(0.25)
-        selected = (pyperclip.paste() or "").strip()
-    except Exception:
-        selected = ""
-
-    if previous is not None and selected == previous:
-        selected = ""
+    selected = _get_selected_browser_text()
 
     if not selected:
         return "I could not copy selected browser text right now."
@@ -197,20 +204,7 @@ def copy_selected_browser_text(command=None):
 
 
 def search_selected_text_on_google(command=None):
-    try:
-        previous = pyperclip.paste()
-    except Exception:
-        previous = None
-
-    try:
-        keyboard.send("ctrl+c")
-        time.sleep(0.25)
-        selected = (pyperclip.paste() or "").strip()
-    except Exception:
-        selected = ""
-
-    if previous is not None and selected == previous:
-        selected = ""
+    selected = _get_selected_browser_text()
 
     if not selected:
         return "I could not read selected browser text right now."
@@ -222,20 +216,7 @@ def search_selected_text_on_google(command=None):
 
 
 def search_selected_text_on_youtube(command=None):
-    try:
-        previous = pyperclip.paste()
-    except Exception:
-        previous = None
-
-    try:
-        keyboard.send("ctrl+c")
-        time.sleep(0.25)
-        selected = (pyperclip.paste() or "").strip()
-    except Exception:
-        selected = ""
-
-    if previous is not None and selected == previous:
-        selected = ""
+    selected = _get_selected_browser_text()
 
     if not selected:
         return "I could not read selected browser text right now."
@@ -244,3 +225,58 @@ def search_selected_text_on_youtube(command=None):
     if _open_url(url):
         return _with_feedback(f"Searching YouTube for selected text: {selected[:80]}.", None)
     return "I could not search the selected browser text on YouTube right now."
+
+
+def summarize_selected_browser_text_ai(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    prompt = (
+        "Summarize this browser-selected text in a short practical way.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    reply = ask_ollama(prompt, compact=True)
+    return f"Selected text summary: {reply}"
+
+
+def explain_selected_browser_text_ai(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    prompt = (
+        "Explain this browser-selected text in simple terms and mention the main point.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    reply = ask_ollama(prompt, compact=True)
+    return f"Selected text explanation: {reply}"
+
+
+def ask_selected_browser_text_ai(command):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    question = command
+    prefixes = [
+        "ask selected text",
+        "ask browser selection",
+        "question on selected text",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            question = command.replace(prefix, "", 1).strip(" :,-")
+            break
+
+    if not question:
+        return "Tell me what you want to know about the selected browser text."
+
+    prompt = (
+        "Answer the user's question using only this selected browser text. "
+        "If the answer is not clear, say that briefly.\n\n"
+        f"Question: {question}\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    reply = ask_ollama(prompt, compact=True)
+    return f"From the selected text: {reply}"

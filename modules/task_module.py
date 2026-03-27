@@ -3,6 +3,7 @@ import json
 import os
 import re
 
+from brain.memory_engine import CONTACT_REFERENCE_ALIASES, load_memory
 from modules.calendar_module import extract_specific_date, get_relative_base
 
 DATA_FILE = os.path.join(
@@ -287,6 +288,89 @@ def _remove_date_phrases(text):
     return _clean_text(cleaned)
 
 
+def _iter_contact_candidates():
+    memory = load_memory()
+    seen = set()
+
+    def add_candidate(name, aliases=None):
+        clean_name = _clean_text(name or "")
+        if not clean_name:
+            return
+        normalized = clean_name.lower()
+        if normalized in seen:
+            return
+        seen.add(normalized)
+        yield {
+            "name": clean_name,
+            "aliases": {normalized, *{_clean_text(alias).lower() for alias in (aliases or []) if alias}},
+        }
+
+    personal = memory.get("personal", {})
+    contact = personal.get("contact", {})
+    family = personal.get("family", {})
+    friends = personal.get("friends", {})
+
+    for alias, (base_path, field_name) in CONTACT_REFERENCE_ALIASES.items():
+        parts = base_path.split(".")
+        value = personal
+        if parts[0] == "personal":
+            parts = parts[1:]
+        try:
+            for part in parts:
+                if part.isdigit():
+                    value = value[int(part)]
+                else:
+                    value = value.get(part, {})
+            if isinstance(value, dict):
+                name = value.get(field_name)
+            else:
+                name = None
+        except Exception:
+            name = None
+        if name:
+            yield from add_candidate(name, aliases=[alias])
+
+    for friend in friends.get("close_friends", []):
+        aliases = []
+        if friend.get("nickname"):
+            aliases.append(friend.get("nickname"))
+        yield from add_candidate(friend.get("name"), aliases=aliases)
+
+    emergency = contact.get("emergency_contact", {})
+    yield from add_candidate(emergency.get("name"), aliases=["emergency contact", "my emergency contact"])
+
+    for person_key in ["father", "mother"]:
+        person = family.get(person_key, {})
+        yield from add_candidate(person.get("name"), aliases=[person_key, f"my {person_key}"])
+
+    for sibling in family.get("siblings", []):
+        aliases = ["sister", "my sister"]
+        if sibling.get("nickname"):
+            aliases.append(sibling.get("nickname"))
+        yield from add_candidate(sibling.get("name"), aliases=aliases)
+
+
+def _resolve_contact_target(target_text):
+    normalized = _clean_text(target_text).lower()
+    if not normalized or normalized in {"me", "myself"}:
+        return None
+
+    candidates = list(_iter_contact_candidates())
+    for candidate in candidates:
+        if normalized in candidate["aliases"]:
+            return candidate["name"]
+
+    for candidate in candidates:
+        if normalized == candidate["name"].lower():
+            return candidate["name"]
+
+    for candidate in candidates:
+        if normalized in candidate["name"].lower():
+            return candidate["name"]
+
+    return None
+
+
 def _extract_due_date(command):
     date_obj = get_relative_base(command) or extract_specific_date(command)
     if not date_obj:
@@ -559,6 +643,51 @@ def add_reminder(command):
 
     if not reminder_text:
         return "Tell me what you want me to remind you about."
+
+    data = _load_data()
+    data["reminders"].append(
+        {
+            "title": reminder_text,
+            "due_date": due_date,
+            "due_at": due_datetime.isoformat(timespec="minutes") if due_datetime else None,
+            "created_at": datetime.datetime.now().isoformat(),
+        }
+    )
+    _save_data(data)
+
+    if due_datetime:
+        return f"Reminder added for {due_datetime.strftime('%d %B %Y %I:%M %p')}: {reminder_text}"
+    if due_date:
+        return f"Reminder added for {_format_due_date(due_date)}: {reminder_text}"
+    return f"Reminder added: {reminder_text}"
+
+
+def add_contact_reminder(command):
+    match = re.match(
+        r"^(?:remind|set reminder for)\s+(.+?)\s+(about|to)\s+(.+)$",
+        command,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return "Tell me which contact you want the reminder to be about."
+
+    target_text = _clean_text(match.group(1))
+    connector = match.group(2).lower()
+    reminder_body = _remove_date_phrases(_clean_text(match.group(3)))
+    if not target_text or not reminder_body:
+        return "Tell me the contact and what you want to be reminded about."
+
+    contact_name = _resolve_contact_target(target_text)
+    if not contact_name:
+        return f"I could not find a saved contact matching {target_text} in memory."
+
+    due_datetime = _extract_due_datetime(command)
+    due_date = due_datetime.date().isoformat() if due_datetime else _extract_due_date(command)
+    reminder_text = (
+        f"{contact_name} - {reminder_body}"
+        if connector == "about"
+        else f"{contact_name} - to {reminder_body}"
+    )
 
     data = _load_data()
     data["reminders"].append(

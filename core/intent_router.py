@@ -2,6 +2,7 @@ import datetime
 
 from modules.briefing_module import build_brief_details, build_due_reminder_alert
 from modules.browser_automation_module import (
+    ask_selected_browser_text_ai,
     browser_go_back,
     browser_go_forward,
     browser_refresh,
@@ -9,6 +10,7 @@ from modules.browser_automation_module import (
     browser_scroll_up,
     copy_selected_browser_text,
     copy_current_page_title,
+    explain_selected_browser_text_ai,
     open_gmail,
     open_maps_search,
     open_whatsapp_web,
@@ -17,6 +19,7 @@ from modules.browser_automation_module import (
     search_selected_text_on_youtube,
     search_google,
     search_youtube,
+    summarize_selected_browser_text_ai,
 )
 from modules.calendar_module import get_date, get_day, get_period, get_time
 from modules.dashboard_module import build_dashboard_report, build_daily_recap, build_today_agenda
@@ -82,6 +85,8 @@ from modules.messaging_automation_module import (
     whatsapp_message_contact,
 )
 from modules.notification_module import (
+    run_morning_routine,
+    run_night_routine,
     show_agenda_popup,
     show_brief_popup,
     show_event_popup,
@@ -146,6 +151,7 @@ from modules.routine_module import (
     run_routine,
 )
 from modules.task_module import (
+    add_contact_reminder,
     add_reminder,
     add_task,
     clear_all_reminders,
@@ -1182,6 +1188,42 @@ COMMAND_REGISTRY = [
         "confidence": 0.95,
     },
     {
+        "intent": "app.browser.selection_summary_ai",
+        "patterns": [
+            "summarize selected text with ai",
+            "summarize browser selection with ai",
+            "ai summarize selected text",
+        ],
+        "type": "exact",
+        "handler": lambda command: summarize_selected_browser_text_ai(),
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "app.browser.selection_explain_ai",
+        "patterns": [
+            "explain selected text",
+            "explain selected browser text",
+            "explain browser selection",
+        ],
+        "type": "exact",
+        "handler": lambda command: explain_selected_browser_text_ai(),
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "app.browser.selection_ask_ai",
+        "patterns": [
+            "ask selected text",
+            "ask browser selection",
+            "question on selected text",
+        ],
+        "type": "startswith",
+        "handler": ask_selected_browser_text_ai,
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
         "intent": "app.browser.selection_copy",
         "patterns": [
             "copy selected browser text",
@@ -1330,6 +1372,30 @@ COMMAND_REGISTRY = [
         "handler": lambda command: build_due_reminder_alert(),
         "category": "briefing",
         "confidence": 0.98,
+    },
+    {
+        "intent": "notifications.routine.morning",
+        "patterns": [
+            "run morning routine",
+            "start morning routine",
+            "good morning routine",
+        ],
+        "type": "exact",
+        "handler": lambda command: run_morning_routine(),
+        "category": "notifications",
+        "confidence": 0.96,
+    },
+    {
+        "intent": "notifications.routine.night",
+        "patterns": [
+            "run night routine",
+            "start night routine",
+            "good night routine",
+        ],
+        "type": "exact",
+        "handler": lambda command: run_night_routine(),
+        "category": "notifications",
+        "confidence": 0.96,
     },
     {
         "intent": "notifications.summary",
@@ -1513,6 +1579,14 @@ COMMAND_REGISTRY = [
         "type": "exact",
         "handler": lambda command: mark_all_tasks_done(),
         "category": "tasks",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "reminders.contact_add",
+        "patterns": ["remind my ", "set reminder for my "],
+        "type": "startswith",
+        "handler": add_contact_reminder,
+        "category": "reminders",
         "confidence": 0.98,
     },
     {

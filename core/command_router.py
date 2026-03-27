@@ -25,6 +25,7 @@ from core.intent_router import try_handle_intent
 from core.quick_overlay import (
     get_pinned_commands,
     hide_quick_overlay,
+    is_quick_overlay_open,
     list_pinned_commands,
     move_pinned_command,
     pin_overlay_command,
@@ -797,6 +798,18 @@ def _handle_config_command(command):
         update_setting("overlay.hotkey_enabled", False)
         return "Quick command overlay disabled. Restart the assistant if it was already running."
 
+    if command in ["toggle overlay hotkey", "toggle quick overlay hotkey"]:
+        current = bool(get_setting("overlay.hotkey_enabled", True))
+        update_setting("overlay.hotkey_enabled", not current)
+        state = "enabled" if not current else "disabled"
+        return f"Quick command overlay hotkey {state}. Restart the assistant if it was already running."
+
+    if command in ["toggle ocr hotkey", "toggle region hotkey"]:
+        current = bool(get_setting("ocr.region_hotkey_enabled", True))
+        update_setting("ocr.region_hotkey_enabled", not current)
+        state = "enabled" if not current else "disabled"
+        return f"OCR region hotkey {state}. Restart the assistant if it was already running."
+
     if command in ["enable whatsapp auto send", "turn on whatsapp auto send"]:
         update_setting("browser.whatsapp_auto_send", True)
         return "WhatsApp auto send enabled."
@@ -950,6 +963,48 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         "open quick overlay",
         "show quick overlay",
     ]:
+        recent_commands = get_recent_commands()
+        overlay_suggestions = {
+            "Planning": [
+                "today agenda",
+                "what is due today",
+                "show overdue items",
+            ],
+            "System": [
+                "weather",
+                "dashboard",
+                "show settings",
+                "system status",
+                "export productivity summary",
+            ],
+            "OCR": [
+                "copy selected area text",
+                "read selected area",
+            ],
+        }
+        pinned_commands = get_pinned_commands()
+        if pinned_commands:
+            overlay_suggestions = {
+                f"Pinned ({len(pinned_commands)})": pinned_commands,
+                **overlay_suggestions,
+            }
+        success, message = show_quick_overlay(
+            lambda overlay_command: process_command(
+                overlay_command, INSTALLED_APPS, input_mode="text"
+            ),
+            suggestions=overlay_suggestions,
+            recent_commands=recent_commands,
+            recent_actions=recent_commands[:4],
+        )
+        speak(message if message else "Quick command overlay updated.")
+        return
+
+    if command in ["toggle quick overlay", "toggle quick command overlay"]:
+        if is_quick_overlay_open():
+            success, message = hide_quick_overlay()
+            speak(message if message else "Quick command overlay updated.")
+            return
+
         recent_commands = get_recent_commands()
         overlay_suggestions = {
             "Planning": [

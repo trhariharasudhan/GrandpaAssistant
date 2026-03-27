@@ -479,6 +479,35 @@ def show_recap_popup():
     return "I could not show the daily recap popup right now."
 
 
+def run_morning_routine():
+    brief = build_brief_details()
+    agenda = build_today_agenda()
+    weather = get_weather_report("weather")
+    message = f"{brief}\n\n{agenda}\n\n{weather}"
+    if _show_popup(
+        _notification_title("Morning Routine"),
+        message,
+        timeout=max(_default_popup_timeout(), 14),
+        force=True,
+    ):
+        return "Morning routine is ready with your brief, agenda, and weather."
+    return "I could not run the morning routine right now."
+
+
+def run_night_routine():
+    recap = build_daily_recap()
+    export_result = export_daily_recap_summary()
+    message = f"{recap}\n\n{export_result}"
+    if _show_popup(
+        _notification_title("Night Routine"),
+        message,
+        timeout=max(_default_popup_timeout(), 14),
+        force=True,
+    ):
+        return "Night routine completed with recap and export."
+    return "I could not run the night routine right now."
+
+
 def show_event_popup():
     due_events = get_due_event_titles(days_ahead=1)
     parts = []

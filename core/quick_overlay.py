@@ -490,6 +490,16 @@ def hide_quick_overlay():
         return False, "I could not hide the quick command overlay right now."
 
 
+def is_quick_overlay_open():
+    if _overlay_root is None:
+        return False
+
+    try:
+        return _overlay_root.state() != "withdrawn"
+    except Exception:
+        return True
+
+
 def register_overlay_hotkey(
     callback,
     hotkey="ctrl+shift+space",

@@ -120,11 +120,13 @@ def _overlay_suggestions():
             ("Open My Portfolio", "open my portfolio"),
             ("Mail My Mother About Today Plan", "mail my mother about today plan"),
         ],
-        "Browser (4)": [
+        "Browser (6)": [
             ("Open Result 2 In New Tab", "open result 2 in new tab"),
             ("Copy Selected Browser Text", "copy selected browser text"),
             ("Search Selected Text On Google", "search selected text on google"),
             ("Search Selected Text On YouTube", "search selected text on youtube"),
+            ("Summarize Selected Text With AI", "summarize selected text with ai"),
+            ("Explain Selected Text", "explain selected text"),
         ],
         "System (5)": [
             ("Weather", "weather"),
@@ -133,12 +135,14 @@ def _overlay_suggestions():
             ("System Status", "system status"),
             ("Export Summary", "export productivity summary"),
         ],
-        "Actions (5)": [
+        "Actions (7)": [
             ("Complete Latest Task", "complete latest task"),
             ("Latest Event", "latest event"),
             ("Delete Latest Event", "delete latest event"),
             ("Upcoming Events", "upcoming events"),
             ("Show Weather Popup", "show weather popup"),
+            ("Run Morning Routine", "run morning routine"),
+            ("Run Night Routine", "run night routine"),
         ],
         "OCR (2)": [
             ("Copy Selected Area Text", "copy selected area text"),
@@ -193,6 +197,7 @@ def _overlay_context_items():
         latest_reminder_title = reminders[0].get("title", "Untitled reminder")
         context_items.append((f"Latest Reminder: {latest_reminder_title}", "latest reminder"))
         context_items.append(("What Is Due Today", "what is due today"))
+        context_items.append(("Run Morning Routine", "run morning routine"))
     else:
         context_items.append(("No Active Reminders", "show reminders"))
 
@@ -207,6 +212,7 @@ def _overlay_context_items():
         next_event_title = next_event.get("title", "Untitled event")
         context_items.append((f"Next Event: {next_event_title}", "upcoming events"))
         context_items.append(("Delete Latest Event", "delete latest event"))
+        context_items.append(("Run Night Routine", "run night routine"))
     else:
         context_items.append(("No Upcoming Events", "upcoming events"))
 
