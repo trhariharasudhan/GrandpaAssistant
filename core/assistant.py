@@ -9,6 +9,7 @@ from colorama import Fore, Style, init
 
 from brain.database import get_recent_commands
 from core.command_router import process_command
+from core.jarvis_ui import launch_jarvis_ui
 from core.quick_overlay import (
     get_pinned_commands,
     hide_quick_overlay,
@@ -435,7 +436,7 @@ def _process_voice_command(command, current_timeout):
     return {"exit": False, "timeout": ACTIVE_TIMEOUT}
 
 
-def main(start_in_tray=False):
+def main(start_in_tray=False, start_in_ui=False):
     global INSTALLED_APPS
     global WAKE_WORD, INITIAL_TIMEOUT, ACTIVE_TIMEOUT, POST_WAKE_PAUSE, EMPTY_LISTEN_BACKOFF
     global WAKE_MATCH_THRESHOLD, WAKE_RETRY_WINDOW
@@ -508,8 +509,13 @@ def main(start_in_tray=False):
             voice_mode()
             return
 
+    if start_in_ui:
+        set_response_mode("text")
+        launch_jarvis_ui(INSTALLED_APPS)
+        return
+
     try:
-        print("\nChoose to enter input mode (1 - Voice / 2 - Text): ", end="")
+        print("\nChoose to enter input mode (1 - Voice / 2 - Text / 3 - Jarvis UI): ", end="")
         mode = input().strip()
     except KeyboardInterrupt:
         print("\nExiting Grandpa Assistant...")
@@ -527,6 +533,11 @@ def main(start_in_tray=False):
         speak("Text mode activated.")
         print()
         text_mode()
+    elif mode == "3":
+        set_response_mode("text")
+        play_sound("start")
+        speak("Jarvis UI activated.")
+        launch_jarvis_ui(INSTALLED_APPS)
     else:
         print("Invalid mode selected.")
         play_sound("error")
