@@ -6,6 +6,7 @@ import time
 
 import win32com.client
 
+from modules.dashboard_module import build_today_agenda
 from modules.event_module import get_due_event_titles
 from modules.health_module import get_system_status
 from modules.task_module import get_task_data
@@ -281,6 +282,13 @@ def show_event_popup():
     if _show_popup(_notification_title("Events"), message, force=True):
         return "Event popup shown."
     return "I could not show the event popup right now."
+
+
+def show_agenda_popup():
+    message = build_today_agenda()
+    if _show_popup(_notification_title("Today Agenda"), message, timeout=max(_default_popup_timeout(), 12), force=True):
+        return "Agenda popup shown."
+    return "I could not show the agenda popup right now."
 
 
 def show_custom_popup(title_suffix, message, dedupe_key=None, force=True):

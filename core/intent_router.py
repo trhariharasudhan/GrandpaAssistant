@@ -59,6 +59,7 @@ from modules.messaging_automation_module import (
     whatsapp_message_contact,
 )
 from modules.notification_module import (
+    show_agenda_popup,
     show_event_popup,
     show_health_popup,
     show_notification_summary,
@@ -995,6 +996,14 @@ COMMAND_REGISTRY = [
         "patterns": ["show health popup", "health popup", "system health popup"],
         "type": "exact",
         "handler": lambda command: show_health_popup(),
+        "category": "notifications",
+        "confidence": 0.96,
+    },
+    {
+        "intent": "notifications.agenda",
+        "patterns": ["show agenda popup", "agenda popup", "today agenda popup", "popup agenda"],
+        "type": "exact",
+        "handler": lambda command: show_agenda_popup(),
         "category": "notifications",
         "confidence": 0.96,
     },
