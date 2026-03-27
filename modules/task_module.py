@@ -288,6 +288,52 @@ def _remove_date_phrases(text):
     return _clean_text(cleaned)
 
 
+def _extract_recurrence(command):
+    normalized = (command or "").lower()
+    if "every day" in normalized or "daily" in normalized:
+        return "daily"
+
+    weekday_match = re.search(
+        r"\bevery\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+        normalized,
+    )
+    if weekday_match:
+        return f"weekly:{weekday_match.group(1)}"
+
+    if "every week" in normalized or "weekly" in normalized:
+        return "weekly"
+
+    if "every month" in normalized or "monthly" in normalized:
+        return "monthly"
+
+    return None
+
+
+def _strip_recurrence_phrases(text):
+    cleaned = re.sub(
+        r"\bevery\s+(day|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\b(daily|weekly|monthly)\b", " ", cleaned, flags=re.IGNORECASE)
+    return _clean_text(cleaned)
+
+
+def _format_recurrence(recurrence):
+    if not recurrence:
+        return ""
+    if recurrence == "daily":
+        return " (recurs daily)"
+    if recurrence == "weekly":
+        return " (recurs weekly)"
+    if recurrence == "monthly":
+        return " (recurs monthly)"
+    if recurrence.startswith("weekly:"):
+        return f" (recurs every {recurrence.split(':', 1)[1]})"
+    return f" ({recurrence})"
+
+
 def _iter_contact_candidates():
     memory = load_memory()
     seen = set()
@@ -406,7 +452,8 @@ def _extract_due_datetime(command):
 
 
 def add_task(command):
-    task_text = _clean_text(command.replace("add task", "", 1))
+    recurrence = _extract_recurrence(command)
+    task_text = _strip_recurrence_phrases(_clean_text(command.replace("add task", "", 1)))
     if not task_text:
         return "Tell me what task you want to add."
 
@@ -415,10 +462,13 @@ def add_task(command):
         {
             "title": task_text,
             "completed": False,
+            "recurrence": recurrence,
             "created_at": datetime.datetime.now().isoformat(),
         }
     )
     _save_data(data)
+    if recurrence:
+        return f"Recurring task added{_format_recurrence(recurrence)}: {task_text}"
     return f"Task added: {task_text}"
 
 
@@ -432,7 +482,9 @@ def list_tasks():
     lines = []
     for index, task in enumerate(tasks, start=1):
         status = "done" if task.get("completed") else "pending"
-        lines.append(f"{index}. {task.get('title', 'Untitled task')} - {status}")
+        lines.append(
+            f"{index}. {task.get('title', 'Untitled task')} - {status}{_format_recurrence(task.get('recurrence'))}"
+        )
 
     return "Your tasks are: " + " | ".join(lines)
 
@@ -637,9 +689,15 @@ def delete_task_by_title(command):
 
 
 def add_reminder(command):
+    recurrence = _extract_recurrence(command)
     due_datetime = _extract_due_datetime(command)
     due_date = due_datetime.date().isoformat() if due_datetime else _extract_due_date(command)
-    reminder_text = _remove_date_phrases(command.replace("remind me to", "", 1))
+    reminder_text = command
+    for prefix in ["remind me to", "remind me every"]:
+        if command.startswith(prefix):
+            reminder_text = command.replace(prefix, "", 1)
+            break
+    reminder_text = _strip_recurrence_phrases(_remove_date_phrases(reminder_text))
 
     if not reminder_text:
         return "Tell me what you want me to remind you about."
@@ -650,19 +708,23 @@ def add_reminder(command):
             "title": reminder_text,
             "due_date": due_date,
             "due_at": due_datetime.isoformat(timespec="minutes") if due_datetime else None,
+            "recurrence": recurrence,
             "created_at": datetime.datetime.now().isoformat(),
         }
     )
     _save_data(data)
 
     if due_datetime:
-        return f"Reminder added for {due_datetime.strftime('%d %B %Y %I:%M %p')}: {reminder_text}"
+        prefix = "Recurring reminder added" if recurrence else "Reminder added"
+        return f"{prefix}{_format_recurrence(recurrence)} for {due_datetime.strftime('%d %B %Y %I:%M %p')}: {reminder_text}"
     if due_date:
-        return f"Reminder added for {_format_due_date(due_date)}: {reminder_text}"
+        prefix = "Recurring reminder added" if recurrence else "Reminder added"
+        return f"{prefix}{_format_recurrence(recurrence)} for {_format_due_date(due_date)}: {reminder_text}"
     return f"Reminder added: {reminder_text}"
 
 
 def add_contact_reminder(command):
+    recurrence = _extract_recurrence(command)
     match = re.match(
         r"^(?:remind|set reminder for)\s+(.+?)\s+(about|to)\s+(.+)$",
         command,
@@ -695,15 +757,18 @@ def add_contact_reminder(command):
             "title": reminder_text,
             "due_date": due_date,
             "due_at": due_datetime.isoformat(timespec="minutes") if due_datetime else None,
+            "recurrence": recurrence,
             "created_at": datetime.datetime.now().isoformat(),
         }
     )
     _save_data(data)
 
     if due_datetime:
-        return f"Reminder added for {due_datetime.strftime('%d %B %Y %I:%M %p')}: {reminder_text}"
+        prefix = "Recurring reminder added" if recurrence else "Reminder added"
+        return f"{prefix}{_format_recurrence(recurrence)} for {due_datetime.strftime('%d %B %Y %I:%M %p')}: {reminder_text}"
     if due_date:
-        return f"Reminder added for {_format_due_date(due_date)}: {reminder_text}"
+        prefix = "Recurring reminder added" if recurrence else "Reminder added"
+        return f"{prefix}{_format_recurrence(recurrence)} for {_format_due_date(due_date)}: {reminder_text}"
     return f"Reminder added: {reminder_text}"
 
 
@@ -717,7 +782,9 @@ def list_reminders():
     lines = []
     for index, reminder in enumerate(reminders, start=1):
         due = _format_due_value(reminder)
-        lines.append(f"{index}. {reminder.get('title', 'Untitled reminder')} - {due}")
+        lines.append(
+            f"{index}. {reminder.get('title', 'Untitled reminder')} - {due}{_format_recurrence(reminder.get('recurrence'))}"
+        )
 
     return "Your reminders are: " + " | ".join(lines)
 
@@ -730,7 +797,7 @@ def latest_reminder():
         return "You have no reminders right now."
 
     due = _format_due_value(reminder)
-    return f"Your latest reminder is: {reminder.get('title', 'Untitled reminder')} - {due}"
+    return f"Your latest reminder is: {reminder.get('title', 'Untitled reminder')} - {due}{_format_recurrence(reminder.get('recurrence'))}"
 
 
 def delete_reminder(command):

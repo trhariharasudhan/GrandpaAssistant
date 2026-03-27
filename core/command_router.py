@@ -8,6 +8,7 @@ import webbrowser
 
 from brain.ai_engine import ask_ollama, clear_memory
 from brain.database import get_recent_commands, log_command
+from core.followup_memory import get_best_followup_text, set_last_result
 from brain.memory_engine import (
     get_memory,
     get_named_contact_field,
@@ -76,6 +77,9 @@ from modules.system_module import (
     perform_shutdown,
 )
 from modules.web_module import wikipedia_search
+from modules.notes_module import add_note
+from modules.task_module import add_reminder
+from modules.messaging_automation_module import quick_email_shortcut, quick_whatsapp_message
 from controls.brightness_control import handle_brightness
 from controls.volume_control import handle_volume, set_volume_percentage
 from utils.sound import play_sound
@@ -133,6 +137,11 @@ def _normalize_voice_friendly_command(command):
         "translate this selected text to tamil": "translate selected text to tamil",
         "translate this selected text to english": "translate selected text to english",
         "extract action items": "extract action items from selected text",
+        "save that as note": "save it as note",
+        "save this as note": "save it as note",
+        "make that a reminder": "make it a reminder",
+        "send that to my father": "send it to my father",
+        "mail that to my mother": "mail it to my mother",
     }
     if normalized in exact_aliases:
         return exact_aliases[normalized]
@@ -222,6 +231,68 @@ def _copy_to_clipboard(value):
         return True
     except Exception:
         return False
+
+
+def _handle_followup_command(command):
+    context_text = get_best_followup_text()
+    if not context_text:
+        return None
+
+    if command in ["save it as note", "save that as note", "make it a note"]:
+        return add_note(f"add note {context_text[:1200]}")
+
+    if command in ["save it as task", "make it a task"]:
+        from modules.task_module import add_task
+
+        cleaned = " ".join(context_text.split())
+        if len(cleaned) > 180:
+            cleaned = cleaned[:180].rsplit(" ", 1)[0] + " ..."
+        return add_task(f"add task review {cleaned}")
+
+    reminder_match = re.match(
+        r"^(?:make|set)\s+it\s+(?:a\s+)?reminder(?:\s+for\s+(.+))?$",
+        command,
+    )
+    if reminder_match:
+        schedule = (reminder_match.group(1) or "").strip()
+        cleaned = " ".join(context_text.split())
+        if len(cleaned) > 140:
+            cleaned = cleaned[:140].rsplit(" ", 1)[0] + " ..."
+        reminder_command = f"remind me to review {cleaned}"
+        if schedule:
+            reminder_command = f"{reminder_command} {schedule}"
+        return add_reminder(reminder_command)
+
+    send_match = re.match(r"^(?:send|message)\s+it\s+to\s+(.+)$", command)
+    if send_match:
+        target = send_match.group(1).strip()
+        cleaned = " ".join(context_text.split())
+        return quick_whatsapp_message(f"message {target} saying {cleaned[:900]}")
+
+    mail_match = re.match(r"^(?:mail|email)\s+it\s+to\s+(.+)$", command)
+    if mail_match:
+        target = mail_match.group(1).strip()
+        cleaned = " ".join(context_text.split())
+        return quick_email_shortcut(f"mail {target} {cleaned[:900]}")
+
+    translate_match = re.match(r"^translate\s+it\s+to\s+(.+)$", command)
+    if translate_match:
+        target_language = " ".join(translate_match.group(1).split()).title()
+        reply = ask_ollama(
+            f"Translate this text into {target_language}.\n\nText:\n{context_text[:4000]}",
+            compact=False,
+        )
+        return f"Translated to {target_language}: {reply}"
+
+    if command in ["extract action items from it", "extract tasks from it"]:
+        reply = ask_ollama(
+            "Extract the action items from this text in plain short lines.\n\n"
+            f"Text:\n{context_text[:4000]}",
+            compact=False,
+        )
+        return f"Action items: {reply}"
+
+    return None
 
 
 def _handle_contact_action_command(command):
@@ -988,6 +1059,13 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     contact_action_reply = _handle_contact_action_command(command)
     if contact_action_reply:
         speak(contact_action_reply)
+        set_last_result(contact_action_reply)
+        return
+
+    followup_reply = _handle_followup_command(command)
+    if followup_reply:
+        speak(followup_reply)
+        set_last_result(followup_reply)
         return
 
     if pending_confirmation:
@@ -1315,6 +1393,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     intent_result = try_handle_intent(command)
     if intent_result["handled"]:
         speak(intent_result["reply"])
+        set_last_result(intent_result["reply"])
         return
 
     now_dt = datetime.datetime.now()
@@ -1639,6 +1718,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             if stream_output:
                 end_streaming_reply()
         speak(response, already_printed=stream_output)
+        set_last_result(response)
         return
 
     # -------- GENERAL AI RESPONSE --------
@@ -1658,6 +1738,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
                 end_streaming_reply()
         if response:
             speak(response, already_printed=stream_output)
+            set_last_result(response)
         else:
             speak("I did not get a proper response.")
 

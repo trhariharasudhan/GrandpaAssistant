@@ -7,6 +7,7 @@ import keyboard
 import pyperclip
 
 from brain.ai_engine import ask_ollama
+from core.followup_memory import set_last_result, set_selected_text
 from modules.event_module import add_event
 from modules.messaging_automation_module import quick_email_shortcut, quick_whatsapp_message
 from modules.notes_module import add_note
@@ -56,6 +57,9 @@ def _get_selected_browser_text():
 
     if previous is not None and selected == previous:
         selected = ""
+
+    if selected:
+        set_selected_text(selected)
 
     return selected
 
@@ -242,7 +246,9 @@ def summarize_selected_browser_text_ai(command=None):
         f"Selected text:\n{selected[:4000]}"
     )
     reply = ask_ollama(prompt, compact=True)
-    return f"Selected text summary: {reply}"
+    result = f"Selected text summary: {reply}"
+    set_last_result(result)
+    return result
 
 
 def explain_selected_browser_text_ai(command=None):
@@ -255,7 +261,9 @@ def explain_selected_browser_text_ai(command=None):
         f"Selected text:\n{selected[:4000]}"
     )
     reply = ask_ollama(prompt, compact=True)
-    return f"Selected text explanation: {reply}"
+    result = f"Selected text explanation: {reply}"
+    set_last_result(result)
+    return result
 
 
 def ask_selected_browser_text_ai(command):
@@ -284,7 +292,9 @@ def ask_selected_browser_text_ai(command):
         f"Selected text:\n{selected[:4000]}"
     )
     reply = ask_ollama(prompt, compact=True)
-    return f"From the selected text: {reply}"
+    result = f"From the selected text: {reply}"
+    set_last_result(result)
+    return result
 
 
 def read_selected_browser_text_aloud(command=None):
@@ -295,7 +305,9 @@ def read_selected_browser_text_aloud(command=None):
     cleaned = " ".join(selected.split())
     if len(cleaned) > 700:
         cleaned = cleaned[:700].rsplit(" ", 1)[0] + " ..."
-    return f"Selected text says: {cleaned}"
+    result = f"Selected text says: {cleaned}"
+    set_last_result(result)
+    return result
 
 
 def save_selected_browser_text_as_note(command=None):
@@ -304,7 +316,9 @@ def save_selected_browser_text_as_note(command=None):
         return "I could not read selected browser text right now."
 
     cleaned = " ".join(selected.split())
-    return add_note(f"add note {cleaned[:1200]}")
+    result = add_note(f"add note {cleaned[:1200]}")
+    set_last_result(result)
+    return result
 
 
 def create_reminder_from_selected_browser_text(command):
@@ -331,7 +345,9 @@ def create_reminder_from_selected_browser_text(command):
     if suffix:
         reminder_command = f"{reminder_command} {suffix}"
 
-    return add_reminder(reminder_command)
+    result = add_reminder(reminder_command)
+    set_last_result(result)
+    return result
 
 
 def summarize_selected_text_and_save_note(command=None):
@@ -345,7 +361,9 @@ def summarize_selected_text_and_save_note(command=None):
     )
     summary = ask_ollama(prompt, compact=True)
     note_result = add_note(f"add note {summary}")
-    return f"Selected text summary: {summary} {note_result}"
+    result = f"Selected text summary: {summary} {note_result}"
+    set_last_result(result)
+    return result
 
 
 def explain_selected_text_and_save_note(command=None):
@@ -359,7 +377,9 @@ def explain_selected_text_and_save_note(command=None):
     )
     explanation = ask_ollama(prompt, compact=True)
     note_result = add_note(f"add note {explanation}")
-    return f"Selected text explanation: {explanation} {note_result}"
+    result = f"Selected text explanation: {explanation} {note_result}"
+    set_last_result(result)
+    return result
 
 
 def search_selected_text_and_summarize(command=None):
@@ -375,11 +395,15 @@ def search_selected_text_and_summarize(command=None):
     )
     summary = ask_ollama(prompt, compact=True)
     if opened:
-        return _with_feedback(
+        result = _with_feedback(
             f"Searching Google for the selected text. Quick summary: {summary}",
             None,
         )
-    return f"I could not open Google search right now. Quick summary: {summary}"
+        set_last_result(result)
+        return result
+    result = f"I could not open Google search right now. Quick summary: {summary}"
+    set_last_result(result)
+    return result
 
 
 def summarize_selected_text_and_read_aloud(command=None):
@@ -392,7 +416,9 @@ def summarize_selected_text_and_read_aloud(command=None):
         f"Selected text:\n{selected[:4000]}"
     )
     summary = ask_ollama(prompt, compact=True)
-    return f"Selected text summary: {summary}"
+    result = f"Selected text summary: {summary}"
+    set_last_result(result)
+    return result
 
 
 def search_selected_text_and_read_summary(command=None):
@@ -408,8 +434,12 @@ def search_selected_text_and_read_summary(command=None):
     url = "https://www.google.com/search?q=" + urllib.parse.quote_plus(selected)
     opened = _open_url(url)
     if opened:
-        return _with_feedback(f"Searching Google for the selected text. Spoken summary: {summary}", None)
-    return f"I could not open Google search right now. Spoken summary: {summary}"
+        result = _with_feedback(f"Searching Google for the selected text. Spoken summary: {summary}", None)
+        set_last_result(result)
+        return result
+    result = f"I could not open Google search right now. Spoken summary: {summary}"
+    set_last_result(result)
+    return result
 
 
 def save_selected_text_as_task(command=None):
@@ -420,7 +450,9 @@ def save_selected_text_as_task(command=None):
     cleaned = " ".join(selected.split())
     if len(cleaned) > 180:
         cleaned = cleaned[:180].rsplit(" ", 1)[0] + " ..."
-    return add_task(f"add task review {cleaned}")
+    result = add_task(f"add task review {cleaned}")
+    set_last_result(result)
+    return result
 
 
 def create_event_from_selected_text(command):
@@ -444,7 +476,9 @@ def create_event_from_selected_text(command):
     event_command = f"add event review {cleaned}"
     if suffix:
         event_command = f"{event_command} {suffix}"
-    return add_event(event_command)
+    result = add_event(event_command)
+    set_last_result(result)
+    return result
 
 
 def send_selected_text_to_whatsapp(command):
@@ -466,7 +500,9 @@ def send_selected_text_to_whatsapp(command):
 
     target = " ".join(match.group(1).split())
     cleaned = " ".join(selected.split())
-    return quick_whatsapp_message(f"message {target} saying {cleaned[:900]}")
+    result = quick_whatsapp_message(f"message {target} saying {cleaned[:900]}")
+    set_last_result(result)
+    return result
 
 
 def send_selected_text_to_email(command):
@@ -488,7 +524,9 @@ def send_selected_text_to_email(command):
 
     target = " ".join(match.group(1).split())
     cleaned = " ".join(selected.split())
-    return quick_email_shortcut(f"mail {target} {cleaned[:900]}")
+    result = quick_email_shortcut(f"mail {target} {cleaned[:900]}")
+    set_last_result(result)
+    return result
 
 
 def translate_selected_browser_text(command):
@@ -510,7 +548,9 @@ def translate_selected_browser_text(command):
         f"Selected text:\n{selected[:4000]}"
     )
     reply = ask_ollama(prompt, compact=False)
-    return f"Selected text translated to {target_language}: {reply}"
+    result = f"Selected text translated to {target_language}: {reply}"
+    set_last_result(result)
+    return result
 
 
 def extract_action_items_from_selected_text(command=None):
@@ -524,7 +564,9 @@ def extract_action_items_from_selected_text(command=None):
         f"Selected text:\n{selected[:4000]}"
     )
     reply = ask_ollama(prompt, compact=False)
-    return f"Action items from selected text: {reply}"
+    result = f"Action items from selected text: {reply}"
+    set_last_result(result)
+    return result
 
 
 def extract_action_items_and_save_note(command=None):
@@ -539,4 +581,6 @@ def extract_action_items_and_save_note(command=None):
     )
     reply = ask_ollama(prompt, compact=False)
     note_result = add_note(f"add note Action items: {reply}")
-    return f"Action items from selected text: {reply} {note_result}"
+    result = f"Action items from selected text: {reply} {note_result}"
+    set_last_result(result)
+    return result

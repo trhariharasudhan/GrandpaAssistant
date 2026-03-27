@@ -155,6 +155,52 @@ def _remove_date_phrases(text):
     return _clean_text(cleaned)
 
 
+def _extract_recurrence(command):
+    normalized = (command or "").lower()
+    if "every day" in normalized or "daily" in normalized:
+        return "daily"
+
+    weekday_match = re.search(
+        r"\bevery\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+        normalized,
+    )
+    if weekday_match:
+        return f"weekly:{weekday_match.group(1)}"
+
+    if "every week" in normalized or "weekly" in normalized:
+        return "weekly"
+
+    if "every month" in normalized or "monthly" in normalized:
+        return "monthly"
+
+    return None
+
+
+def _strip_recurrence_phrases(text):
+    cleaned = re.sub(
+        r"\bevery\s+(day|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\b(daily|weekly|monthly)\b", " ", cleaned, flags=re.IGNORECASE)
+    return _clean_text(cleaned)
+
+
+def _format_recurrence(recurrence):
+    if not recurrence:
+        return ""
+    if recurrence == "daily":
+        return " (recurs daily)"
+    if recurrence == "weekly":
+        return " (recurs weekly)"
+    if recurrence == "monthly":
+        return " (recurs monthly)"
+    if recurrence.startswith("weekly:"):
+        return f" (recurs every {recurrence.split(':', 1)[1]})"
+    return f" ({recurrence})"
+
+
 def _format_date(date_str):
     if not date_str:
         return "No date"
@@ -186,11 +232,12 @@ def _format_event_line(index, event):
     date_text = _format_date(event.get("date"))
     time_text = event.get("time")
     if time_text:
-        return f"{index}. {title} - {date_text} at {_format_time(time_text)}"
-    return f"{index}. {title} - {date_text}"
+        return f"{index}. {title} - {date_text} at {_format_time(time_text)}{_format_recurrence(event.get('recurrence'))}"
+    return f"{index}. {title} - {date_text}{_format_recurrence(event.get('recurrence'))}"
 
 
 def add_event(command):
+    recurrence = _extract_recurrence(command)
     event_datetime = _extract_event_datetime(command)
     date_value = event_datetime.date().isoformat() if event_datetime else _extract_event_date(command)
     time_value = event_datetime.strftime("%H:%M") if event_datetime else _extract_event_time(command)
@@ -207,7 +254,7 @@ def add_event(command):
             title = command.replace(prefix, "", 1)
             break
 
-    title = _remove_date_phrases(title)
+    title = _strip_recurrence_phrases(_remove_date_phrases(title))
     if not title:
         return "Tell me what event you want to add."
 
@@ -217,15 +264,18 @@ def add_event(command):
             "title": title,
             "date": date_value,
             "time": time_value,
+            "recurrence": recurrence,
             "created_at": datetime.datetime.now().isoformat(),
         }
     )
     _save_data(data)
 
     if date_value and time_value:
-        return f"Event added for {_format_date(date_value)} at {_format_time(time_value)}: {title}"
+        prefix = "Recurring event added" if recurrence else "Event added"
+        return f"{prefix}{_format_recurrence(recurrence)} for {_format_date(date_value)} at {_format_time(time_value)}: {title}"
     if date_value:
-        return f"Event added for {_format_date(date_value)}: {title}"
+        prefix = "Recurring event added" if recurrence else "Event added"
+        return f"{prefix}{_format_recurrence(recurrence)} for {_format_date(date_value)}: {title}"
     return f"Event added: {title}"
 
 
@@ -257,9 +307,9 @@ def today_events():
     for event in events[:10]:
         title = event.get("title", "Untitled event")
         if event.get("time"):
-            lines.append(f"{title} at {_format_time(event.get('time'))}")
+            lines.append(f"{title} at {_format_time(event.get('time'))}{_format_recurrence(event.get('recurrence'))}")
         else:
-            lines.append(title)
+            lines.append(f"{title}{_format_recurrence(event.get('recurrence'))}")
 
     return "Today's events are: " + " | ".join(lines)
 
@@ -275,18 +325,21 @@ def upcoming_events():
         except Exception:
             continue
         if event_date >= today:
-            upcoming.append((event_date, event.get("time") or "23:59", event.get("title", "Untitled event")))
+            upcoming.append(event)
 
     if not upcoming:
         return "You do not have any upcoming events right now."
 
-    upcoming.sort(key=lambda item: (item[0], item[1]))
+    upcoming.sort(key=_sort_key)
     lines = []
-    for date, time_value, title in upcoming[:5]:
+    for event in upcoming[:5]:
+        date = datetime.date.fromisoformat(event.get("date"))
+        time_value = event.get("time") or "23:59"
+        title = event.get("title", "Untitled event")
         if time_value and time_value != "23:59":
-            lines.append(f"{title} on {date.strftime('%d %B %Y')} at {_format_time(time_value)}")
+            lines.append(f"{title} on {date.strftime('%d %B %Y')} at {_format_time(time_value)}{_format_recurrence(event.get('recurrence'))}")
         else:
-            lines.append(f"{title} on {date.strftime('%d %B %Y')}")
+            lines.append(f"{title} on {date.strftime('%d %B %Y')}{_format_recurrence(event.get('recurrence'))}")
     return "Upcoming events: " + " | ".join(lines)
 
 
@@ -308,8 +361,8 @@ def latest_event():
     date_text = _format_date(event.get("date"))
     time_value = event.get("time")
     if time_value:
-        return f"Your latest event is {title} on {date_text} at {_format_time(time_value)}."
-    return f"Your latest event is {title} on {date_text}."
+        return f"Your latest event is {title} on {date_text} at {_format_time(time_value)}{_format_recurrence(event.get('recurrence'))}."
+    return f"Your latest event is {title} on {date_text}{_format_recurrence(event.get('recurrence'))}."
 
 
 def delete_event(command):

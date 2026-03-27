@@ -1793,7 +1793,7 @@ COMMAND_REGISTRY = [
     },
     {
         "intent": "reminders.add",
-        "patterns": ["remind me to"],
+        "patterns": ["remind me to", "remind me every"],
         "type": "startswith",
         "handler": add_reminder,
         "category": "reminders",
