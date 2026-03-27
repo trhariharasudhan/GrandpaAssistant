@@ -165,6 +165,53 @@ def _parse_snooze_delta(command):
     return datetime.timedelta(days=amount)
 
 
+def _extract_relative_due_datetime(command):
+    match = re.search(
+        r"\bin\s+(\d+)\s*(minute|minutes|hour|hours|day|days|week|weeks)\b",
+        command,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    amount = int(match.group(1))
+    unit = match.group(2).lower()
+    now = datetime.datetime.now()
+
+    if "minute" in unit:
+        return now + datetime.timedelta(minutes=amount)
+    if "hour" in unit:
+        return now + datetime.timedelta(hours=amount)
+    if "week" in unit:
+        return now + datetime.timedelta(days=amount * 7)
+    return now + datetime.timedelta(days=amount)
+
+
+def _extract_due_time(command):
+    match = re.search(
+        r"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b",
+        command,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    hour = int(match.group(1))
+    minute = int(match.group(2) or 0)
+    meridiem = (match.group(3) or "").lower()
+
+    if meridiem:
+        if hour == 12:
+            hour = 0
+        if meridiem == "pm":
+            hour += 12
+
+    if hour > 23 or minute > 59:
+        return None
+
+    return datetime.time(hour=hour, minute=minute)
+
+
 def _get_reminder_datetime(reminder):
     due_at = _parse_iso_datetime(reminder.get("due_at"))
     if due_at:
@@ -225,10 +272,12 @@ def _match_by_title(items, title_text, *, pending_only=False):
 def _remove_date_phrases(text):
     patterns = [
         r"\b(today|tomorrow|yesterday|next week|last week|next month|last month|next year|last year)\b",
+        r"\bin\s+\d+\s*(minute|minutes|hour|hours|day|days|week|weeks)\b",
         r"\bon\s+\d{1,2}\s+[a-zA-Z]+\s+\d{4}\b",
         r"\b\d{1,2}\s+[a-zA-Z]+\s+\d{4}\b",
         r"\bon\s+\d{1,2}\s+\d{1,2}\s+\d{4}\b",
         r"\b\d{1,2}\s+\d{1,2}\s+\d{4}\b",
+        r"\bat\s+\d{1,2}(?::\d{2})?\s*(am|pm)?\b",
     ]
 
     cleaned = text
@@ -247,6 +296,29 @@ def _extract_due_date(command):
         date_obj = date_obj.date()
 
     return date_obj.isoformat()
+
+
+def _extract_due_datetime(command):
+    relative_due = _extract_relative_due_datetime(command)
+    if relative_due is not None:
+        return relative_due.replace(second=0, microsecond=0)
+
+    due_date = get_relative_base(command) or extract_specific_date(command)
+    due_time = _extract_due_time(command)
+
+    if isinstance(due_date, datetime.datetime):
+        due_date = due_date.date()
+
+    if due_date is None and due_time is None:
+        return None
+
+    if due_date is None:
+        due_date = datetime.date.today()
+
+    if due_time is None:
+        due_time = datetime.time(hour=9, minute=0)
+
+    return datetime.datetime.combine(due_date, due_time)
 
 
 def add_task(command):
@@ -426,7 +498,8 @@ def delete_task_by_title(command):
 
 
 def add_reminder(command):
-    due_date = _extract_due_date(command)
+    due_datetime = _extract_due_datetime(command)
+    due_date = due_datetime.date().isoformat() if due_datetime else _extract_due_date(command)
     reminder_text = _remove_date_phrases(command.replace("remind me to", "", 1))
 
     if not reminder_text:
@@ -437,12 +510,14 @@ def add_reminder(command):
         {
             "title": reminder_text,
             "due_date": due_date,
-            "due_at": None,
+            "due_at": due_datetime.isoformat(timespec="minutes") if due_datetime else None,
             "created_at": datetime.datetime.now().isoformat(),
         }
     )
     _save_data(data)
 
+    if due_datetime:
+        return f"Reminder added for {due_datetime.strftime('%d %B %Y %I:%M %p')}: {reminder_text}"
     if due_date:
         return f"Reminder added for {_format_due_date(due_date)}: {reminder_text}"
     return f"Reminder added: {reminder_text}"
