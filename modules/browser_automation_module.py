@@ -329,3 +329,51 @@ def create_reminder_from_selected_browser_text(command):
         reminder_command = f"{reminder_command} {suffix}"
 
     return add_reminder(reminder_command)
+
+
+def summarize_selected_text_and_save_note(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    prompt = (
+        "Summarize this browser-selected text in short note form with the key point first.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    summary = ask_ollama(prompt, compact=True)
+    note_result = add_note(f"add note {summary}")
+    return f"Selected text summary: {summary} {note_result}"
+
+
+def explain_selected_text_and_save_note(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    prompt = (
+        "Explain this selected browser text in simple practical language.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    explanation = ask_ollama(prompt, compact=True)
+    note_result = add_note(f"add note {explanation}")
+    return f"Selected text explanation: {explanation} {note_result}"
+
+
+def search_selected_text_and_summarize(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    url = "https://www.google.com/search?q=" + urllib.parse.quote_plus(selected)
+    opened = _open_url(url)
+    prompt = (
+        "Summarize this selected browser text in one or two useful sentences before web search.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    summary = ask_ollama(prompt, compact=True)
+    if opened:
+        return _with_feedback(
+            f"Searching Google for the selected text. Quick summary: {summary}",
+            None,
+        )
+    return f"I could not open Google search right now. Quick summary: {summary}"
