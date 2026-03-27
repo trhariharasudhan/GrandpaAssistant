@@ -435,6 +435,21 @@ def complete_latest_task():
     return f"Completed latest task: {task.get('title', 'Untitled task')}"
 
 
+def complete_all_tasks():
+    data = _load_data()
+    tasks = data["tasks"]
+    pending_tasks = [task for task in tasks if not task.get("completed")]
+
+    if not pending_tasks:
+        return "You do not have any pending tasks right now."
+
+    for task in pending_tasks:
+        task["completed"] = True
+
+    _save_data(data)
+    return f"Completed all pending tasks: {len(pending_tasks)} task(s)."
+
+
 def complete_task_by_title(command):
     title_text = _extract_title_text(command, ["complete task titled", "complete task about", "complete task"])
     if not title_text:
@@ -478,6 +493,41 @@ def delete_latest_task():
     tasks.remove(task)
     _save_data(data)
     return f"Deleted latest task: {task.get('title', 'Untitled task')}"
+
+
+def delete_completed_tasks():
+    data = _load_data()
+    tasks = data["tasks"]
+    completed_tasks = [task for task in tasks if task.get("completed")]
+
+    if not completed_tasks:
+        return "You do not have any completed tasks to delete."
+
+    data["tasks"] = [task for task in tasks if not task.get("completed")]
+    _save_data(data)
+    return f"Deleted completed tasks: {len(completed_tasks)} task(s)."
+
+
+def mark_all_tasks_pending():
+    data = _load_data()
+    tasks = data["tasks"]
+    completed_tasks = [task for task in tasks if task.get("completed")]
+
+    if not tasks:
+        return "You do not have any tasks right now."
+
+    if not completed_tasks:
+        return "All tasks are already pending."
+
+    for task in completed_tasks:
+        task["completed"] = False
+
+    _save_data(data)
+    return f"Marked {len(completed_tasks)} task(s) as pending."
+
+
+def mark_all_tasks_done():
+    return complete_all_tasks()
 
 
 def delete_task_by_title(command):
@@ -576,6 +626,37 @@ def delete_latest_reminder():
     reminders.remove(reminder)
     _save_data(data)
     return f"Deleted latest reminder: {reminder.get('title', 'Untitled reminder')}"
+
+
+def clear_all_reminders():
+    data = _load_data()
+    reminders = data["reminders"]
+
+    if not reminders:
+        return "You do not have any reminders to clear."
+
+    count = len(reminders)
+    data["reminders"] = []
+    _save_data(data)
+    return f"Cleared all reminders: {count} reminder(s)."
+
+
+def clear_overdue_reminders():
+    data = _load_data()
+    reminders = data["reminders"]
+    now = datetime.datetime.now()
+    overdue_reminders = [reminder for reminder in reminders if (_get_reminder_datetime(reminder) and _get_reminder_datetime(reminder) < now)]
+
+    if not overdue_reminders:
+        return "You do not have any overdue reminders to clear."
+
+    data["reminders"] = [
+        reminder
+        for reminder in reminders
+        if not (_get_reminder_datetime(reminder) and _get_reminder_datetime(reminder) < now)
+    ]
+    _save_data(data)
+    return f"Cleared overdue reminders: {len(overdue_reminders)} reminder(s)."
 
 
 def delete_reminder_by_title(command):
