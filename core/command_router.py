@@ -259,6 +259,62 @@ def _should_confirm_contact_action(action_kind):
     return action_kind == "call"
 
 
+def _is_positive_confirmation(command):
+    normalized = " ".join((command or "").lower().strip().split())
+    if not normalized:
+        return False
+    exact = {
+        "yes",
+        "yes da",
+        "confirm",
+        "confirm it",
+        "ok",
+        "okay",
+        "okay da",
+        "ok da",
+        "do it",
+        "proceed",
+        "continue",
+        "sure",
+    }
+    if normalized in exact:
+        return True
+    return (
+        normalized.startswith("yes")
+        or normalized.startswith("ok")
+        or normalized.startswith("okay")
+        or normalized.startswith("confirm")
+        or normalized.startswith("do it")
+    )
+
+
+def _is_negative_confirmation(command):
+    normalized = " ".join((command or "").lower().strip().split())
+    if not normalized:
+        return False
+    exact = {
+        "no",
+        "no da",
+        "cancel",
+        "cancel it",
+        "stop",
+        "stop it",
+        "never mind",
+        "leave it",
+        "dont",
+        "don't",
+        "nope",
+    }
+    if normalized in exact:
+        return True
+    return (
+        normalized.startswith("no")
+        or normalized.startswith("cancel")
+        or normalized.startswith("stop")
+        or normalized.startswith("never")
+    )
+
+
 def _handle_memory_edit_command(command):
     named_contact_remove = re.match(
         r"^(?:remove|delete|clear)\s+(.+?)\s+(email|mail|phone|mobile|number|whatsapp)$",
@@ -1457,14 +1513,14 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             return
 
     if pending_confirmation and pending_confirmation.get("type") == "contact_action_confirm":
-        if command in ["yes", "confirm", "ok", "okay", "do it"]:
+        if _is_positive_confirmation(command):
             action = pending_confirmation["action"]
             pending_confirmation = None
             reply = action()
             speak(reply)
             set_last_result(reply)
             return
-        if command in ["no", "cancel", "stop", "never mind"]:
+        if _is_negative_confirmation(command):
             pending_confirmation = None
             speak("Cancelled.")
             return
@@ -1516,13 +1572,13 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
 
     if pending_confirmation:
-        if command in ["yes", "confirm", "ok", "okay", "do it"]:
+        if _is_positive_confirmation(command):
             action = pending_confirmation["action"]
             pending_confirmation = None
             action()
             return
 
-        if command in ["no", "cancel", "stop", "never mind"]:
+        if _is_negative_confirmation(command):
             pending_confirmation = None
             speak("Cancelled.")
             return
