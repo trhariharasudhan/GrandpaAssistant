@@ -1,5 +1,6 @@
 import os
 import re
+import zipfile
 from pathlib import Path
 
 try:
@@ -153,6 +154,20 @@ def _read_supported_file_text(path):
 
     if suffix == ".pdf":
         return _read_pdf_preview(path)
+
+    if suffix == ".docx":
+        try:
+            with zipfile.ZipFile(path, "r") as archive:
+                xml_content = archive.read("word/document.xml").decode("utf-8", errors="ignore")
+        except Exception:
+            return None, f"I found {path.name}, but I could not read the DOCX file."
+
+        text = re.sub(r"</w:p>", "\n", xml_content)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = " ".join(text.split())
+        if not text:
+            return None, f"I found {path.name}, but I could not extract readable text from the DOCX file."
+        return text, None
 
     if suffix in {".txt", ".md", ".py", ".json"}:
         try:

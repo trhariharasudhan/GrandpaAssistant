@@ -236,6 +236,33 @@ def _format_event_line(index, event):
     return f"{index}. {title} - {date_text}{_format_recurrence(event.get('recurrence'))}"
 
 
+def _find_conflicting_event(events, date_value, time_value):
+    if not date_value or not time_value:
+        return None
+
+    try:
+        new_dt = datetime.datetime.combine(
+            datetime.date.fromisoformat(date_value),
+            datetime.datetime.strptime(time_value, "%H:%M").time(),
+        )
+    except Exception:
+        return None
+
+    for event in events:
+        if event.get("date") != date_value or not event.get("time"):
+            continue
+        try:
+            existing_dt = datetime.datetime.combine(
+                datetime.date.fromisoformat(event.get("date")),
+                datetime.datetime.strptime(event.get("time"), "%H:%M").time(),
+            )
+        except Exception:
+            continue
+        if abs((existing_dt - new_dt).total_seconds()) <= 3600:
+            return event
+    return None
+
+
 def add_event(command):
     recurrence = _extract_recurrence(command)
     event_datetime = _extract_event_datetime(command)
@@ -259,6 +286,7 @@ def add_event(command):
         return "Tell me what event you want to add."
 
     data = _load_data()
+    conflict = _find_conflicting_event(data["events"], date_value, time_value)
     data["events"].append(
         {
             "title": title,
@@ -270,13 +298,18 @@ def add_event(command):
     )
     _save_data(data)
 
+    conflict_note = ""
+    if conflict:
+        conflict_time = f" at {_format_time(conflict.get('time'))}" if conflict.get("time") else ""
+        conflict_note = f" Possible conflict with {conflict.get('title', 'another event')} on {_format_date(conflict.get('date'))}{conflict_time}."
+
     if date_value and time_value:
         prefix = "Recurring event added" if recurrence else "Event added"
-        return f"{prefix}{_format_recurrence(recurrence)} for {_format_date(date_value)} at {_format_time(time_value)}: {title}"
+        return f"{prefix}{_format_recurrence(recurrence)} for {_format_date(date_value)} at {_format_time(time_value)}: {title}.{conflict_note}".strip()
     if date_value:
         prefix = "Recurring event added" if recurrence else "Event added"
-        return f"{prefix}{_format_recurrence(recurrence)} for {_format_date(date_value)}: {title}"
-    return f"Event added: {title}"
+        return f"{prefix}{_format_recurrence(recurrence)} for {_format_date(date_value)}: {title}.{conflict_note}".strip()
+    return f"Event added: {title}.{conflict_note}".strip()
 
 
 def list_events():

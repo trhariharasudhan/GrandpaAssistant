@@ -57,6 +57,9 @@ from modules.media_module import media_control, type_text_dynamic
 from modules.system_module import (
     take_screenshot,
     get_battery_info,
+    get_cleanup_suggestion,
+    get_motivation_line,
+    get_storage_report,
     handle_wifi,
     handle_bluetooth,
     handle_airplane,
@@ -1547,6 +1550,72 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     config_reply = _handle_config_command(command)
     if config_reply:
         speak(config_reply)
+        return
+
+    if command in ["repeat that", "say that again", "repeat last reply", "repeat last response"]:
+        last_text = get_best_followup_text()
+        speak(last_text or "I do not have a recent reply to repeat right now.")
+        return
+
+    preferred_language_match = re.match(
+        r"^(?:set|change|update)\s+preferred\s+(?:response\s+)?language\s+to\s+(.+)$",
+        command,
+    )
+    if preferred_language_match:
+        value = preferred_language_match.group(1).strip()
+        speak(update_memory_field("preferred response language", value)[1])
+        return
+
+    preferred_tone_match = re.match(
+        r"^(?:set|change|update)\s+preferred\s+(?:response\s+)?tone\s+to\s+(.+)$",
+        command,
+    )
+    if preferred_tone_match:
+        value = preferred_tone_match.group(1).strip()
+        speak(update_memory_field("preferred response tone", value)[1])
+        return
+
+    if command in ["what is my preferred language", "my preferred language", "preferred language"]:
+        value = get_memory("personal.assistant.preferred_response_language")
+        speak(f"Your preferred language is {value}." if value else "You have not saved a preferred language yet.")
+        return
+
+    if command in ["what is my preferred tone", "my preferred tone", "preferred tone"]:
+        value = get_memory("personal.assistant.preferred_response_tone")
+        speak(f"Your preferred tone is {value}." if value else "You have not saved a preferred tone yet.")
+        return
+
+    if command in ["storage status", "disk space", "storage report"]:
+        reply = get_storage_report()
+        speak(reply)
+        set_last_result(reply)
+        return
+
+    if command in ["storage cleanup suggestion", "cleanup suggestion", "how should i clean storage"]:
+        reply = get_cleanup_suggestion()
+        speak(reply)
+        set_last_result(reply)
+        return
+
+    if command in ["motivate me", "give me motivation", "motivation please"]:
+        reply = get_motivation_line()
+        speak(reply)
+        set_last_result(reply)
+        return
+
+    interview_match = re.match(
+        r"^(?:interview me for|give me interview questions for|start interview practice for)\s+(.+)$",
+        command,
+    )
+    if interview_match:
+        topic = interview_match.group(1).strip()
+        reply = ask_ollama(
+            f"Give 3 concise interview practice questions for {topic} with one-line intent for each.",
+            compact=False,
+        )
+        final_reply = f"Interview practice for {topic}: {reply}"
+        speak(final_reply)
+        set_last_result(final_reply)
         return
 
     contact_lookup_reply = _handle_contact_lookup_command(command)

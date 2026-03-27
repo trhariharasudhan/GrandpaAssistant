@@ -49,6 +49,30 @@ def _clean_text(value):
     return re.sub(r"\s+", " ", value).strip(" ,.-")
 
 
+def _extract_priority(command):
+    normalized = (command or "").lower()
+    if any(phrase in normalized for phrase in ["high priority", "priority high", "urgent task", "important task"]):
+        return "high"
+    if any(phrase in normalized for phrase in ["medium priority", "priority medium"]):
+        return "medium"
+    if any(phrase in normalized for phrase in ["low priority", "priority low"]):
+        return "low"
+    return "normal"
+
+
+def _extract_category(command):
+    normalized = (command or "").lower()
+    match = re.search(r"\bcategory\s+([a-z0-9_-]+)\b", normalized)
+    if match:
+        return match.group(1)
+
+    known_categories = ["work", "study", "personal", "health", "finance", "family"]
+    for category in known_categories:
+        if f"{category} task" in normalized or f"{category} category" in normalized:
+            return category
+    return ""
+
+
 def _parse_index(command, prefix):
     raw = command.replace(prefix, "", 1).strip()
     if not raw.isdigit():
@@ -453,7 +477,16 @@ def _extract_due_datetime(command):
 
 def add_task(command):
     recurrence = _extract_recurrence(command)
+    priority = _extract_priority(command)
+    category = _extract_category(command)
     task_text = _strip_recurrence_phrases(_clean_text(command.replace("add task", "", 1)))
+    task_text = re.sub(r"\b(high|medium|low)\s+priority\b", " ", task_text, flags=re.IGNORECASE)
+    task_text = re.sub(r"\bpriority\s+(high|medium|low)\b", " ", task_text, flags=re.IGNORECASE)
+    task_text = re.sub(r"\burgent task\b", " ", task_text, flags=re.IGNORECASE)
+    task_text = re.sub(r"\bimportant task\b", " ", task_text, flags=re.IGNORECASE)
+    task_text = re.sub(r"\bcategory\s+[a-z0-9_-]+\b", " ", task_text, flags=re.IGNORECASE)
+    task_text = re.sub(r"\b(work|study|personal|health|finance|family)\s+task\b", " ", task_text, flags=re.IGNORECASE)
+    task_text = _clean_text(task_text)
     if not task_text:
         return "Tell me what task you want to add."
 
@@ -463,13 +496,21 @@ def add_task(command):
             "title": task_text,
             "completed": False,
             "recurrence": recurrence,
+            "priority": priority,
+            "category": category,
             "created_at": datetime.datetime.now().isoformat(),
         }
     )
     _save_data(data)
+    extras = []
+    if priority != "normal":
+        extras.append(f"{priority} priority")
+    if category:
+        extras.append(f"{category} category")
+    extra_text = f" ({', '.join(extras)})" if extras else ""
     if recurrence:
-        return f"Recurring task added{_format_recurrence(recurrence)}: {task_text}"
-    return f"Task added: {task_text}"
+        return f"Recurring task added{_format_recurrence(recurrence)}{extra_text}: {task_text}"
+    return f"Task added{extra_text}: {task_text}"
 
 
 def list_tasks():
@@ -482,11 +523,48 @@ def list_tasks():
     lines = []
     for index, task in enumerate(tasks, start=1):
         status = "done" if task.get("completed") else "pending"
+        metadata = []
+        if task.get("priority") and task.get("priority") != "normal":
+            metadata.append(task.get("priority"))
+        if task.get("category"):
+            metadata.append(task.get("category"))
+        meta_text = f" [{', '.join(metadata)}]" if metadata else ""
         lines.append(
-            f"{index}. {task.get('title', 'Untitled task')} - {status}{_format_recurrence(task.get('recurrence'))}"
+            f"{index}. {task.get('title', 'Untitled task')} - {status}{meta_text}{_format_recurrence(task.get('recurrence'))}"
         )
 
     return "Your tasks are: " + " | ".join(lines)
+
+
+def list_high_priority_tasks():
+    data = _load_data()
+    tasks = [task for task in data["tasks"] if task.get("priority") == "high" and not task.get("completed")]
+    if not tasks:
+        return "You do not have any high priority pending tasks right now."
+    lines = [task.get("title", "Untitled task") for task in tasks[:10]]
+    return "Your high priority tasks are: " + " | ".join(lines)
+
+
+def list_tasks_by_category(command):
+    match = re.search(r"(?:tasks|task)\s+(?:in|for|under)\s+([a-z0-9_-]+)", command)
+    if not match:
+        match = re.search(r"([a-z0-9_-]+)\s+tasks", command)
+    if not match:
+        return "Tell me which task category you want to see."
+
+    category = match.group(1).strip().lower()
+    data = _load_data()
+    tasks = [task for task in data["tasks"] if (task.get("category") or "").lower() == category]
+    if not tasks:
+        return f"You do not have any tasks in the {category} category right now."
+
+    lines = []
+    for task in tasks[:10]:
+        status = "done" if task.get("completed") else "pending"
+        priority = task.get("priority", "normal")
+        suffix = f" ({priority})" if priority != "normal" else ""
+        lines.append(f"{task.get('title', 'Untitled task')} - {status}{suffix}")
+    return f"Your {category} tasks are: " + " | ".join(lines)
 
 
 def latest_task():

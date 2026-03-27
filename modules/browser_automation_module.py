@@ -2,6 +2,9 @@ import urllib.parse
 import webbrowser
 import time
 import re
+import json
+import os
+from datetime import datetime
 
 import keyboard
 import pyperclip
@@ -13,6 +16,13 @@ from modules.messaging_automation_module import quick_email_shortcut, quick_what
 from modules.notes_module import add_note
 from modules.task_module import add_reminder, add_task
 from utils.config import get_setting
+
+
+RESEARCH_DATA_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)),
+    "data",
+    "research_sessions.json",
+)
 
 
 def _clean_query(text):
@@ -62,6 +72,54 @@ def _get_selected_browser_text():
         set_selected_text(selected)
 
     return selected
+
+
+def _load_research_sessions():
+    if not os.path.exists(RESEARCH_DATA_FILE):
+        return []
+    try:
+        with open(RESEARCH_DATA_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+        if isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    return []
+
+
+def _save_research_sessions(sessions):
+    os.makedirs(os.path.dirname(RESEARCH_DATA_FILE), exist_ok=True)
+    with open(RESEARCH_DATA_FILE, "w", encoding="utf-8") as file:
+        json.dump(sessions[:50], file, indent=4, ensure_ascii=False)
+
+
+def _extract_emails(text):
+    return list(dict.fromkeys(re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text or "")))
+
+
+def _extract_phone_numbers(text):
+    matches = re.findall(r"(?:\+?\d[\d\s\-]{7,}\d)", text or "")
+    cleaned = []
+    for match in matches:
+        normalized = " ".join(match.split())
+        if normalized not in cleaned:
+            cleaned.append(normalized)
+    return cleaned
+
+
+def _extract_date_like_strings(text):
+    patterns = [
+        r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",
+        r"\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{2,4}\b",
+        r"\b(?:today|tomorrow|next week|next month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+    ]
+    found = []
+    lower_text = text.lower() if text else ""
+    for pattern in patterns:
+        for item in re.findall(pattern, lower_text, flags=re.IGNORECASE):
+            if item not in found:
+                found.append(item)
+    return found
 
 
 def open_whatsapp_web():
@@ -210,6 +268,86 @@ def copy_selected_browser_text(command=None):
         return "I could not copy selected browser text right now."
 
     return "Copied selected browser text to the clipboard."
+
+
+def extract_entities_from_selected_text(command):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    lowered = (command or "").lower()
+    if "email" in lowered:
+        emails = _extract_emails(selected)
+        if not emails:
+            return "I could not find any email addresses in the selected text."
+        result = "Emails in selected text: " + " | ".join(emails[:20])
+        set_last_result(result)
+        return result
+
+    if "phone" in lowered or "number" in lowered:
+        phones = _extract_phone_numbers(selected)
+        if not phones:
+            return "I could not find any phone numbers in the selected text."
+        result = "Phone numbers in selected text: " + " | ".join(phones[:20])
+        set_last_result(result)
+        return result
+
+    dates = _extract_date_like_strings(selected)
+    if not dates:
+        return "I could not find any date-like values in the selected text."
+    result = "Dates in selected text: " + " | ".join(dates[:20])
+    set_last_result(result)
+    return result
+
+
+def save_research_session(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    summary = ask_ollama(
+        "Summarize this research snippet in one short practical line.\n\n"
+        f"Text:\n{selected[:3000]}",
+        compact=True,
+    )
+    sessions = _load_research_sessions()
+    sessions.insert(
+        0,
+        {
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "summary": summary,
+            "text": " ".join(selected.split())[:4000],
+        },
+    )
+    _save_research_sessions(sessions)
+    result = f"Research session saved. Summary: {summary}"
+    set_last_result(result)
+    return result
+
+
+def list_research_sessions(command=None):
+    sessions = _load_research_sessions()
+    if not sessions:
+        return "You do not have any saved research sessions yet."
+    lines = []
+    for index, session in enumerate(sessions[:5], start=1):
+        lines.append(f"{index}. {session.get('summary', 'No summary')}")
+    return "Saved research sessions: " + " | ".join(lines)
+
+
+def recap_last_research_session(command=None):
+    sessions = _load_research_sessions()
+    if not sessions:
+        return "You do not have any saved research sessions yet."
+
+    latest = sessions[0]
+    result = (
+        f"Last research session from {latest.get('created_at', 'unknown time')}: "
+        f"{latest.get('summary', 'No summary')} | "
+        f"{latest.get('text', '')[:500]}"
+    )
+    set_last_result(result)
+    return result
 
 
 def search_selected_text_on_google(command=None):

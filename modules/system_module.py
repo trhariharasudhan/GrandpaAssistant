@@ -3,6 +3,7 @@ import psutil
 import pygetwindow as gw
 import pyautogui
 import datetime
+import random
 from voice.speak import speak
 from voice.listen import listen
 
@@ -216,3 +217,39 @@ def tell_joke():
     import pyjokes
 
     return pyjokes.get_joke()
+
+
+def get_storage_report():
+    try:
+        usage = psutil.disk_usage(os.path.abspath(os.sep))
+    except Exception:
+        return "I could not read the current storage usage."
+
+    free_gb = usage.free / (1024 ** 3)
+    total_gb = usage.total / (1024 ** 3)
+    used_percent = usage.percent
+    return f"Storage status: {used_percent}% used, {free_gb:.1f} GB free out of {total_gb:.1f} GB."
+
+
+def get_cleanup_suggestion():
+    try:
+        usage = psutil.disk_usage(os.path.abspath(os.sep))
+    except Exception:
+        return "I could not inspect the storage right now."
+
+    percent = usage.percent
+    if percent >= 90:
+        return "Storage is very high. Start with Downloads, large videos, installer files, and temporary screenshots."
+    if percent >= 75:
+        return "Storage is getting tight. Cleaning Downloads, duplicate media, and unused virtual environments would help."
+    return "Storage looks comfortable right now. A light cleanup of Downloads and old exports should be enough."
+
+
+def get_motivation_line():
+    lines = [
+        "You are already building something most people only talk about. Keep shipping.",
+        "Small clean progress today is enough. Momentum matters more than drama.",
+        "You do not need a perfect day, just one more finished step.",
+        "Consistency is making this assistant stronger every round. Keep going.",
+    ]
+    return random.choice(lines)

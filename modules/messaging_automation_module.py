@@ -161,6 +161,35 @@ def _open_gmail_draft(recipient="", subject="", body=""):
     return _open_url(url)
 
 
+def preview_whatsapp_message(command):
+    match = re.match(r"^(?:preview whatsapp message to|preview message to)\s+(.+?)\s+(?:saying|that)\s+(.+)$", command)
+    if not match:
+        return "Use this format: preview whatsapp message to appa saying I reached home."
+
+    target = _clean_text(match.group(1))
+    message_text = _clean_text(match.group(2))
+    resolved_target, _ = _resolve_contact_alias(target)
+    return f"WhatsApp preview for {resolved_target}: {message_text}"
+
+
+def preview_email_draft(command):
+    match = re.match(r"^(?:preview mail to|preview email to)\s+(.+?)\s+about\s+(.+)$", command)
+    if not match:
+        return "Use this format: preview mail to appa about today plan."
+
+    target = _clean_text(match.group(1))
+    topic = _clean_text(match.group(2))
+    recipient, error = _resolve_email_target(target)
+    if error:
+        return error
+
+    subject = topic.title()[:120]
+    body = f"Hi,\n\nThis is a quick draft about {topic}.\n\nRegards,"
+    if recipient:
+        return f"Email preview to {target} ({recipient}) | Subject: {subject} | Body: {body}"
+    return f"Email preview to {target} | Subject: {subject} | Body: {body}"
+
+
 def _extract_known_contact(name_text):
     memory = load_memory()
     normalized = _clean_text(name_text).lower()
