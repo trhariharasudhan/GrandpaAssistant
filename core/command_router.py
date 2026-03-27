@@ -289,6 +289,22 @@ def _handle_config_command(command):
         update_setting("notifications.weather_popup_interval_minutes", interval_value)
         return f"Weather popup interval updated to {interval_value} minutes."
 
+    status_interval_match = re.match(
+        r"^(?:set|change|update)\s+status popup interval\s+to\s+(\d+)$", command
+    )
+    if status_interval_match:
+        interval_value = max(15, int(status_interval_match.group(1)))
+        update_setting("notifications.status_popup_interval_minutes", interval_value)
+        return f"Status popup interval updated to {interval_value} minutes."
+
+    brief_interval_match = re.match(
+        r"^(?:set|change|update)\s+brief popup interval\s+to\s+(\d+)$", command
+    )
+    if brief_interval_match:
+        interval_value = max(30, int(brief_interval_match.group(1)))
+        update_setting("notifications.brief_popup_interval_minutes", interval_value)
+        return f"Brief popup interval updated to {interval_value} minutes."
+
     agenda_interval_match = re.match(
         r"^(?:set|change|update)\s+agenda popup interval\s+to\s+(\d+)$", command
     )
@@ -358,6 +374,12 @@ def _handle_config_command(command):
         weather_popup_enabled = get_setting("notifications.weather_popup_enabled", False)
         weather_popup_on_startup = get_setting("notifications.weather_popup_on_startup", False)
         weather_popup_interval = get_setting("notifications.weather_popup_interval_minutes", 120)
+        status_popup_enabled = get_setting("notifications.status_popup_enabled", False)
+        status_popup_on_startup = get_setting("notifications.status_popup_on_startup", False)
+        status_popup_interval = get_setting("notifications.status_popup_interval_minutes", 120)
+        brief_popup_enabled = get_setting("notifications.brief_popup_enabled", False)
+        brief_popup_on_startup = get_setting("notifications.brief_popup_on_startup", False)
+        brief_popup_interval = get_setting("notifications.brief_popup_interval_minutes", 180)
         agenda_popup_enabled = get_setting("notifications.agenda_popup_enabled", False)
         agenda_popup_on_startup = get_setting("notifications.agenda_popup_on_startup", False)
         agenda_popup_interval = get_setting("notifications.agenda_popup_interval_minutes", 60)
@@ -399,6 +421,12 @@ def _handle_config_command(command):
             f"Weather popup is {'on' if weather_popup_enabled else 'off'}. "
             f"Weather popup on startup is {'on' if weather_popup_on_startup else 'off'}. "
             f"Weather popup interval is {weather_popup_interval} minutes. "
+            f"Status popup is {'on' if status_popup_enabled else 'off'}. "
+            f"Status popup on startup is {'on' if status_popup_on_startup else 'off'}. "
+            f"Status popup interval is {status_popup_interval} minutes. "
+            f"Brief popup is {'on' if brief_popup_enabled else 'off'}. "
+            f"Brief popup on startup is {'on' if brief_popup_on_startup else 'off'}. "
+            f"Brief popup interval is {brief_popup_interval} minutes. "
             f"Agenda popup is {'on' if agenda_popup_enabled else 'off'}. "
             f"Agenda popup on startup is {'on' if agenda_popup_on_startup else 'off'}. "
             f"Agenda popup interval is {agenda_popup_interval} minutes. "
@@ -466,6 +494,22 @@ def _handle_config_command(command):
         update_setting("notifications.weather_popup_enabled", False)
         return "Weather popup monitor disabled."
 
+    if command in ["enable status popup", "turn on status popup"]:
+        update_setting("notifications.status_popup_enabled", True)
+        return "Status popup monitor enabled."
+
+    if command in ["disable status popup", "turn off status popup"]:
+        update_setting("notifications.status_popup_enabled", False)
+        return "Status popup monitor disabled."
+
+    if command in ["enable brief popup", "turn on brief popup"]:
+        update_setting("notifications.brief_popup_enabled", True)
+        return "Brief popup monitor enabled."
+
+    if command in ["disable brief popup", "turn off brief popup"]:
+        update_setting("notifications.brief_popup_enabled", False)
+        return "Brief popup monitor disabled."
+
     if command in ["enable startup health popup", "turn on startup health popup"]:
         update_setting("notifications.health_popup_on_startup", True)
         return "Startup health popup enabled."
@@ -481,6 +525,22 @@ def _handle_config_command(command):
     if command in ["disable startup weather popup", "turn off startup weather popup"]:
         update_setting("notifications.weather_popup_on_startup", False)
         return "Startup weather popup disabled."
+
+    if command in ["enable startup status popup", "turn on startup status popup"]:
+        update_setting("notifications.status_popup_on_startup", True)
+        return "Startup status popup enabled."
+
+    if command in ["disable startup status popup", "turn off startup status popup"]:
+        update_setting("notifications.status_popup_on_startup", False)
+        return "Startup status popup disabled."
+
+    if command in ["enable startup brief popup", "turn on startup brief popup"]:
+        update_setting("notifications.brief_popup_on_startup", True)
+        return "Startup brief popup enabled."
+
+    if command in ["disable startup brief popup", "turn off startup brief popup"]:
+        update_setting("notifications.brief_popup_on_startup", False)
+        return "Startup brief popup disabled."
 
     if command in ["enable agenda popup", "turn on agenda popup"]:
         update_setting("notifications.agenda_popup_enabled", True)

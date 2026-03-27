@@ -32,7 +32,7 @@ from modules.event_module import (
     today_events,
     upcoming_events,
 )
-from modules.export_module import export_productivity_summary
+from modules.export_module import export_productivity_summary, export_productivity_summary_pdf
 from modules.file_intelligence_module import (
     ask_found_file,
     find_file,
@@ -69,10 +69,12 @@ from modules.messaging_automation_module import (
 )
 from modules.notification_module import (
     show_agenda_popup,
+    show_brief_popup,
     show_event_popup,
     show_health_popup,
     show_notification_summary,
     show_reminder_popup,
+    show_status_popup,
     show_task_popup,
     show_weather_popup,
 )
@@ -286,6 +288,19 @@ COMMAND_REGISTRY = [
         ],
         "type": "exact",
         "handler": export_productivity_summary,
+        "category": "export",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "export.summary_pdf",
+        "patterns": [
+            "export pdf summary",
+            "export productivity pdf",
+            "save summary as pdf",
+            "export pdf report",
+        ],
+        "type": "exact",
+        "handler": export_productivity_summary_pdf,
         "category": "export",
         "confidence": 0.97,
     },
@@ -1099,6 +1114,22 @@ COMMAND_REGISTRY = [
         "patterns": ["show weather popup", "weather popup", "popup weather", "desktop weather popup"],
         "type": "exact",
         "handler": lambda command: show_weather_popup(),
+        "category": "notifications",
+        "confidence": 0.96,
+    },
+    {
+        "intent": "notifications.status",
+        "patterns": ["show status popup", "status popup", "show combo popup", "system weather popup"],
+        "type": "exact",
+        "handler": lambda command: show_status_popup(),
+        "category": "notifications",
+        "confidence": 0.96,
+    },
+    {
+        "intent": "notifications.brief",
+        "patterns": ["show brief popup", "daily brief popup", "show daily brief popup", "brief popup"],
+        "type": "exact",
+        "handler": lambda command: show_brief_popup(),
         "category": "notifications",
         "confidence": 0.96,
     },

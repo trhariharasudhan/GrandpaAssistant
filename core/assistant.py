@@ -21,6 +21,8 @@ from modules.briefing_module import build_daily_brief, build_due_reminder_alert
 from modules.dictation_module import handle_dictation_text, is_dictation_active, stop_dictation
 from modules.event_module import get_event_data
 from modules.notification_module import (
+    show_startup_brief_popup,
+    show_startup_status_popup,
     show_startup_agenda_popup,
     show_startup_health_popup,
     show_startup_weather_popup,
@@ -102,28 +104,28 @@ def _overlay_suggestions():
     today_event_count = sum(1 for event in events if event.get("date") == today.isoformat())
 
     return {
-        "Planning": [
+        f"Planning ({today_event_count + due_today_count + overdue_count + pending_task_count})": [
             (f"Agenda Today ({today_event_count} events)", "today agenda"),
             (f"Due Today ({due_today_count})", "what is due today"),
             (f"Overdue ({overdue_count})", "show overdue items"),
             (f"Pending Tasks ({pending_task_count})", "latest task"),
             ("Latest Reminder", "latest reminder"),
         ],
-        "System": [
+        "System (5)": [
             ("Weather", "weather"),
             ("Dashboard", "dashboard"),
             ("Show Settings", "show settings"),
             ("System Status", "system status"),
             ("Export Summary", "export productivity summary"),
         ],
-        "Actions": [
+        "Actions (5)": [
             ("Complete Latest Task", "complete latest task"),
             ("Latest Event", "latest event"),
             ("Delete Latest Event", "delete latest event"),
             ("Upcoming Events", "upcoming events"),
             ("Show Weather Popup", "show weather popup"),
         ],
-        "OCR": [
+        "OCR (2)": [
             ("Copy Selected Area Text", "copy selected area text"),
             ("Read Selected Area", "read selected area"),
         ],
@@ -418,9 +420,11 @@ def main(start_in_tray=False):
         speak(urgent_alert)
     speak(build_proactive_nudge())
     show_startup_notifications()
+    show_startup_brief_popup()
     show_startup_agenda_popup()
     show_startup_health_popup()
     show_startup_weather_popup()
+    show_startup_status_popup()
     start_notification_monitor()
     restore_scheduled_jobs()
     if get_setting("ocr.region_hotkey_enabled", True):

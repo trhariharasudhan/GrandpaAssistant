@@ -11,6 +11,7 @@ from modules.event_module import get_due_event_titles
 from modules.health_module import get_system_status
 from modules.task_module import get_task_data
 from modules.weather_module import get_weather_report
+from modules.briefing_module import build_brief_details
 from utils.config import get_setting
 
 
@@ -20,6 +21,8 @@ _last_monitor_message = None
 _last_agenda_popup_signature = None
 _last_health_popup_signature = None
 _last_weather_popup_signature = None
+_last_status_popup_signature = None
+_last_brief_popup_signature = None
 _popup_history = {}
 STATE_FILE = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
@@ -323,6 +326,46 @@ def show_startup_weather_popup():
     return weather_status
 
 
+def show_startup_status_popup():
+    if not get_setting("notifications.status_popup_on_startup", False):
+        return None
+
+    status_message = build_status_snapshot()
+    previous_status = _get_state_value("last_startup_status_popup")
+    if previous_status == status_message:
+        return status_message
+
+    shown = _show_popup(
+        _notification_title("Status Snapshot"),
+        status_message,
+        timeout=max(_default_popup_timeout(), 12),
+        dedupe_key="startup_status",
+    )
+    if shown:
+        _set_state_value("last_startup_status_popup", status_message)
+    return status_message
+
+
+def show_startup_brief_popup():
+    if not get_setting("notifications.brief_popup_on_startup", False):
+        return None
+
+    brief_message = build_brief_details()
+    previous_brief = _get_state_value("last_startup_brief_popup")
+    if previous_brief == brief_message:
+        return brief_message
+
+    shown = _show_popup(
+        _notification_title("Daily Brief"),
+        brief_message,
+        timeout=max(_default_popup_timeout(), 12),
+        dedupe_key="startup_brief",
+    )
+    if shown:
+        _set_state_value("last_startup_brief_popup", brief_message)
+    return brief_message
+
+
 def show_health_popup():
     message = get_system_status()
     if _show_popup(_notification_title("System Health"), message, force=True):
@@ -335,6 +378,26 @@ def show_weather_popup():
     if _show_popup(_notification_title("Weather"), message, force=True):
         return "Weather popup shown."
     return "I could not show the weather popup right now."
+
+
+def build_status_snapshot():
+    health = get_system_status()
+    weather = get_weather_report("weather")
+    return f"{health}\n\n{weather}"
+
+
+def show_status_popup():
+    message = build_status_snapshot()
+    if _show_popup(_notification_title("Status Snapshot"), message, timeout=max(_default_popup_timeout(), 12), force=True):
+        return "Status snapshot popup shown."
+    return "I could not show the status snapshot popup right now."
+
+
+def show_brief_popup():
+    message = build_brief_details()
+    if _show_popup(_notification_title("Daily Brief"), message, timeout=max(_default_popup_timeout(), 12), force=True):
+        return "Daily brief popup shown."
+    return "I could not show the daily brief popup right now."
 
 
 def show_event_popup():
@@ -379,7 +442,8 @@ def _build_due_monitor_message():
 
 
 def _monitor_worker():
-    global _last_monitor_message, _last_agenda_popup_signature, _last_health_popup_signature, _last_weather_popup_signature
+    global _last_monitor_message, _last_agenda_popup_signature, _last_health_popup_signature
+    global _last_weather_popup_signature, _last_status_popup_signature, _last_brief_popup_signature
 
     while not _monitor_stop_event.is_set():
         if get_setting("notifications.reminder_monitor_enabled", True) or get_setting(
@@ -466,6 +530,50 @@ def _monitor_worker():
                 if shown:
                     _last_weather_popup_signature = weather_signature
 
+        if get_setting("notifications.status_popup_enabled", False):
+            status_interval = max(
+                15, int(get_setting("notifications.status_popup_interval_minutes", 120))
+            )
+            now = datetime.datetime.now()
+            minute_slot = now.replace(
+                minute=(now.minute // status_interval) * status_interval,
+                second=0,
+                microsecond=0,
+            )
+            status_signature = minute_slot.isoformat()
+            if status_signature != _last_status_popup_signature:
+                status_message = build_status_snapshot()
+                shown = _show_popup(
+                    _notification_title("Status Snapshot"),
+                    status_message,
+                    dedupe_key="status_monitor",
+                    force=False,
+                )
+                if shown:
+                    _last_status_popup_signature = status_signature
+
+        if get_setting("notifications.brief_popup_enabled", False):
+            brief_interval = max(
+                30, int(get_setting("notifications.brief_popup_interval_minutes", 180))
+            )
+            now = datetime.datetime.now()
+            minute_slot = now.replace(
+                minute=(now.minute // brief_interval) * brief_interval,
+                second=0,
+                microsecond=0,
+            )
+            brief_signature = minute_slot.isoformat()
+            if brief_signature != _last_brief_popup_signature:
+                brief_message = build_brief_details()
+                shown = _show_popup(
+                    _notification_title("Daily Brief"),
+                    brief_message,
+                    dedupe_key="brief_monitor",
+                    force=False,
+                )
+                if shown:
+                    _last_brief_popup_signature = brief_signature
+
         reminder_interval = max(
             1, int(get_setting("notifications.reminder_check_interval_minutes", 15))
         )
@@ -485,6 +593,14 @@ def _monitor_worker():
         if get_setting("notifications.weather_popup_enabled", False):
             interval_candidates.append(
                 max(15, int(get_setting("notifications.weather_popup_interval_minutes", 120)))
+            )
+        if get_setting("notifications.status_popup_enabled", False):
+            interval_candidates.append(
+                max(15, int(get_setting("notifications.status_popup_interval_minutes", 120)))
+            )
+        if get_setting("notifications.brief_popup_enabled", False):
+            interval_candidates.append(
+                max(30, int(get_setting("notifications.brief_popup_interval_minutes", 180)))
             )
         interval = min(interval_candidates)
         sleep_seconds = interval * 60

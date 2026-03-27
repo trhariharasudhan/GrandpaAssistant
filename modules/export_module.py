@@ -13,12 +13,8 @@ EXPORT_DIR = os.path.join(
 )
 
 
-def export_productivity_summary(_command=None):
-    os.makedirs(EXPORT_DIR, exist_ok=True)
-
+def _build_summary_lines():
     now = datetime.datetime.now()
-    filename = f"summary_{now.strftime('%Y%m%d_%H%M%S')}.txt"
-    export_path = os.path.join(EXPORT_DIR, filename)
 
     task_data = get_task_data()
     event_data = get_event_data()
@@ -70,7 +66,87 @@ def export_productivity_summary(_command=None):
     else:
         lines.append("- None")
 
+    return now, lines
+
+
+def _escape_pdf_text(value):
+    return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def _write_basic_pdf(path, lines):
+    page_width = 595
+    page_height = 842
+    x = 50
+    y = 790
+    line_height = 16
+    font_size = 11
+
+    content_lines = ["BT", f"/F1 {font_size} Tf"]
+    current_y = y
+    for raw_line in lines:
+        text = _escape_pdf_text(raw_line[:110])
+        content_lines.append(f"1 0 0 1 {x} {current_y} Tm ({text}) Tj")
+        current_y -= line_height
+        if current_y < 50:
+            break
+    content_lines.append("ET")
+    content = "\n".join(content_lines).encode("latin-1", errors="replace")
+
+    objects = []
+    objects.append(b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n")
+    objects.append(b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n")
+    objects.append(
+        f"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_width} {page_height}] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n".encode(
+            "ascii"
+        )
+    )
+    objects.append(b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n")
+    objects.append(
+        f"5 0 obj << /Length {len(content)} >> stream\n".encode("ascii")
+        + content
+        + b"\nendstream endobj\n"
+    )
+
+    pdf = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for obj in objects:
+        offsets.append(len(pdf))
+        pdf.extend(obj)
+
+    xref_start = len(pdf)
+    pdf.extend(f"xref\n0 {len(offsets)}\n".encode("ascii"))
+    pdf.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    pdf.extend(
+        f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF".encode(
+            "ascii"
+        )
+    )
+
+    with open(path, "wb") as file:
+        file.write(pdf)
+
+
+def export_productivity_summary(_command=None):
+    os.makedirs(EXPORT_DIR, exist_ok=True)
+
+    now, lines = _build_summary_lines()
+    filename = f"summary_{now.strftime('%Y%m%d_%H%M%S')}.txt"
+    export_path = os.path.join(EXPORT_DIR, filename)
+
     with open(export_path, "w", encoding="utf-8") as file:
         file.write("\n".join(lines))
 
     return f"Summary exported to {export_path}"
+
+
+def export_productivity_summary_pdf(_command=None):
+    os.makedirs(EXPORT_DIR, exist_ok=True)
+
+    now, lines = _build_summary_lines()
+    filename = f"summary_{now.strftime('%Y%m%d_%H%M%S')}.pdf"
+    export_path = os.path.join(EXPORT_DIR, filename)
+
+    _write_basic_pdf(export_path, lines)
+    return f"PDF summary exported to {export_path}"
