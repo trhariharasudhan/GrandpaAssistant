@@ -9,9 +9,11 @@ from brain.ai_engine import ask_ollama, clear_memory
 from brain.database import get_recent_commands, log_command
 from brain.memory_engine import (
     get_memory,
+    get_named_contact_field,
     remove_memory_field,
     search_memory,
     set_memory,
+    update_named_contact_field,
     update_memory_field,
 )
 from brain.question_analyzer import is_personal_question
@@ -94,6 +96,16 @@ pending_confirmation = None
 
 
 def _handle_memory_edit_command(command):
+    named_contact_update = re.match(
+        r"^(?:set|update|change)\s+contact\s+(.+?)\s+(email|mail|phone|mobile|number|whatsapp)\s+to\s+(.+)$",
+        command,
+    )
+    if named_contact_update:
+        contact_name = named_contact_update.group(1).strip()
+        field_name = named_contact_update.group(2).strip()
+        raw_value = named_contact_update.group(3).strip()
+        return update_named_contact_field(contact_name, field_name, raw_value)[1]
+
     patterns = [
         (r"^(?:update|change)\s+my\s+(.+?)\s+to\s+(.+)$", "update"),
         (r"^set\s+my\s+(.+?)\s+to\s+(.+)$", "update"),
@@ -118,6 +130,20 @@ def _handle_memory_edit_command(command):
         return remove_memory_field(field_name)[1]
 
     return None
+
+
+def _handle_contact_lookup_command(command):
+    match = re.match(
+        r"^what is\s+(.+?)\s+(email|mail|phone|mobile|number|whatsapp)$",
+        command,
+    )
+    if not match:
+        return None
+
+    contact_name = match.group(1).strip()
+    field_name = match.group(2).strip()
+    _, reply = get_named_contact_field(contact_name, field_name)
+    return reply
 
 
 def _handle_config_command(command):
@@ -708,6 +734,11 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     config_reply = _handle_config_command(command)
     if config_reply:
         speak(config_reply)
+        return
+
+    contact_lookup_reply = _handle_contact_lookup_command(command)
+    if contact_lookup_reply:
+        speak(contact_lookup_reply)
         return
 
     if pending_confirmation:

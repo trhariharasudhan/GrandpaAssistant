@@ -17,6 +17,9 @@ _overlay_context_frame = None
 _overlay_hotkey_handler = None
 _overlay_hotkey_registered = None
 _overlay_lock = threading.Lock()
+_overlay_all_suggestions = None
+_overlay_all_recent_commands = None
+_overlay_all_context_items = None
 
 
 def _destroy_overlay():
@@ -69,6 +72,31 @@ def _normalize_chip_item(item):
     if isinstance(item, (tuple, list)) and len(item) >= 2:
         return str(item[0]), str(item[1])
     return str(item), str(item)
+
+
+def _filter_chip_collections(query, suggestions, recent_commands, context_items):
+    query = (query or "").strip().lower()
+    if not query:
+        return suggestions, recent_commands, context_items
+
+    def matches(item):
+        label, command_text = _normalize_chip_item(item)
+        searchable = f"{label} {command_text}".lower()
+        return query in searchable
+
+    filtered_context = [item for item in (context_items or []) if matches(item)]
+    filtered_recent = [item for item in (recent_commands or []) if query in str(item).lower()]
+
+    if isinstance(suggestions, dict):
+        filtered_suggestions = {}
+        for category, items in suggestions.items():
+            matched_items = [item for item in items if matches(item)]
+            if matched_items:
+                filtered_suggestions[category] = matched_items
+    else:
+        filtered_suggestions = [item for item in (suggestions or []) if matches(item)]
+
+    return filtered_suggestions, filtered_recent, filtered_context
 
 
 def _refresh_overlay_lists(suggestions=None, recent_commands=None, context_items=None):
@@ -147,16 +175,21 @@ def _refresh_overlay_lists(suggestions=None, recent_commands=None, context_items
 
 
 def show_quick_overlay(on_submit, suggestions=None, recent_commands=None, context_items=None):
-    global _overlay_root, _overlay_entry, _overlay_handler, _overlay_recent_frame, _overlay_suggestion_frame, _overlay_context_frame
+    global _overlay_root, _overlay_entry, _overlay_handler, _overlay_recent_frame
+    global _overlay_suggestion_frame, _overlay_context_frame
+    global _overlay_all_suggestions, _overlay_all_recent_commands, _overlay_all_context_items
 
     _overlay_handler = on_submit
+    _overlay_all_suggestions = suggestions or {}
+    _overlay_all_recent_commands = recent_commands or []
+    _overlay_all_context_items = context_items or []
 
     if _overlay_root is not None:
         try:
             _refresh_overlay_lists(
-                suggestions=suggestions,
-                recent_commands=recent_commands,
-                context_items=context_items,
+                suggestions=_overlay_all_suggestions,
+                recent_commands=_overlay_all_recent_commands,
+                context_items=_overlay_all_context_items,
             )
             _overlay_root.deiconify()
             _overlay_root.lift()
@@ -276,8 +309,22 @@ def show_quick_overlay(on_submit, suggestions=None, recent_commands=None, contex
             def close(_event=None):
                 root.withdraw()
 
+            def on_change(_event=None):
+                filtered_suggestions, filtered_recent, filtered_context = _filter_chip_collections(
+                    entry.get(),
+                    _overlay_all_suggestions,
+                    _overlay_all_recent_commands,
+                    _overlay_all_context_items,
+                )
+                _refresh_overlay_lists(
+                    suggestions=filtered_suggestions,
+                    recent_commands=filtered_recent,
+                    context_items=filtered_context,
+                )
+
             root.bind("<Return>", submit)
             root.bind("<Escape>", close)
+            entry.bind("<KeyRelease>", on_change)
             root.protocol("WM_DELETE_WINDOW", close)
 
             _overlay_root = root
@@ -286,9 +333,9 @@ def show_quick_overlay(on_submit, suggestions=None, recent_commands=None, contex
             _overlay_suggestion_frame = suggestion_frames
             _overlay_recent_frame = recent_frame
             _refresh_overlay_lists(
-                suggestions=suggestions,
-                recent_commands=recent_commands,
-                context_items=context_items,
+                suggestions=_overlay_all_suggestions,
+                recent_commands=_overlay_all_recent_commands,
+                context_items=_overlay_all_context_items,
             )
             entry.focus_force()
             root.mainloop()

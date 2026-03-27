@@ -419,6 +419,7 @@ def complete_task(command):
         return "That task number does not exist."
 
     tasks[index]["completed"] = True
+    tasks[index]["completed_at"] = datetime.datetime.now().isoformat()
     _save_data(data)
     return f"Completed task {index + 1}: {tasks[index]['title']}"
 
@@ -431,6 +432,7 @@ def complete_latest_task():
         return "You have no pending tasks to complete."
 
     task["completed"] = True
+    task["completed_at"] = datetime.datetime.now().isoformat()
     _save_data(data)
     return f"Completed latest task: {task.get('title', 'Untitled task')}"
 
@@ -445,6 +447,7 @@ def complete_all_tasks():
 
     for task in pending_tasks:
         task["completed"] = True
+        task["completed_at"] = datetime.datetime.now().isoformat()
 
     _save_data(data)
     return f"Completed all pending tasks: {len(pending_tasks)} task(s)."
@@ -462,6 +465,7 @@ def complete_task_by_title(command):
         return f"I could not find a pending task matching '{title_text}'."
 
     task["completed"] = True
+    task["completed_at"] = datetime.datetime.now().isoformat()
     _save_data(data)
     return f"Completed task: {task.get('title', 'Untitled task')}"
 
@@ -521,6 +525,7 @@ def mark_all_tasks_pending():
 
     for task in completed_tasks:
         task["completed"] = False
+        task["completed_at"] = None
 
     _save_data(data)
     return f"Marked {len(completed_tasks)} task(s) as pending."

@@ -129,3 +129,53 @@ def build_today_agenda():
         parts.append(f"Focus: {focus_line}")
 
     return " ".join(part.strip() for part in parts if part)
+
+
+def build_daily_recap():
+    data = get_task_data()
+    now = datetime.datetime.now()
+    today = now.date()
+
+    completed_today = []
+    pending_tasks = []
+    carry_over_reminders = []
+
+    for task in data.get("tasks", []):
+        if task.get("completed"):
+            completed_at = task.get("completed_at")
+            try:
+                completed_dt = datetime.datetime.fromisoformat(completed_at) if completed_at else None
+            except ValueError:
+                completed_dt = None
+            if completed_dt and completed_dt.date() == today:
+                completed_today.append(task.get("title", "Untitled task"))
+        else:
+            pending_tasks.append(task.get("title", "Untitled task"))
+
+    for reminder in data.get("reminders", []):
+        due_datetime = _parse_reminder_datetime(reminder)
+        if due_datetime and due_datetime <= now:
+            carry_over_reminders.append(reminder.get("title", "Untitled reminder"))
+
+    event_lines = _today_event_lines()
+
+    parts = [f"Daily recap for {today.strftime('%d %B %Y')}:"] 
+    if completed_today:
+        parts.append("Completed tasks: " + " | ".join(completed_today[:5]) + ".")
+    else:
+        parts.append("No tasks were marked completed today.")
+
+    if pending_tasks:
+        parts.append("Pending carry-over tasks: " + " | ".join(pending_tasks[:5]) + ".")
+
+    if carry_over_reminders:
+        parts.append("Open reminders to review: " + " | ".join(carry_over_reminders[:5]) + ".")
+
+    if event_lines:
+        parts.append("Today's event trail: " + " | ".join(event_lines[:4]) + ".")
+
+    focus_line = build_focus_suggestion()
+    if focus_line:
+        parts.append("Next step: " + focus_line)
+
+    return " ".join(parts)

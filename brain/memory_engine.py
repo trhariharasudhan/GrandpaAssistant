@@ -154,6 +154,16 @@ MEMORY_UPDATE_ALIASES = {
 }
 
 
+CONTACT_FIELD_ALIASES = {
+    "email": "email",
+    "mail": "email",
+    "phone": "phone",
+    "mobile": "phone",
+    "number": "phone",
+    "whatsapp": "phone",
+}
+
+
 initialize_database()
 migrate_legacy_memory()
 
@@ -373,6 +383,74 @@ def _format_memory_value(value):
         return ", ".join(ordered_parts)
 
     return str(value)
+
+
+def _iter_named_contacts(memory):
+    family = memory.get("personal", {}).get("family", {})
+    for person_key in ["father", "mother"]:
+        person = family.get(person_key, {})
+        if person.get("name"):
+            yield person.get("name"), person
+
+    for sibling in family.get("siblings", []):
+        if sibling.get("name"):
+            yield sibling.get("name"), sibling
+
+    emergency = memory.get("personal", {}).get("contact", {}).get("emergency_contact", {})
+    if emergency.get("name"):
+        yield emergency.get("name"), emergency
+
+    for friend in memory.get("personal", {}).get("friends", {}).get("close_friends", []):
+        if friend.get("name"):
+            yield friend.get("name"), friend
+        if friend.get("nickname"):
+            yield friend.get("nickname"), friend
+
+
+def _find_named_contact(memory, contact_name):
+    target = _normalize_alias(contact_name)
+    best_match = None
+
+    for label, contact in _iter_named_contacts(memory):
+        normalized = _normalize_alias(label)
+        if normalized == target:
+            return contact, label
+        if target in normalized or normalized in target:
+            best_match = (contact, label)
+
+    return best_match if best_match else (None, None)
+
+
+def update_named_contact_field(contact_name, field_name, raw_value):
+    memory = load_memory()
+    contact, resolved_name = _find_named_contact(memory, contact_name)
+    if not contact:
+        return False, f"I could not find a saved contact matching {contact_name}."
+
+    normalized_field = CONTACT_FIELD_ALIASES.get(_normalize_alias(field_name))
+    if not normalized_field:
+        return False, f"I can update email or phone for {resolved_name} right now."
+
+    contact[normalized_field] = raw_value.strip()
+    _save_memory_file(memory)
+    return True, f"I updated {resolved_name}'s {normalized_field}."
+
+
+def get_named_contact_field(contact_name, field_name):
+    memory = load_memory()
+    contact, resolved_name = _find_named_contact(memory, contact_name)
+    if not contact:
+        return None, f"I could not find a saved contact matching {contact_name}."
+
+    normalized_field = CONTACT_FIELD_ALIASES.get(_normalize_alias(field_name))
+    if not normalized_field:
+        return None, f"I can check email or phone for {resolved_name} right now."
+
+    value = contact.get(normalized_field)
+    if _is_blank(value):
+        return None, f"I do not have {resolved_name}'s {normalized_field} saved yet."
+
+    return value, f"{resolved_name}'s {normalized_field} is {value}."
 
 
 def _build_person_detail_response(title, details):

@@ -203,6 +203,12 @@ def _browser_only_info():
     return info
 
 
+def _confirm_action(message, info):
+    if not info:
+        return message
+    return f"{message} Active window: {info['title']}."
+
+
 def get_current_browser_page_title():
     info = _browser_only_info()
     if not info:
@@ -407,7 +413,7 @@ def browser_new_tab():
         return "The active window does not look like a browser right now."
     try:
         keyboard.send("ctrl+t")
-        return "Opened a new browser tab."
+        return _confirm_action("Opened a new browser tab", info)
     except Exception:
         return "I could not open a new browser tab right now."
 
@@ -418,7 +424,7 @@ def browser_close_tab():
         return "The active window does not look like a browser right now."
     try:
         keyboard.send("ctrl+w")
-        return "Closed the current browser tab."
+        return _confirm_action("Closed the current browser tab", info)
     except Exception:
         return "I could not close the current browser tab right now."
 
@@ -429,7 +435,7 @@ def editor_save_current_file():
         return "The active window does not look like a code editor right now."
     try:
         keyboard.send("ctrl+s")
-        return "Saved the current file."
+        return _confirm_action("Saved the current file", info)
     except Exception:
         return "I could not save the current file right now."
 
@@ -440,7 +446,7 @@ def editor_run_current_file():
         return "The active window does not look like a code editor right now."
     try:
         keyboard.send("ctrl+f5")
-        return "Triggered run for the current file."
+        return _confirm_action("Triggered run for the current file", info)
     except Exception:
         return "I could not run the current file right now."
 
@@ -454,6 +460,6 @@ def explorer_open_selected_item():
         return "The active window does not look like File Explorer right now."
     try:
         keyboard.send("enter")
-        return "Opened the selected item in File Explorer."
+        return _confirm_action("Opened the selected item in File Explorer", info)
     except Exception:
         return "I could not open the selected item right now."
