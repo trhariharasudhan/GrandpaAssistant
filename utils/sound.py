@@ -1,5 +1,14 @@
 import os
-from playsound import playsound
+
+try:
+    import winsound
+except ImportError:
+    winsound = None
+
+try:
+    from playsound import playsound
+except ImportError:
+    playsound = None
 
 from utils.config import get_setting
 
@@ -26,7 +35,15 @@ def play_sound(filename):
             print(f"Sound error: file not found - {resolved_name}")
             return
 
-        playsound(sound_path)
+        if playsound is not None:
+            playsound(sound_path)
+            return
+
+        if winsound is not None:
+            winsound.PlaySound(sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+            return
+
+        print("Sound error: no supported sound backend is available.")
 
     except Exception as e:
         print("Sound error:", e)
