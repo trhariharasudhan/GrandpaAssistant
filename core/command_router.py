@@ -249,6 +249,89 @@ def _apply_contact_context(command):
     return normalized
 
 
+def _split_multi_action_command(command):
+    text = " ".join((command or "").strip().split())
+    if not text:
+        return []
+
+    parts = [text]
+    split_patterns = [
+        r"\s+and then\s+",
+        r"\s+then\s+",
+        r"\s+and\s+",
+    ]
+
+    for pattern in split_patterns:
+        candidate_parts = [segment.strip(" ,") for segment in re.split(pattern, text, flags=re.IGNORECASE) if segment.strip(" ,")]
+        if len(candidate_parts) < 2:
+            continue
+
+        valid_starters = (
+            "call ",
+            "message ",
+            "mail ",
+            "email ",
+            "send ",
+            "save ",
+            "make ",
+            "create ",
+            "add ",
+            "set ",
+            "remind ",
+            "summarize ",
+            "translate ",
+            "extract ",
+            "open ",
+            "copy ",
+            "search ",
+            "read ",
+            "preview ",
+            "repeat",
+            "what is ",
+            "show ",
+            "first one",
+            "second one",
+            "third one",
+            "him ",
+            "her ",
+            "it ",
+        )
+        if all(any(segment.lower().startswith(starter) for starter in valid_starters) for segment in candidate_parts[1:]):
+            parts = candidate_parts
+            break
+
+    return parts if len(parts) > 1 else []
+
+
+def _continue_remaining_chain(remaining_chain, INSTALLED_APPS, input_mode):
+    for index, next_command in enumerate(remaining_chain):
+        process_command(next_command, INSTALLED_APPS, input_mode=input_mode)
+        if pending_confirmation:
+            pending_confirmation["remaining_chain"] = remaining_chain[index + 1 :]
+            pending_confirmation.setdefault("chain_input_mode", input_mode)
+            pending_confirmation.setdefault("chain_apps", INSTALLED_APPS)
+            return
+
+
+def _maybe_run_multi_action_chain(command, INSTALLED_APPS, input_mode):
+    chain_parts = _split_multi_action_command(command)
+    if not chain_parts:
+        return False
+
+    first_command = chain_parts[0]
+    remaining_chain = chain_parts[1:]
+    process_command(first_command, INSTALLED_APPS, input_mode=input_mode)
+
+    if pending_confirmation:
+        pending_confirmation["remaining_chain"] = remaining_chain
+        pending_confirmation.setdefault("chain_input_mode", input_mode)
+        pending_confirmation.setdefault("chain_apps", INSTALLED_APPS)
+        return True
+
+    _continue_remaining_chain(remaining_chain, INSTALLED_APPS, input_mode)
+    return True
+
+
 def _contact_confirmation_mode():
     return str(get_setting("google_contacts.confirmation_mode", "calls_only") or "calls_only").lower()
 
@@ -1500,6 +1583,8 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
 
     command = _normalize_voice_friendly_command(command)
     command = _apply_contact_context(command)
+    if not pending_confirmation and _maybe_run_multi_action_chain(command, INSTALLED_APPS, input_mode):
+        return
     if command:
         log_command(command, source=input_mode)
 
@@ -1513,15 +1598,30 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             reply = _execute_contact_choice(choice_state, selected_name)
             speak(reply)
             set_last_result(reply)
+            remaining_chain = choice_state.get("remaining_chain", [])
+            if remaining_chain:
+                _continue_remaining_chain(
+                    remaining_chain,
+                    choice_state.get("chain_apps", INSTALLED_APPS),
+                    choice_state.get("chain_input_mode", input_mode),
+                )
             return
 
     if pending_confirmation and pending_confirmation.get("type") == "contact_action_confirm":
         if _is_positive_confirmation(command):
-            action = pending_confirmation["action"]
+            confirmation_state = pending_confirmation
+            action = confirmation_state["action"]
             pending_confirmation = None
             reply = action()
             speak(reply)
             set_last_result(reply)
+            remaining_chain = confirmation_state.get("remaining_chain", [])
+            if remaining_chain:
+                _continue_remaining_chain(
+                    remaining_chain,
+                    confirmation_state.get("chain_apps", INSTALLED_APPS),
+                    confirmation_state.get("chain_input_mode", input_mode),
+                )
             return
         if _is_negative_confirmation(command):
             pending_confirmation = None
@@ -1642,9 +1742,17 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
 
     if pending_confirmation:
         if _is_positive_confirmation(command):
-            action = pending_confirmation["action"]
+            confirmation_state = pending_confirmation
+            action = confirmation_state["action"]
             pending_confirmation = None
             action()
+            remaining_chain = confirmation_state.get("remaining_chain", [])
+            if remaining_chain:
+                _continue_remaining_chain(
+                    remaining_chain,
+                    confirmation_state.get("chain_apps", INSTALLED_APPS),
+                    confirmation_state.get("chain_input_mode", input_mode),
+                )
             return
 
         if _is_negative_confirmation(command):
