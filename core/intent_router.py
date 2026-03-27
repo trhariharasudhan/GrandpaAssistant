@@ -32,7 +32,12 @@ from modules.event_module import (
     today_events,
     upcoming_events,
 )
-from modules.export_module import export_productivity_summary, export_productivity_summary_pdf
+from modules.export_module import (
+    export_daily_recap_pdf,
+    export_daily_recap_summary,
+    export_productivity_summary,
+    export_productivity_summary_pdf,
+)
 from modules.file_intelligence_module import (
     ask_found_file,
     find_file,
@@ -107,7 +112,9 @@ from modules.window_context_module import (
     get_active_app_name,
     get_active_window_title,
     get_current_browser_page_title,
+    open_first_result_and_summarize,
     open_browser_result,
+    search_page_and_click_first_match,
     summarize_active_window,
     summarize_browser_page,
     summarize_code_editor,
@@ -316,6 +323,32 @@ COMMAND_REGISTRY = [
         ],
         "type": "exact",
         "handler": export_productivity_summary_pdf,
+        "category": "export",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "export.recap",
+        "patterns": [
+            "export daily recap",
+            "save daily recap",
+            "export recap",
+            "save recap report",
+        ],
+        "type": "exact",
+        "handler": export_daily_recap_summary,
+        "category": "export",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "export.recap_pdf",
+        "patterns": [
+            "export recap pdf",
+            "save daily recap as pdf",
+            "export daily recap pdf",
+            "save recap as pdf",
+        ],
+        "type": "exact",
+        "handler": export_daily_recap_pdf,
         "category": "export",
         "confidence": 0.97,
     },
@@ -1033,6 +1066,29 @@ COMMAND_REGISTRY = [
         ],
         "type": "startswith",
         "handler": click_on_current_browser_page,
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "app.browser.search_click",
+        "patterns": [
+            "search page and click first match for",
+            "find on this page and click",
+            "search this page and click",
+        ],
+        "type": "startswith",
+        "handler": search_page_and_click_first_match,
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "app.browser.result_summary",
+        "patterns": [
+            "open first result and summarize",
+            "open top result and summarize",
+        ],
+        "type": "exact",
+        "handler": lambda command: open_first_result_and_summarize(command),
         "category": "app_intelligence",
         "confidence": 0.95,
     },

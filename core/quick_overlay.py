@@ -12,6 +12,7 @@ _overlay_root = None
 _overlay_entry = None
 _overlay_handler = None
 _overlay_recent_frame = None
+_overlay_action_frame = None
 _overlay_suggestion_frame = None
 _overlay_context_frame = None
 _overlay_hotkey_handler = None
@@ -19,11 +20,12 @@ _overlay_hotkey_registered = None
 _overlay_lock = threading.Lock()
 _overlay_all_suggestions = None
 _overlay_all_recent_commands = None
+_overlay_all_recent_actions = None
 _overlay_all_context_items = None
 
 
 def _destroy_overlay():
-    global _overlay_root, _overlay_entry, _overlay_recent_frame, _overlay_suggestion_frame, _overlay_context_frame
+    global _overlay_root, _overlay_entry, _overlay_recent_frame, _overlay_action_frame, _overlay_suggestion_frame, _overlay_context_frame
 
     if _overlay_root is None:
         return False
@@ -36,6 +38,7 @@ def _destroy_overlay():
     _overlay_root = None
     _overlay_entry = None
     _overlay_recent_frame = None
+    _overlay_action_frame = None
     _overlay_suggestion_frame = None
     _overlay_context_frame = None
     return True
@@ -74,7 +77,7 @@ def _normalize_chip_item(item):
     return str(item), str(item)
 
 
-def _filter_chip_collections(query, suggestions, recent_commands, context_items):
+def _filter_chip_collections(query, suggestions, recent_commands, context_items, recent_actions):
     query = (query or "").strip().lower()
     if not query:
         return suggestions, recent_commands, context_items
@@ -86,6 +89,7 @@ def _filter_chip_collections(query, suggestions, recent_commands, context_items)
 
     filtered_context = [item for item in (context_items or []) if matches(item)]
     filtered_recent = [item for item in (recent_commands or []) if query in str(item).lower()]
+    filtered_actions = [item for item in (recent_actions or []) if query in str(item).lower()]
 
     if isinstance(suggestions, dict):
         filtered_suggestions = {}
@@ -96,12 +100,13 @@ def _filter_chip_collections(query, suggestions, recent_commands, context_items)
     else:
         filtered_suggestions = [item for item in (suggestions or []) if matches(item)]
 
-    return filtered_suggestions, filtered_recent, filtered_context
+    return filtered_suggestions, filtered_recent, filtered_context, filtered_actions
 
 
-def _refresh_overlay_lists(suggestions=None, recent_commands=None, context_items=None):
+def _refresh_overlay_lists(suggestions=None, recent_commands=None, context_items=None, recent_actions=None):
     if (
         _overlay_recent_frame is None
+        or _overlay_action_frame is None
         or _overlay_suggestion_frame is None
         or _overlay_context_frame is None
         or _overlay_handler is None
@@ -114,10 +119,12 @@ def _refresh_overlay_lists(suggestions=None, recent_commands=None, context_items
     else:
         _clear_frame(_overlay_suggestion_frame)
     _clear_frame(_overlay_recent_frame)
+    _clear_frame(_overlay_action_frame)
     _clear_frame(_overlay_context_frame)
 
     suggestions = suggestions or {}
     recent_commands = recent_commands or []
+    recent_actions = recent_actions or []
     context_items = context_items or []
 
     for index, item in enumerate(context_items):
@@ -173,15 +180,26 @@ def _refresh_overlay_lists(suggestions=None, recent_commands=None, context_items
         )
         chip.grid(row=index // 2, column=index % 2, padx=4, pady=4, sticky="w")
 
+    for index, item in enumerate(recent_actions):
+        chip = _make_chip(
+            _overlay_action_frame,
+            item,
+            item,
+            _overlay_handler,
+            bg="#7c2d12",
+        )
+        chip.grid(row=index // 2, column=index % 2, padx=4, pady=4, sticky="w")
 
-def show_quick_overlay(on_submit, suggestions=None, recent_commands=None, context_items=None):
+
+def show_quick_overlay(on_submit, suggestions=None, recent_commands=None, context_items=None, recent_actions=None):
     global _overlay_root, _overlay_entry, _overlay_handler, _overlay_recent_frame
-    global _overlay_suggestion_frame, _overlay_context_frame
-    global _overlay_all_suggestions, _overlay_all_recent_commands, _overlay_all_context_items
+    global _overlay_action_frame, _overlay_suggestion_frame, _overlay_context_frame
+    global _overlay_all_suggestions, _overlay_all_recent_commands, _overlay_all_recent_actions, _overlay_all_context_items
 
     _overlay_handler = on_submit
     _overlay_all_suggestions = suggestions or {}
     _overlay_all_recent_commands = recent_commands or []
+    _overlay_all_recent_actions = recent_actions or recent_commands or []
     _overlay_all_context_items = context_items or []
 
     if _overlay_root is not None:
@@ -189,6 +207,7 @@ def show_quick_overlay(on_submit, suggestions=None, recent_commands=None, contex
             _refresh_overlay_lists(
                 suggestions=_overlay_all_suggestions,
                 recent_commands=_overlay_all_recent_commands,
+                recent_actions=_overlay_all_recent_actions,
                 context_items=_overlay_all_context_items,
             )
             _overlay_root.deiconify()
@@ -202,7 +221,7 @@ def show_quick_overlay(on_submit, suggestions=None, recent_commands=None, contex
             _destroy_overlay()
 
     def worker():
-        global _overlay_root, _overlay_entry, _overlay_recent_frame, _overlay_suggestion_frame, _overlay_context_frame
+        global _overlay_root, _overlay_entry, _overlay_recent_frame, _overlay_action_frame, _overlay_suggestion_frame, _overlay_context_frame
         try:
             root = tk.Tk()
             root.title("Grandpa Assistant")
@@ -295,6 +314,18 @@ def show_quick_overlay(on_submit, suggestions=None, recent_commands=None, contex
             recent_frame = tk.Frame(container, bg="#111827")
             recent_frame.pack(fill="x", anchor="w")
 
+            action_label = tk.Label(
+                container,
+                text="Recent Actions",
+                fg="#d1d5db",
+                bg="#111827",
+                font=("Segoe UI", 10, "bold"),
+            )
+            action_label.pack(anchor="w", pady=(12, 4))
+
+            action_frame = tk.Frame(container, bg="#111827")
+            action_frame.pack(fill="x", anchor="w")
+
             def submit(_event=None):
                 text = entry.get().strip()
                 if not text:
@@ -310,15 +341,17 @@ def show_quick_overlay(on_submit, suggestions=None, recent_commands=None, contex
                 root.withdraw()
 
             def on_change(_event=None):
-                filtered_suggestions, filtered_recent, filtered_context = _filter_chip_collections(
+                filtered_suggestions, filtered_recent, filtered_context, filtered_actions = _filter_chip_collections(
                     entry.get(),
                     _overlay_all_suggestions,
                     _overlay_all_recent_commands,
                     _overlay_all_context_items,
+                    _overlay_all_recent_actions,
                 )
                 _refresh_overlay_lists(
                     suggestions=filtered_suggestions,
                     recent_commands=filtered_recent,
+                    recent_actions=filtered_actions,
                     context_items=filtered_context,
                 )
 
@@ -332,9 +365,11 @@ def show_quick_overlay(on_submit, suggestions=None, recent_commands=None, contex
             _overlay_context_frame = context_frame
             _overlay_suggestion_frame = suggestion_frames
             _overlay_recent_frame = recent_frame
+            _overlay_action_frame = action_frame
             _refresh_overlay_lists(
                 suggestions=_overlay_all_suggestions,
                 recent_commands=_overlay_all_recent_commands,
+                recent_actions=_overlay_all_recent_actions,
                 context_items=_overlay_all_context_items,
             )
             entry.focus_force()
@@ -362,9 +397,11 @@ def register_overlay_hotkey(
     hotkey="ctrl+shift+space",
     suggestions=None,
     recent_commands=None,
+    recent_actions=None,
     context_items=None,
     suggestions_provider=None,
     recent_provider=None,
+    recent_actions_provider=None,
     context_provider=None,
 ):
     global _overlay_hotkey_handler, _overlay_hotkey_registered
@@ -386,6 +423,9 @@ def register_overlay_hotkey(
                 resolved_recent = (
                     recent_provider() if recent_provider else recent_commands
                 )
+                resolved_actions = (
+                    recent_actions_provider() if recent_actions_provider else recent_actions
+                )
                 resolved_context = (
                     context_provider() if context_provider else context_items
                 )
@@ -393,6 +433,7 @@ def register_overlay_hotkey(
                     callback,
                     suggestions=resolved_suggestions,
                     recent_commands=resolved_recent,
+                    recent_actions=resolved_actions,
                     context_items=resolved_context,
                 )
             finally:

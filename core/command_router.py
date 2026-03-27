@@ -10,6 +10,7 @@ from brain.database import get_recent_commands, log_command
 from brain.memory_engine import (
     get_memory,
     get_named_contact_field,
+    remove_named_contact_field,
     remove_memory_field,
     search_memory,
     set_memory,
@@ -96,6 +97,27 @@ pending_confirmation = None
 
 
 def _handle_memory_edit_command(command):
+    named_contact_remove = re.match(
+        r"^(?:remove|delete|clear)\s+(.+?)\s+(email|mail|phone|mobile|number|whatsapp)$",
+        command,
+    )
+    if named_contact_remove:
+        contact_name = named_contact_remove.group(1).strip()
+        field_name = named_contact_remove.group(2).strip()
+        if _normalize_contact_target(contact_name):
+            return remove_named_contact_field(contact_name, field_name)[1]
+
+    generic_named_contact_update = re.match(
+        r"^(?:set|update|change)\s+(.+?)\s+(email|mail|phone|mobile|number|whatsapp)\s+to\s+(.+)$",
+        command,
+    )
+    if generic_named_contact_update:
+        contact_name = generic_named_contact_update.group(1).strip()
+        field_name = generic_named_contact_update.group(2).strip()
+        raw_value = generic_named_contact_update.group(3).strip()
+        if _normalize_contact_target(contact_name):
+            return update_named_contact_field(contact_name, field_name, raw_value)[1]
+
     named_contact_update = re.match(
         r"^(?:set|update|change)\s+contact\s+(.+?)\s+(email|mail|phone|mobile|number|whatsapp)\s+to\s+(.+)$",
         command,
@@ -130,6 +152,11 @@ def _handle_memory_edit_command(command):
         return remove_memory_field(field_name)[1]
 
     return None
+
+
+def _normalize_contact_target(contact_name):
+    normalized = " ".join(contact_name.lower().split())
+    return normalized not in {"my", "me", "mine"}
 
 
 def _handle_contact_lookup_command(command):
@@ -759,6 +786,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         "open quick overlay",
         "show quick overlay",
     ]:
+        recent_commands = get_recent_commands()
         success, message = show_quick_overlay(
             lambda overlay_command: process_command(
                 overlay_command, INSTALLED_APPS, input_mode="text"
@@ -781,7 +809,8 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
                     "read selected area",
                 ],
             },
-            recent_commands=get_recent_commands(),
+            recent_commands=recent_commands,
+            recent_actions=recent_commands[:4],
         )
         speak(message if message else "Quick command overlay updated.")
         return

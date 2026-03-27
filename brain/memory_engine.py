@@ -390,40 +390,40 @@ def _iter_named_contacts(memory):
     for person_key in ["father", "mother"]:
         person = family.get(person_key, {})
         if person.get("name"):
-            yield person.get("name"), person
+            yield person.get("name"), person, f"personal.family.{person_key}"
 
-    for sibling in family.get("siblings", []):
+    for index, sibling in enumerate(family.get("siblings", [])):
         if sibling.get("name"):
-            yield sibling.get("name"), sibling
+            yield sibling.get("name"), sibling, f"personal.family.siblings.{index}"
 
     emergency = memory.get("personal", {}).get("contact", {}).get("emergency_contact", {})
     if emergency.get("name"):
-        yield emergency.get("name"), emergency
+        yield emergency.get("name"), emergency, "personal.contact.emergency_contact"
 
-    for friend in memory.get("personal", {}).get("friends", {}).get("close_friends", []):
+    for index, friend in enumerate(memory.get("personal", {}).get("friends", {}).get("close_friends", [])):
         if friend.get("name"):
-            yield friend.get("name"), friend
+            yield friend.get("name"), friend, f"personal.friends.close_friends.{index}"
         if friend.get("nickname"):
-            yield friend.get("nickname"), friend
+            yield friend.get("nickname"), friend, f"personal.friends.close_friends.{index}"
 
 
 def _find_named_contact(memory, contact_name):
     target = _normalize_alias(contact_name)
     best_match = None
 
-    for label, contact in _iter_named_contacts(memory):
+    for label, contact, path in _iter_named_contacts(memory):
         normalized = _normalize_alias(label)
         if normalized == target:
-            return contact, label
+            return contact, label, path
         if target in normalized or normalized in target:
-            best_match = (contact, label)
+            best_match = (contact, label, path)
 
-    return best_match if best_match else (None, None)
+    return best_match if best_match else (None, None, None)
 
 
 def update_named_contact_field(contact_name, field_name, raw_value):
     memory = load_memory()
-    contact, resolved_name = _find_named_contact(memory, contact_name)
+    contact, resolved_name, contact_path = _find_named_contact(memory, contact_name)
     if not contact:
         return False, f"I could not find a saved contact matching {contact_name}."
 
@@ -433,12 +433,13 @@ def update_named_contact_field(contact_name, field_name, raw_value):
 
     contact[normalized_field] = raw_value.strip()
     _save_memory_file(memory)
+    set_memory_value(f"{contact_path}.{normalized_field}", raw_value.strip())
     return True, f"I updated {resolved_name}'s {normalized_field}."
 
 
 def get_named_contact_field(contact_name, field_name):
     memory = load_memory()
-    contact, resolved_name = _find_named_contact(memory, contact_name)
+    contact, resolved_name, _contact_path = _find_named_contact(memory, contact_name)
     if not contact:
         return None, f"I could not find a saved contact matching {contact_name}."
 
@@ -451,6 +452,25 @@ def get_named_contact_field(contact_name, field_name):
         return None, f"I do not have {resolved_name}'s {normalized_field} saved yet."
 
     return value, f"{resolved_name}'s {normalized_field} is {value}."
+
+
+def remove_named_contact_field(contact_name, field_name):
+    memory = load_memory()
+    contact, resolved_name, contact_path = _find_named_contact(memory, contact_name)
+    if not contact:
+        return False, f"I could not find a saved contact matching {contact_name}."
+
+    normalized_field = CONTACT_FIELD_ALIASES.get(_normalize_alias(field_name))
+    if not normalized_field:
+        return False, f"I can remove email or phone for {resolved_name} right now."
+
+    if _is_blank(contact.get(normalized_field)):
+        return False, f"I do not have {resolved_name}'s {normalized_field} saved yet."
+
+    contact[normalized_field] = None
+    _save_memory_file(memory)
+    set_memory_value(f"{contact_path}.{normalized_field}", None)
+    return True, f"I removed {resolved_name}'s {normalized_field}."
 
 
 def _build_person_detail_response(title, details):

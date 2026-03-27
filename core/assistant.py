@@ -225,10 +225,12 @@ def _handle_overlay_command(command_text):
 
 
 def _open_overlay():
+    recent_commands = get_recent_commands()
     return show_quick_overlay(
         _handle_overlay_command,
         suggestions=_overlay_suggestions(),
-        recent_commands=get_recent_commands(),
+        recent_commands=recent_commands,
+        recent_actions=recent_commands[:4],
         context_items=_overlay_context_items(),
     )
 
@@ -440,6 +442,7 @@ def main(start_in_tray=False):
             get_setting("overlay.hotkey", "ctrl+shift+space"),
             suggestions_provider=_overlay_suggestions,
             recent_provider=get_recent_commands,
+            recent_actions_provider=lambda: get_recent_commands(limit=4),
             context_provider=_overlay_context_items,
         )
     play_sound("start")

@@ -12,7 +12,7 @@ from modules.health_module import get_system_status
 from modules.task_module import get_task_data
 from modules.weather_module import get_weather_report
 from modules.briefing_module import build_brief_details
-from modules.export_module import export_productivity_summary
+from modules.export_module import export_daily_recap_summary
 from utils.config import get_setting
 
 
@@ -378,7 +378,7 @@ def run_startup_daily_automations():
         last_export_date = _get_state_value("last_night_summary_export_date")
         today_str = now.date().isoformat()
         if last_export_date != today_str:
-            export_result = export_productivity_summary()
+            export_result = export_daily_recap_summary()
             _set_state_value("last_night_summary_export_date", today_str)
             results.append(export_result)
 

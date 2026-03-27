@@ -1,7 +1,7 @@
 import datetime
 import os
 
-from modules.dashboard_module import build_today_agenda
+from modules.dashboard_module import build_daily_recap, build_today_agenda
 from modules.event_module import get_event_data
 from modules.task_module import get_task_data
 
@@ -66,6 +66,18 @@ def _build_summary_lines():
     else:
         lines.append("- None")
 
+    return now, lines
+
+
+def _build_recap_lines():
+    now = datetime.datetime.now()
+    recap_text = build_daily_recap()
+    lines = [
+        "Grandpa Assistant Daily Recap",
+        f"Generated: {now.strftime('%d %B %Y %I:%M %p')}",
+        "",
+    ]
+    lines.extend(recap_text.splitlines() or [recap_text])
     return now, lines
 
 
@@ -150,3 +162,27 @@ def export_productivity_summary_pdf(_command=None):
 
     _write_basic_pdf(export_path, lines)
     return f"PDF summary exported to {export_path}"
+
+
+def export_daily_recap_summary(_command=None):
+    os.makedirs(EXPORT_DIR, exist_ok=True)
+
+    now, lines = _build_recap_lines()
+    filename = f"daily_recap_{now.strftime('%Y%m%d_%H%M%S')}.txt"
+    export_path = os.path.join(EXPORT_DIR, filename)
+
+    with open(export_path, "w", encoding="utf-8") as file:
+        file.write("\n".join(lines))
+
+    return f"Daily recap exported to {export_path}"
+
+
+def export_daily_recap_pdf(_command=None):
+    os.makedirs(EXPORT_DIR, exist_ok=True)
+
+    now, lines = _build_recap_lines()
+    filename = f"daily_recap_{now.strftime('%Y%m%d_%H%M%S')}.pdf"
+    export_path = os.path.join(EXPORT_DIR, filename)
+
+    _write_basic_pdf(export_path, lines)
+    return f"Daily recap PDF exported to {export_path}"

@@ -1,6 +1,7 @@
 import pyautogui
 import pygetwindow as gw
 import keyboard
+import time
 
 from vision.screen_reader import (
     click_on_text,
@@ -290,6 +291,32 @@ def click_on_current_browser_page(command):
     return f"I could not find {target} on the current browser page to click."
 
 
+def search_page_and_click_first_match(command):
+    info = _browser_only_info()
+    if not info:
+        return "The active window does not look like a browser right now."
+
+    target = command
+    prefixes = [
+        "search page and click first match for",
+        "find on this page and click",
+        "search this page and click",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            target = command.replace(prefix, "", 1).strip()
+            break
+
+    if not target:
+        return "Tell me what you want me to search and click on this page."
+
+    details = click_on_text(target)
+    if details:
+        return f"I found and clicked {target} on the current browser page."
+
+    return f"I could not find {target} on the current browser page to click."
+
+
 def _candidate_browser_results():
     entries = get_screen_text_entries()
     if not entries:
@@ -350,6 +377,21 @@ def open_browser_result(command):
     chosen = candidates[ordinal - 1]
     pyautogui.click(chosen["center"])
     return f"I opened result {ordinal}: {chosen['text']}."
+
+
+def open_first_result_and_summarize(_command):
+    info = _browser_only_info()
+    if not info:
+        return "The active window does not look like a browser right now."
+
+    open_message = open_browser_result("open first result")
+    if not open_message.lower().startswith("i opened result 1"):
+        return open_message
+
+    time.sleep(1.2)
+    page_title = get_current_browser_page_title()
+    section_summary = summarize_visible_browser_section()
+    return f"{open_message} {page_title} {section_summary}"
 
 
 def summarize_code_editor():
