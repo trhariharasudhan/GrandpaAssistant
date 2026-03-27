@@ -191,7 +191,7 @@ def show_quick_overlay(on_submit, suggestions=None, recent_commands=None, contex
 
             context_label = tk.Label(
                 container,
-                text="Task and Reminder Context",
+                text="Daily Context",
                 fg="#d1d5db",
                 bg="#111827",
                 font=("Segoe UI", 10, "bold"),

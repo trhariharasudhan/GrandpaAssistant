@@ -116,12 +116,29 @@ def _overlay_suggestions():
 
 def _overlay_context_items():
     data = get_task_data()
+    today = datetime.date.today()
+    events = list(get_event_data().get("events", []))
 
     pending_tasks = [task for task in data.get("tasks", []) if not task.get("completed")]
     pending_tasks.sort(key=lambda task: task.get("created_at", ""), reverse=True)
 
     reminders = list(data.get("reminders", []))
     reminders.sort(key=lambda reminder: reminder.get("created_at", ""), reverse=True)
+
+    today_events = [event for event in events if event.get("date") == today.isoformat()]
+    upcoming_events = []
+    for event in events:
+        event_date = event.get("date")
+        if not event_date:
+            continue
+        try:
+            parsed_date = datetime.date.fromisoformat(event_date)
+        except ValueError:
+            continue
+        if parsed_date >= today:
+            upcoming_events.append(event)
+
+    upcoming_events.sort(key=lambda event: (event.get("date") or "9999-12-31", event.get("time") or "23:59"))
 
     context_items = []
 
@@ -138,6 +155,19 @@ def _overlay_context_items():
         context_items.append(("What Is Due Today", "what is due today"))
     else:
         context_items.append(("No Active Reminders", "show reminders"))
+
+    if today_events:
+        first_today_event = today_events[0].get("title", "Untitled event")
+        context_items.append((f"Today's Event: {first_today_event}", "today events"))
+    else:
+        context_items.append(("No Events Today", "today events"))
+
+    if upcoming_events:
+        next_event = upcoming_events[0]
+        next_event_title = next_event.get("title", "Untitled event")
+        context_items.append((f"Next Event: {next_event_title}", "upcoming events"))
+    else:
+        context_items.append(("No Upcoming Events", "upcoming events"))
 
     return context_items
 
