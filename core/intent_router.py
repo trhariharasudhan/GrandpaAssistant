@@ -770,14 +770,6 @@ COMMAND_REGISTRY = [
         "confidence": 0.94,
     },
     {
-        "intent": "messaging.gmail.quick_shortcut",
-        "patterns": ["mail ", "email "],
-        "type": "startswith",
-        "handler": quick_email_shortcut,
-        "category": "messaging_automation",
-        "confidence": 0.96,
-    },
-    {
         "intent": "messaging.gmail.relationship_shortcut",
         "patterns": ["mail my", "email my", "mail emergency contact", "email emergency contact"],
         "type": "startswith",
@@ -792,6 +784,14 @@ COMMAND_REGISTRY = [
         "handler": memory_email_shortcut,
         "category": "messaging_automation",
         "confidence": 0.94,
+    },
+    {
+        "intent": "messaging.gmail.quick_shortcut",
+        "patterns": ["mail ", "email "],
+        "type": "startswith",
+        "handler": quick_email_shortcut,
+        "category": "messaging_automation",
+        "confidence": 0.96,
     },
     {
         "intent": "notes.add",

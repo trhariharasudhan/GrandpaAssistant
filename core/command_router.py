@@ -1492,13 +1492,6 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             speak("I couldn't find it on screen")
 
         return
-
-    intent_result = try_handle_intent(command)
-    if intent_result["handled"]:
-        speak(intent_result["reply"])
-        set_last_result(intent_result["reply"])
-        return
-
     now_dt = datetime.datetime.now()
 
     if "start mouse" in command:
@@ -1565,6 +1558,12 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             speak("Grandpa Assistant restored from the system tray.")
         else:
             speak("Tray mode is not active right now.")
+        return
+
+    intent_result = try_handle_intent(command)
+    if intent_result["handled"]:
+        speak(intent_result["reply"])
+        set_last_result(intent_result["reply"])
         return
 
     # ----- calendar queries -----

@@ -1182,7 +1182,8 @@ def memory_whatsapp_message(command):
     if not match:
         return "Use this format: message Jeevan about the meeting moved to 6 PM."
 
-    contact_name = _extract_known_contact(match.group(1))
+    target_text = re.sub(r"^to\s+", "", match.group(1).strip(), flags=re.IGNORECASE)
+    contact_name = _extract_known_contact(target_text)
     topic = _clean_text(match.group(2))
     if not contact_name or not topic:
         return "Tell me the contact and what message you want to send."
@@ -1247,7 +1248,8 @@ def quick_whatsapp_message(command):
     if not match:
         return None
 
-    contact_name, error = _resolve_contact_alias(match.group(1))
+    target_text = re.sub(r"^to\s+", "", match.group(1).strip(), flags=re.IGNORECASE)
+    contact_name, error = _resolve_contact_alias(target_text)
     if error:
         return error
 
@@ -1278,7 +1280,8 @@ def memory_email_shortcut(command):
     if not match:
         return "Use this format: mail my primary email about project update."
 
-    recipient, recipient_error = _resolve_email_target(match.group(1))
+    target_text = re.sub(r"^to\s+", "", match.group(1).strip(), flags=re.IGNORECASE)
+    recipient, recipient_error = _resolve_email_target(target_text)
     topic = _clean_text(match.group(2))
 
     if recipient_error:
