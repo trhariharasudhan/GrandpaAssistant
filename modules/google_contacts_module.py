@@ -18,6 +18,7 @@ CACHE_PATH = os.path.join(DATA_DIR, "google_contacts_cache.json")
 ALIAS_PATH = os.path.join(DATA_DIR, "contact_aliases.json")
 META_PATH = os.path.join(DATA_DIR, "google_contacts_meta.json")
 CHANGE_LOG_PATH = os.path.join(DATA_DIR, "google_contact_change_log.json")
+FAVORITES_PATH = os.path.join(DATA_DIR, "contact_favorites.json")
 SCOPES = ["https://www.googleapis.com/auth/contacts.readonly"]
 TRANSLITERATION_EQUIVALENTS = {
     "appa": ["அப்பா", "அப்பா ❤️", "அப்பா🙏"],
@@ -126,6 +127,25 @@ def _save_change_log(entries):
     _ensure_data_dir()
     with open(CHANGE_LOG_PATH, "w", encoding="utf-8") as file:
         json.dump(entries[:100], file, indent=4, ensure_ascii=False)
+
+
+def _load_favorites():
+    if not os.path.exists(FAVORITES_PATH):
+        return []
+    try:
+        with open(FAVORITES_PATH, "r", encoding="utf-8") as file:
+            data = json.load(file)
+        if isinstance(data, list):
+            return [str(item).strip() for item in data if str(item).strip()]
+    except Exception:
+        pass
+    return []
+
+
+def _save_favorites(favorites):
+    _ensure_data_dir()
+    with open(FAVORITES_PATH, "w", encoding="utf-8") as file:
+        json.dump(favorites, file, indent=4, ensure_ascii=False)
 
 
 def _cache_age_seconds():
@@ -469,6 +489,7 @@ def get_google_contact_matches(contact_name, limit=3):
         return []
 
     aliases = _load_aliases()
+    favorites = {_normalize_name(item) for item in _load_favorites()}
     normalized_query = _normalize_name(contact_name)
     raw_query = " ".join(str(contact_name or "").strip().lower().split())
     aliased_target = aliases.get(normalized_query)
@@ -490,6 +511,8 @@ def get_google_contact_matches(contact_name, limit=3):
         for query in queries:
             score = _score_contact(query, contact)
             best_score = max(best_score, score)
+        if _normalize_name(contact.get("display_name")) in favorites:
+            best_score += 0.25
         scored.append((contact, best_score))
 
     ranked = sorted(scored, key=lambda item: item[1], reverse=True)
@@ -504,6 +527,8 @@ def get_google_contact_matches(contact_name, limit=3):
                 for query in queries:
                     score = _score_contact(query, contact)
                     best_score = max(best_score, score)
+                if _normalize_name(contact.get("display_name")) in favorites:
+                    best_score += 0.25
                 scored.append((contact, best_score))
             ranked = sorted(scored, key=lambda item: item[1], reverse=True)
             ranked = [item for item in ranked if item[1] >= 0.55]
@@ -558,6 +583,44 @@ def list_google_contacts(limit=25):
     if extra > 0:
         reply += f" | and {extra} more."
     return reply
+
+
+def add_favorite_contact(contact_name):
+    ranked = get_google_contact_matches(contact_name, limit=3)
+    if not ranked:
+        return False, f"I could not find a Google contact matching {contact_name}."
+    if len(ranked) > 1 and ranked[0][1] - ranked[1][1] < 0.12:
+        options = " | ".join(item[0].get("display_name") for item in ranked)
+        return False, f"I found multiple contacts for {contact_name}: {options}. Tell me the exact one."
+
+    display_name = ranked[0][0].get("display_name")
+    favorites = _load_favorites()
+    if display_name in favorites:
+        return True, f"{display_name} is already in favorite contacts."
+    favorites.append(display_name)
+    _save_favorites(favorites)
+    return True, f"Added {display_name} to favorite contacts."
+
+
+def remove_favorite_contact(contact_name):
+    favorites = _load_favorites()
+    if not favorites:
+        return False, "You do not have any favorite contacts yet."
+
+    target = _normalize_name(contact_name)
+    for favorite in favorites:
+        if _normalize_name(favorite) == target:
+            updated = [item for item in favorites if _normalize_name(item) != target]
+            _save_favorites(updated)
+            return True, f"Removed {favorite} from favorite contacts."
+    return False, f"I could not find {contact_name} in favorite contacts."
+
+
+def list_favorite_contacts():
+    favorites = _load_favorites()
+    if not favorites:
+        return "You do not have any favorite contacts yet."
+    return "Favorite contacts: " + " | ".join(favorites[:20])
 
 
 def set_contact_alias(alias_text, contact_name):

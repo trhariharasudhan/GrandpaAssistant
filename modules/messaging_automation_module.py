@@ -343,6 +343,16 @@ def _show_whatsapp_failure_popup(contact_name):
     )
 
 
+def _show_gmail_popup(recipient, subject):
+    preview = (subject or "No subject")[:80]
+    show_custom_popup(
+        "Gmail",
+        f"Gmail draft opened for {recipient}.\n\nSubject: {preview}",
+        dedupe_key=f"gmail_{recipient.lower()}_{preview.lower()}",
+        force=True,
+    )
+
+
 def _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seconds=8):
     def worker():
         time.sleep(delay_seconds)
@@ -1302,7 +1312,8 @@ def memory_email_shortcut(command):
 
     if _open_gmail_draft(recipient, subject, body):
         delay = get_setting("browser.gmail_load_delay_seconds", 8)
-        return f"Opening a mail draft to {recipient} about {topic}. Give it about {delay} seconds to load."
+        _show_gmail_popup(recipient, subject)
+        return f"Opening a Gmail draft to {recipient} about {topic}. It should load in about {delay} seconds."
     return "I could not open the email draft right now."
 
 
@@ -1335,7 +1346,8 @@ def relationship_email_shortcut(command):
 
     if _open_gmail_draft(recipient, subject, body):
         delay = get_setting("browser.gmail_load_delay_seconds", 8)
-        return f"Opening a mail draft to {recipient} about {topic}. Give it about {delay} seconds to load."
+        _show_gmail_popup(recipient, subject)
+        return f"Opening a Gmail draft to {recipient} about {topic}. It should load in about {delay} seconds."
     return "I could not open the email draft right now."
 
 
@@ -1373,5 +1385,6 @@ def quick_email_shortcut(command):
 
     if _open_gmail_draft(recipient, subject, body):
         delay = get_setting("browser.gmail_load_delay_seconds", 8)
-        return f"Opening a mail draft to {recipient}. Give it about {delay} seconds to load."
+        _show_gmail_popup(recipient, subject)
+        return f"Opening a Gmail draft to {recipient}. It should load in about {delay} seconds."
     return "I could not open the email draft right now."

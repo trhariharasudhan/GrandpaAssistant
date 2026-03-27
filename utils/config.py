@@ -68,6 +68,7 @@ DEFAULT_SETTINGS = {
         "live_refresh_enabled": True,
         "live_refresh_minutes": 1,
         "change_popup_enabled": True,
+        "confirmation_mode": "calls_only",
     },
     "notifications": {
         "reminder_monitor_enabled": True,
