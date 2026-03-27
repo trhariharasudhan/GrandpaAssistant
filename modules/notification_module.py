@@ -74,9 +74,12 @@ def _parse_hhmm(time_text, fallback_minutes):
 
 
 def _automation_weekday_allowed():
-    if not get_setting("notifications.automation_weekdays_only", False):
-        return True
-    return datetime.datetime.now().weekday() < 5
+    now = datetime.datetime.now()
+    if now.weekday() >= 5 and not get_setting("notifications.weekend_automation_enabled", True):
+        return False
+    if get_setting("notifications.automation_weekdays_only", False):
+        return now.weekday() < 5
+    return True
 
 
 def _notification_title(suffix=None):
@@ -421,6 +424,8 @@ def run_startup_daily_automations():
         last_brief_date = _get_state_value("last_morning_brief_automation_date")
         if last_brief_date != today_str:
             results.append(show_startup_brief_popup())
+            if get_setting("notifications.morning_agenda_combo_enabled", False):
+                results.append(show_startup_agenda_popup())
             _set_state_value("last_morning_brief_automation_date", today_str)
 
     if get_setting("notifications.night_summary_export_enabled", False) and now_minutes >= recap_target:

@@ -519,9 +519,11 @@ def _handle_config_command(command):
         brief_popup_interval = get_setting("notifications.brief_popup_interval_minutes", 180)
         morning_brief_automation = get_setting("notifications.morning_brief_automation_enabled", False)
         morning_brief_time = get_setting("notifications.morning_brief_time", "08:00")
+        morning_agenda_combo = get_setting("notifications.morning_agenda_combo_enabled", False)
         night_summary_export = get_setting("notifications.night_summary_export_enabled", False)
         night_summary_time = get_setting("notifications.night_summary_time", "21:00")
         weekdays_only = get_setting("notifications.automation_weekdays_only", False)
+        weekend_automation = get_setting("notifications.weekend_automation_enabled", True)
         compact_voice_replies = get_setting("assistant.compact_voice_replies", True)
         agenda_popup_enabled = get_setting("notifications.agenda_popup_enabled", False)
         agenda_popup_on_startup = get_setting("notifications.agenda_popup_on_startup", False)
@@ -575,9 +577,11 @@ def _handle_config_command(command):
             f"Brief popup interval is {brief_popup_interval} minutes. "
             f"Morning brief automation is {'on' if morning_brief_automation else 'off'}. "
             f"Morning brief time is {morning_brief_time}. "
+            f"Morning agenda combo is {'on' if morning_agenda_combo else 'off'}. "
             f"Night summary export is {'on' if night_summary_export else 'off'}. "
             f"Night summary time is {night_summary_time}. "
             f"Weekday only automations are {'on' if weekdays_only else 'off'}. "
+            f"Weekend automations are {'on' if weekend_automation else 'off'}. "
             f"Compact voice replies are {'on' if compact_voice_replies else 'off'}. "
             f"Agenda popup is {'on' if agenda_popup_enabled else 'off'}. "
             f"Agenda popup on startup is {'on' if agenda_popup_on_startup else 'off'}. "
@@ -705,6 +709,14 @@ def _handle_config_command(command):
         update_setting("notifications.morning_brief_automation_enabled", False)
         return "Morning brief automation disabled."
 
+    if command in ["enable morning agenda combo", "turn on morning agenda combo"]:
+        update_setting("notifications.morning_agenda_combo_enabled", True)
+        return "Morning agenda combo enabled."
+
+    if command in ["disable morning agenda combo", "turn off morning agenda combo"]:
+        update_setting("notifications.morning_agenda_combo_enabled", False)
+        return "Morning agenda combo disabled."
+
     if command in ["enable night summary export", "turn on night summary export"]:
         update_setting("notifications.night_summary_export_enabled", True)
         return "Night summary export enabled."
@@ -720,6 +732,14 @@ def _handle_config_command(command):
     if command in ["disable weekday only automations", "turn off weekday only automations"]:
         update_setting("notifications.automation_weekdays_only", False)
         return "Weekday only automations disabled."
+
+    if command in ["enable weekend automations", "turn on weekend automations"]:
+        update_setting("notifications.weekend_automation_enabled", True)
+        return "Weekend automations enabled."
+
+    if command in ["disable weekend automations", "turn off weekend automations"]:
+        update_setting("notifications.weekend_automation_enabled", False)
+        return "Weekend automations disabled."
 
     if command in ["enable compact voice replies", "turn on compact voice replies"]:
         update_setting("assistant.compact_voice_replies", True)

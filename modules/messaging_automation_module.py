@@ -1160,6 +1160,32 @@ def relationship_whatsapp_message(command):
     return f"Opening WhatsApp Web. I will message {contact_name} in about {load_delay} seconds."
 
 
+def quick_whatsapp_message(command):
+    if " about " in command:
+        return None
+    match = re.match(
+        r"^(?:message|whatsapp)\s+(.+?)\s+(?:saying|that)\s+(.+)$",
+        command,
+    )
+    if not match:
+        return None
+
+    contact_name, error = _resolve_contact_alias(match.group(1))
+    if error:
+        return error
+
+    message_text = _clean_text(match.group(2))
+    if not contact_name or not message_text:
+        return "Tell me who to message and what I should say."
+
+    load_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
+    if not _open_url("https://web.whatsapp.com/"):
+        return "I could not open WhatsApp Web right now."
+
+    _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seconds=load_delay)
+    return f"Opening WhatsApp Web. I will send your message to {contact_name} in about {load_delay} seconds."
+
+
 def memory_email_shortcut(command):
     match = re.match(r"^(?:mail|email)\s+(.+?)\s+about\s+(.+)$", command)
     if not match:
@@ -1218,4 +1244,42 @@ def relationship_email_shortcut(command):
     if _open_gmail_draft(recipient, subject, body):
         delay = get_setting("browser.gmail_load_delay_seconds", 8)
         return f"Opening a mail draft to {recipient} about {topic}. Give it about {delay} seconds to load."
+    return "I could not open the email draft right now."
+
+
+def quick_email_shortcut(command):
+    if " about " in command:
+        return None
+    match = re.match(r"^(?:mail|email)\s+(.+?)\s+(.+)$", command)
+    if not match:
+        return None
+
+    target_text = _clean_text(match.group(1))
+    remainder = _clean_text(match.group(2))
+    recipient, recipient_error = _resolve_email_target(target_text)
+
+    if recipient_error:
+        return recipient_error
+    if not recipient or not remainder:
+        return "Tell me who to mail and what to include."
+
+    memory = load_memory()
+    portfolio = memory.get("personal", {}).get("contact", {}).get("portfolio_website")
+    github = memory.get("personal", {}).get("social_media", {}).get("github_url")
+
+    if "resume link" in remainder:
+        body = (
+            "Hello,\n\n"
+            "Here is my profile link for reference:\n"
+            f"{portfolio or github or 'Link not saved'}\n\n"
+            "Regards,\nHari Hara Sudhan"
+        )
+        subject = "Profile Link"
+    else:
+        body = f"Hello,\n\n{remainder}\n\nRegards,\nHari Hara Sudhan"
+        subject = remainder[:60].title()
+
+    if _open_gmail_draft(recipient, subject, body):
+        delay = get_setting("browser.gmail_load_delay_seconds", 8)
+        return f"Opening a mail draft to {recipient}. Give it about {delay} seconds to load."
     return "I could not open the email draft right now."

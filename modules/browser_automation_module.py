@@ -219,3 +219,28 @@ def search_selected_text_on_google(command=None):
     if _open_url(url):
         return _with_feedback(f"Searching Google for selected text: {selected[:80]}.", None)
     return "I could not search the selected browser text right now."
+
+
+def search_selected_text_on_youtube(command=None):
+    try:
+        previous = pyperclip.paste()
+    except Exception:
+        previous = None
+
+    try:
+        keyboard.send("ctrl+c")
+        time.sleep(0.25)
+        selected = (pyperclip.paste() or "").strip()
+    except Exception:
+        selected = ""
+
+    if previous is not None and selected == previous:
+        selected = ""
+
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    url = "https://www.youtube.com/results?search_query=" + urllib.parse.quote_plus(selected)
+    if _open_url(url):
+        return _with_feedback(f"Searching YouTube for selected text: {selected[:80]}.", None)
+    return "I could not search the selected browser text on YouTube right now."

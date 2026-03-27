@@ -114,6 +114,18 @@ def _overlay_suggestions():
             (f"Pending Tasks ({pending_task_count})", "latest task"),
             ("Latest Reminder", "latest reminder"),
         ],
+        "Contacts (4)": [
+            ("Call My Father", "call my father"),
+            ("Copy Jeevan Phone", "copy jeevan phone"),
+            ("Open My Portfolio", "open my portfolio"),
+            ("Mail My Mother About Today Plan", "mail my mother about today plan"),
+        ],
+        "Browser (4)": [
+            ("Open Result 2 In New Tab", "open result 2 in new tab"),
+            ("Copy Selected Browser Text", "copy selected browser text"),
+            ("Search Selected Text On Google", "search selected text on google"),
+            ("Search Selected Text On YouTube", "search selected text on youtube"),
+        ],
         "System (5)": [
             ("Weather", "weather"),
             ("Dashboard", "dashboard"),

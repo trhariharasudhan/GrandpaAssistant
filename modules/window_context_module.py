@@ -413,6 +413,8 @@ def open_numbered_result_and_summarize(command):
     normalized_command = command.strip()
     if normalized_command.endswith("in new tab"):
         return open_result_in_new_tab(normalized_command)
+    if normalized_command.endswith("and copy title"):
+        return open_result_and_copy_title(normalized_command)
     if not normalized_command.endswith("and summarize"):
         return open_browser_result(normalized_command)
 
@@ -446,6 +448,42 @@ def open_result_in_new_tab(command):
         pyautogui.keyUp("ctrl")
 
     return f"I opened result {ordinal} in a new tab: {chosen['text']}."
+
+
+def open_result_and_copy_title(command):
+    info = _browser_only_info()
+    if not info:
+        return "The active window does not look like a browser right now."
+
+    match = re.match(r"^open result (\d+) and copy title$", command.strip())
+    if not match:
+        return "Tell me which visible result you want me to open and copy the title for."
+
+    ordinal = max(1, int(match.group(1)))
+    open_message = open_browser_result(f"open result {ordinal}")
+    if not open_message.lower().startswith("i opened result"):
+        return open_message
+
+    time.sleep(1.0)
+    keyboard.send("alt+d")
+    time.sleep(0.15)
+    keyboard.send("ctrl+c")
+    time.sleep(0.15)
+    keyboard.send("esc")
+    return f"{open_message} I copied the page title or address focus text to the clipboard."
+
+
+def open_selected_link_in_new_tab():
+    info = _browser_only_info()
+    if not info:
+        return "The active window does not look like a browser right now."
+
+    try:
+        pyautogui.keyDown("ctrl")
+        pyautogui.click()
+    finally:
+        pyautogui.keyUp("ctrl")
+    return "I tried opening the selected link in a new tab."
 
 
 def summarize_browser_selection():
