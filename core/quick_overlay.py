@@ -12,13 +12,14 @@ _overlay_entry = None
 _overlay_handler = None
 _overlay_recent_frame = None
 _overlay_suggestion_frame = None
+_overlay_context_frame = None
 _overlay_hotkey_handler = None
 _overlay_hotkey_registered = None
 _overlay_lock = threading.Lock()
 
 
 def _destroy_overlay():
-    global _overlay_root, _overlay_entry, _overlay_recent_frame, _overlay_suggestion_frame
+    global _overlay_root, _overlay_entry, _overlay_recent_frame, _overlay_suggestion_frame, _overlay_context_frame
 
     if _overlay_root is None:
         return False
@@ -32,6 +33,7 @@ def _destroy_overlay():
     _overlay_entry = None
     _overlay_recent_frame = None
     _overlay_suggestion_frame = None
+    _overlay_context_frame = None
     return True
 
 
@@ -68,15 +70,33 @@ def _normalize_chip_item(item):
     return str(item), str(item)
 
 
-def _refresh_overlay_lists(suggestions=None, recent_commands=None):
-    if _overlay_recent_frame is None or _overlay_suggestion_frame is None or _overlay_handler is None:
+def _refresh_overlay_lists(suggestions=None, recent_commands=None, context_items=None):
+    if (
+        _overlay_recent_frame is None
+        or _overlay_suggestion_frame is None
+        or _overlay_context_frame is None
+        or _overlay_handler is None
+    ):
         return
 
     _clear_frame(_overlay_suggestion_frame)
     _clear_frame(_overlay_recent_frame)
+    _clear_frame(_overlay_context_frame)
 
     suggestions = suggestions or []
     recent_commands = recent_commands or []
+    context_items = context_items or []
+
+    for index, item in enumerate(context_items):
+        label, command_text = _normalize_chip_item(item)
+        chip = _make_chip(
+            _overlay_context_frame,
+            label,
+            command_text,
+            _overlay_handler,
+            bg="#7c3aed",
+        )
+        chip.grid(row=index // 2, column=index % 2, padx=4, pady=4, sticky="w")
 
     for index, item in enumerate(suggestions):
         label, command_text = _normalize_chip_item(item)
@@ -100,14 +120,18 @@ def _refresh_overlay_lists(suggestions=None, recent_commands=None):
         chip.grid(row=index // 2, column=index % 2, padx=4, pady=4, sticky="w")
 
 
-def show_quick_overlay(on_submit, suggestions=None, recent_commands=None):
-    global _overlay_root, _overlay_entry, _overlay_handler, _overlay_recent_frame, _overlay_suggestion_frame
+def show_quick_overlay(on_submit, suggestions=None, recent_commands=None, context_items=None):
+    global _overlay_root, _overlay_entry, _overlay_handler, _overlay_recent_frame, _overlay_suggestion_frame, _overlay_context_frame
 
     _overlay_handler = on_submit
 
     if _overlay_root is not None:
         try:
-            _refresh_overlay_lists(suggestions=suggestions, recent_commands=recent_commands)
+            _refresh_overlay_lists(
+                suggestions=suggestions,
+                recent_commands=recent_commands,
+                context_items=context_items,
+            )
             _overlay_root.deiconify()
             _overlay_root.lift()
             _overlay_root.attributes("-topmost", True)
@@ -119,11 +143,11 @@ def show_quick_overlay(on_submit, suggestions=None, recent_commands=None):
             _destroy_overlay()
 
     def worker():
-        global _overlay_root, _overlay_entry, _overlay_recent_frame, _overlay_suggestion_frame
+        global _overlay_root, _overlay_entry, _overlay_recent_frame, _overlay_suggestion_frame, _overlay_context_frame
         try:
             root = tk.Tk()
             root.title("Grandpa Assistant")
-            root.geometry("560x290")
+            root.geometry("560x370")
             root.attributes("-topmost", True)
             root.configure(bg="#111827")
             root.resizable(False, False)
@@ -132,7 +156,7 @@ def show_quick_overlay(on_submit, suggestions=None, recent_commands=None):
             screen_height = root.winfo_screenheight()
             x = (screen_width // 2) - 280
             y = max(60, (screen_height // 5))
-            root.geometry(f"560x290+{x}+{y}")
+            root.geometry(f"560x370+{x}+{y}")
 
             container = tk.Frame(root, bg="#111827", padx=16, pady=14)
             container.pack(fill="both", expand=True)
@@ -164,6 +188,18 @@ def show_quick_overlay(on_submit, suggestions=None, recent_commands=None):
                 font=("Segoe UI", 9),
             )
             hint.pack(anchor="w")
+
+            context_label = tk.Label(
+                container,
+                text="Task and Reminder Context",
+                fg="#d1d5db",
+                bg="#111827",
+                font=("Segoe UI", 10, "bold"),
+            )
+            context_label.pack(anchor="w", pady=(14, 4))
+
+            context_frame = tk.Frame(container, bg="#111827")
+            context_frame.pack(fill="x", anchor="w")
 
             suggestion_label = tk.Label(
                 container,
@@ -209,9 +245,14 @@ def show_quick_overlay(on_submit, suggestions=None, recent_commands=None):
 
             _overlay_root = root
             _overlay_entry = entry
+            _overlay_context_frame = context_frame
             _overlay_suggestion_frame = suggestion_frame
             _overlay_recent_frame = recent_frame
-            _refresh_overlay_lists(suggestions=suggestions, recent_commands=recent_commands)
+            _refresh_overlay_lists(
+                suggestions=suggestions,
+                recent_commands=recent_commands,
+                context_items=context_items,
+            )
             entry.focus_force()
             root.mainloop()
         finally:
@@ -237,8 +278,10 @@ def register_overlay_hotkey(
     hotkey="ctrl+shift+space",
     suggestions=None,
     recent_commands=None,
+    context_items=None,
     suggestions_provider=None,
     recent_provider=None,
+    context_provider=None,
 ):
     global _overlay_hotkey_handler, _overlay_hotkey_registered
 
@@ -259,10 +302,14 @@ def register_overlay_hotkey(
                 resolved_recent = (
                     recent_provider() if recent_provider else recent_commands
                 )
+                resolved_context = (
+                    context_provider() if context_provider else context_items
+                )
                 show_quick_overlay(
                     callback,
                     suggestions=resolved_suggestions,
                     recent_commands=resolved_recent,
+                    context_items=resolved_context,
                 )
             finally:
                 _overlay_lock.release()

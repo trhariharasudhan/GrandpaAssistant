@@ -110,6 +110,34 @@ def _overlay_suggestions():
     ]
 
 
+def _overlay_context_items():
+    data = get_task_data()
+
+    pending_tasks = [task for task in data.get("tasks", []) if not task.get("completed")]
+    pending_tasks.sort(key=lambda task: task.get("created_at", ""), reverse=True)
+
+    reminders = list(data.get("reminders", []))
+    reminders.sort(key=lambda reminder: reminder.get("created_at", ""), reverse=True)
+
+    context_items = []
+
+    if pending_tasks:
+        latest_task_title = pending_tasks[0].get("title", "Untitled task")
+        context_items.append((f"Latest Task: {latest_task_title}", "latest task"))
+        context_items.append(("Complete Latest Task", "complete latest task"))
+    else:
+        context_items.append(("No Pending Tasks", "show tasks"))
+
+    if reminders:
+        latest_reminder_title = reminders[0].get("title", "Untitled reminder")
+        context_items.append((f"Latest Reminder: {latest_reminder_title}", "latest reminder"))
+        context_items.append(("What Is Due Today", "what is due today"))
+    else:
+        context_items.append(("No Active Reminders", "show reminders"))
+
+    return context_items
+
+
 def exit_assistant():
     hide_quick_overlay()
     unregister_overlay_hotkey()
@@ -147,6 +175,7 @@ def _open_overlay():
         _handle_overlay_command,
         suggestions=_overlay_suggestions(),
         recent_commands=get_recent_commands(),
+        context_items=_overlay_context_items(),
     )
 
 
@@ -351,6 +380,7 @@ def main(start_in_tray=False):
             get_setting("overlay.hotkey", "ctrl+shift+space"),
             suggestions_provider=_overlay_suggestions,
             recent_provider=get_recent_commands,
+            context_provider=_overlay_context_items,
         )
     play_sound("start")
 
