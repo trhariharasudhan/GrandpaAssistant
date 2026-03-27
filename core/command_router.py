@@ -19,7 +19,14 @@ from brain.memory_engine import (
 )
 from brain.question_analyzer import is_personal_question
 from core.intent_router import try_handle_intent
-from core.quick_overlay import hide_quick_overlay, show_quick_overlay
+from core.quick_overlay import (
+    get_pinned_commands,
+    hide_quick_overlay,
+    list_pinned_commands,
+    pin_overlay_command,
+    show_quick_overlay,
+    unpin_overlay_command,
+)
 from core.tray_manager import start_tray, stop_tray
 
 from modules.calendar_module import (
@@ -366,6 +373,14 @@ def _handle_config_command(command):
         update_setting("notifications.agenda_popup_interval_minutes", interval_value)
         return f"Agenda popup interval updated to {interval_value} minutes."
 
+    recap_interval_match = re.match(
+        r"^(?:set|change|update)\s+recap popup interval\s+to\s+(\d+)$", command
+    )
+    if recap_interval_match:
+        interval_value = max(30, int(recap_interval_match.group(1)))
+        update_setting("notifications.recap_popup_interval_minutes", interval_value)
+        return f"Recap popup interval updated to {interval_value} minutes."
+
     ocr_hotkey_match = re.match(
         r"^(?:set|change|update)\s+ocr hotkey\s+to\s+(.+)$", command
     )
@@ -439,6 +454,9 @@ def _handle_config_command(command):
         agenda_popup_enabled = get_setting("notifications.agenda_popup_enabled", False)
         agenda_popup_on_startup = get_setting("notifications.agenda_popup_on_startup", False)
         agenda_popup_interval = get_setting("notifications.agenda_popup_interval_minutes", 60)
+        recap_popup_enabled = get_setting("notifications.recap_popup_enabled", False)
+        recap_popup_on_startup = get_setting("notifications.recap_popup_on_startup", False)
+        recap_popup_interval = get_setting("notifications.recap_popup_interval_minutes", 180)
         popup_timeout = get_setting("notifications.popup_timeout_seconds", 10)
         popup_cooldown = get_setting("notifications.popup_cooldown_seconds", 180)
         return (
@@ -489,6 +507,9 @@ def _handle_config_command(command):
             f"Agenda popup is {'on' if agenda_popup_enabled else 'off'}. "
             f"Agenda popup on startup is {'on' if agenda_popup_on_startup else 'off'}. "
             f"Agenda popup interval is {agenda_popup_interval} minutes. "
+            f"Recap popup is {'on' if recap_popup_enabled else 'off'}. "
+            f"Recap popup on startup is {'on' if recap_popup_on_startup else 'off'}. "
+            f"Recap popup interval is {recap_popup_interval} minutes. "
             f"Popup timeout is {popup_timeout} seconds. "
             f"Popup cooldown is {popup_cooldown} seconds. "
             f"Sounds are {'on' if sounds_enabled else 'off'}. "
@@ -641,6 +662,22 @@ def _handle_config_command(command):
         update_setting("notifications.agenda_popup_on_startup", False)
         return "Startup agenda popup disabled."
 
+    if command in ["enable recap popup", "turn on recap popup"]:
+        update_setting("notifications.recap_popup_enabled", True)
+        return "Recap popup monitor enabled."
+
+    if command in ["disable recap popup", "turn off recap popup"]:
+        update_setting("notifications.recap_popup_enabled", False)
+        return "Recap popup monitor disabled."
+
+    if command in ["enable startup recap popup", "turn on startup recap popup"]:
+        update_setting("notifications.recap_popup_on_startup", True)
+        return "Startup recap popup enabled."
+
+    if command in ["disable startup recap popup", "turn off startup recap popup"]:
+        update_setting("notifications.recap_popup_on_startup", False)
+        return "Startup recap popup disabled."
+
     if command in ["enable ocr hotkey", "turn on ocr hotkey", "enable region hotkey"]:
         update_setting("ocr.region_hotkey_enabled", True)
         return "OCR region hotkey enabled. Restart the assistant if it was already running."
@@ -758,6 +795,20 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     if command:
         log_command(command, source=input_mode)
 
+    pin_match = re.match(r"^pin command\s+(.+)$", command)
+    if pin_match:
+        speak(pin_overlay_command(pin_match.group(1).strip())[1])
+        return
+
+    unpin_match = re.match(r"^unpin command\s+(.+)$", command)
+    if unpin_match:
+        speak(unpin_overlay_command(unpin_match.group(1).strip())[1])
+        return
+
+    if command in ["list pinned commands", "show pinned commands", "pinned commands"]:
+        speak(list_pinned_commands())
+        return
+
     config_reply = _handle_config_command(command)
     if config_reply:
         speak(config_reply)
@@ -787,28 +838,35 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         "show quick overlay",
     ]:
         recent_commands = get_recent_commands()
+        overlay_suggestions = {
+            "Planning": [
+                "today agenda",
+                "what is due today",
+                "show overdue items",
+            ],
+            "System": [
+                "weather",
+                "dashboard",
+                "show settings",
+                "system status",
+                "export productivity summary",
+            ],
+            "OCR": [
+                "copy selected area text",
+                "read selected area",
+            ],
+        }
+        pinned_commands = get_pinned_commands()
+        if pinned_commands:
+            overlay_suggestions = {
+                f"Pinned ({len(pinned_commands)})": pinned_commands,
+                **overlay_suggestions,
+            }
         success, message = show_quick_overlay(
             lambda overlay_command: process_command(
                 overlay_command, INSTALLED_APPS, input_mode="text"
             ),
-            suggestions={
-                "Planning": [
-                    "today agenda",
-                    "what is due today",
-                    "show overdue items",
-                ],
-                "System": [
-                    "weather",
-                    "dashboard",
-                    "show settings",
-                    "system status",
-                    "export productivity summary",
-                ],
-                "OCR": [
-                    "copy selected area text",
-                    "read selected area",
-                ],
-            },
+            suggestions=overlay_suggestions,
             recent_commands=recent_commands,
             recent_actions=recent_commands[:4],
         )

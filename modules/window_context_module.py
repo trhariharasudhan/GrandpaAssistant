@@ -1,6 +1,8 @@
 import pyautogui
 import pygetwindow as gw
 import keyboard
+import pyperclip
+import re
 import time
 
 from vision.screen_reader import (
@@ -366,7 +368,16 @@ def open_browser_result(command):
         "open third result": 3,
     }
 
-    ordinal = order_map.get(command.strip())
+    normalized_command = command.strip()
+    ordinal = order_map.get(normalized_command)
+    if ordinal is None:
+        match = None
+        if normalized_command.endswith(" and summarize"):
+            match = re.match(r"^open result (\d+)\s+and summarize$", normalized_command)
+        else:
+            match = re.match(r"^open result (\d+)$", normalized_command)
+        if match:
+            ordinal = max(1, int(match.group(1)))
     if ordinal is None:
         return "Tell me which visible result you want to open."
 
@@ -392,6 +403,47 @@ def open_first_result_and_summarize(_command):
     page_title = get_current_browser_page_title()
     section_summary = summarize_visible_browser_section()
     return f"{open_message} {page_title} {section_summary}"
+
+
+def open_numbered_result_and_summarize(command):
+    info = _browser_only_info()
+    if not info:
+        return "The active window does not look like a browser right now."
+
+    open_message = open_browser_result(command.replace(" and summarize", ""))
+    if not open_message.lower().startswith("i opened result"):
+        return open_message
+
+    time.sleep(1.2)
+    return f"{open_message} {get_current_browser_page_title()} {summarize_visible_browser_section()}"
+
+
+def summarize_browser_selection():
+    info = _browser_only_info()
+    if not info:
+        return "The active window does not look like a browser right now."
+
+    try:
+        old_clipboard = pyperclip.paste()
+    except Exception:
+        old_clipboard = None
+
+    try:
+        keyboard.send("ctrl+c")
+        time.sleep(0.25)
+        selected_text = (pyperclip.paste() or "").strip()
+    except Exception:
+        selected_text = ""
+
+    if old_clipboard and selected_text == old_clipboard:
+        selected_text = ""
+
+    if not selected_text:
+        return "I could not read any selected browser text right now."
+
+    lines = [line.strip() for line in selected_text.splitlines() if line.strip()]
+    preview = " | ".join(lines[:5]) if lines else selected_text[:300]
+    return f"The current browser selection says: {preview}."
 
 
 def summarize_code_editor():

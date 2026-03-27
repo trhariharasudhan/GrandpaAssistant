@@ -6,7 +6,7 @@ import time
 
 import win32com.client
 
-from modules.dashboard_module import build_today_agenda
+from modules.dashboard_module import build_daily_recap, build_today_agenda
 from modules.event_module import get_due_event_titles
 from modules.health_module import get_system_status
 from modules.task_module import get_task_data
@@ -24,6 +24,7 @@ _last_health_popup_signature = None
 _last_weather_popup_signature = None
 _last_status_popup_signature = None
 _last_brief_popup_signature = None
+_last_recap_popup_signature = None
 _popup_history = {}
 STATE_FILE = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
@@ -367,6 +368,26 @@ def show_startup_brief_popup():
     return brief_message
 
 
+def show_startup_recap_popup():
+    if not get_setting("notifications.recap_popup_on_startup", False):
+        return None
+
+    recap_message = build_daily_recap()
+    previous_recap = _get_state_value("last_startup_recap_popup")
+    if previous_recap == recap_message:
+        return recap_message
+
+    shown = _show_popup(
+        _notification_title("Daily Recap"),
+        recap_message,
+        timeout=max(_default_popup_timeout(), 12),
+        dedupe_key="startup_recap",
+    )
+    if shown:
+        _set_state_value("last_startup_recap_popup", recap_message)
+    return recap_message
+
+
 def run_startup_daily_automations():
     now = datetime.datetime.now()
     results = []
@@ -419,6 +440,13 @@ def show_brief_popup():
     return "I could not show the daily brief popup right now."
 
 
+def show_recap_popup():
+    message = build_daily_recap()
+    if _show_popup(_notification_title("Daily Recap"), message, timeout=max(_default_popup_timeout(), 12), force=True):
+        return "Daily recap popup shown."
+    return "I could not show the daily recap popup right now."
+
+
 def show_event_popup():
     due_events = get_due_event_titles(days_ahead=1)
     parts = []
@@ -462,7 +490,7 @@ def _build_due_monitor_message():
 
 def _monitor_worker():
     global _last_monitor_message, _last_agenda_popup_signature, _last_health_popup_signature
-    global _last_weather_popup_signature, _last_status_popup_signature, _last_brief_popup_signature
+    global _last_weather_popup_signature, _last_status_popup_signature, _last_brief_popup_signature, _last_recap_popup_signature
 
     while not _monitor_stop_event.is_set():
         if get_setting("notifications.reminder_monitor_enabled", True) or get_setting(
@@ -593,6 +621,28 @@ def _monitor_worker():
                 if shown:
                     _last_brief_popup_signature = brief_signature
 
+        if get_setting("notifications.recap_popup_enabled", False):
+            recap_interval = max(
+                30, int(get_setting("notifications.recap_popup_interval_minutes", 180))
+            )
+            now = datetime.datetime.now()
+            minute_slot = now.replace(
+                minute=(now.minute // recap_interval) * recap_interval,
+                second=0,
+                microsecond=0,
+            )
+            recap_signature = minute_slot.isoformat()
+            if recap_signature != _last_recap_popup_signature:
+                recap_message = build_daily_recap()
+                shown = _show_popup(
+                    _notification_title("Daily Recap"),
+                    recap_message,
+                    dedupe_key="recap_monitor",
+                    force=False,
+                )
+                if shown:
+                    _last_recap_popup_signature = recap_signature
+
         reminder_interval = max(
             1, int(get_setting("notifications.reminder_check_interval_minutes", 15))
         )
@@ -620,6 +670,10 @@ def _monitor_worker():
         if get_setting("notifications.brief_popup_enabled", False):
             interval_candidates.append(
                 max(30, int(get_setting("notifications.brief_popup_interval_minutes", 180)))
+            )
+        if get_setting("notifications.recap_popup_enabled", False):
+            interval_candidates.append(
+                max(30, int(get_setting("notifications.recap_popup_interval_minutes", 180)))
             )
         interval = min(interval_candidates)
         sleep_seconds = interval * 60

@@ -10,6 +10,7 @@ from colorama import Fore, Style, init
 from brain.database import get_recent_commands
 from core.command_router import process_command
 from core.quick_overlay import (
+    get_pinned_commands,
     hide_quick_overlay,
     register_overlay_hotkey,
     show_quick_overlay,
@@ -23,6 +24,7 @@ from modules.event_module import get_event_data
 from modules.notification_module import (
     run_startup_daily_automations,
     show_startup_brief_popup,
+    show_startup_recap_popup,
     show_startup_status_popup,
     show_startup_agenda_popup,
     show_startup_health_popup,
@@ -104,7 +106,7 @@ def _overlay_suggestions():
 
     today_event_count = sum(1 for event in events if event.get("date") == today.isoformat())
 
-    return {
+    suggestions = {
         f"Planning ({today_event_count + due_today_count + overdue_count + pending_task_count})": [
             (f"Agenda Today ({today_event_count} events)", "today agenda"),
             (f"Due Today ({due_today_count})", "what is due today"),
@@ -131,6 +133,13 @@ def _overlay_suggestions():
             ("Read Selected Area", "read selected area"),
         ],
     }
+    pinned = get_pinned_commands()
+    if pinned:
+        suggestions = {
+            f"Pinned ({len(pinned)})": [(item.title(), item) for item in pinned],
+            **suggestions,
+        }
+    return suggestions
 
 
 def _overlay_context_items():
@@ -428,6 +437,7 @@ def main(start_in_tray=False):
     show_startup_health_popup()
     show_startup_weather_popup()
     show_startup_status_popup()
+    show_startup_recap_popup()
     run_startup_daily_automations()
     start_notification_monitor()
     restore_scheduled_jobs()

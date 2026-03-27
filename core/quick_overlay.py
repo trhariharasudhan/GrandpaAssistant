@@ -1,3 +1,5 @@
+import json
+import os
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -22,6 +24,74 @@ _overlay_all_suggestions = None
 _overlay_all_recent_commands = None
 _overlay_all_recent_actions = None
 _overlay_all_context_items = None
+_STATE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)),
+    "data",
+    "overlay_state.json",
+)
+
+
+def _load_overlay_state():
+    if not os.path.exists(_STATE_PATH):
+        return {"pinned_commands": []}
+    try:
+        with open(_STATE_PATH, "r", encoding="utf-8") as file:
+            state = json.load(file)
+    except Exception:
+        return {"pinned_commands": []}
+    state.setdefault("pinned_commands", [])
+    return state
+
+
+def _save_overlay_state(state):
+    os.makedirs(os.path.dirname(_STATE_PATH), exist_ok=True)
+    with open(_STATE_PATH, "w", encoding="utf-8") as file:
+        json.dump(state, file, indent=4)
+
+
+def get_pinned_commands():
+    return [item for item in _load_overlay_state().get("pinned_commands", []) if item]
+
+
+def pin_overlay_command(command_text):
+    command_text = (command_text or "").strip().lower()
+    if not command_text:
+        return False, "Tell me which command you want to pin."
+
+    state = _load_overlay_state()
+    pinned = [item.strip().lower() for item in state.get("pinned_commands", []) if item]
+    if command_text in pinned:
+        return False, f"{command_text} is already pinned."
+
+    pinned.insert(0, command_text)
+    state["pinned_commands"] = pinned[:8]
+    _save_overlay_state(state)
+    return True, f"Pinned {command_text} to the quick overlay."
+
+
+def unpin_overlay_command(command_text):
+    command_text = (command_text or "").strip().lower()
+    if not command_text:
+        return False, "Tell me which command you want to unpin."
+
+    state = _load_overlay_state()
+    pinned = [item.strip().lower() for item in state.get("pinned_commands", []) if item]
+    if command_text not in pinned:
+        return False, f"{command_text} is not pinned right now."
+
+    pinned = [item for item in pinned if item != command_text]
+    state["pinned_commands"] = pinned
+    _save_overlay_state(state)
+    return True, f"Unpinned {command_text} from the quick overlay."
+
+
+def list_pinned_commands():
+    pinned = get_pinned_commands()
+    if not pinned:
+        return "You do not have any pinned overlay commands right now."
+    return "Pinned overlay commands: " + " | ".join(
+        f"{index}. {item}" for index, item in enumerate(pinned, start=1)
+    )
 
 
 def _destroy_overlay():

@@ -167,6 +167,27 @@ def _extract_known_contact(name_text):
     return _clean_text(name_text)
 
 
+def _resolve_contact_alias(target_text):
+    memory = load_memory()
+    normalized = _clean_text(target_text).lower()
+
+    alias_map = {
+        "my emergency contact": memory.get("personal", {}).get("contact", {}).get("emergency_contact", {}).get("name"),
+        "emergency contact": memory.get("personal", {}).get("contact", {}).get("emergency_contact", {}).get("name"),
+        "my father": memory.get("personal", {}).get("family", {}).get("father", {}).get("name"),
+        "my mother": memory.get("personal", {}).get("family", {}).get("mother", {}).get("name"),
+        "my sister": (memory.get("personal", {}).get("family", {}).get("siblings", [{}])[0] or {}).get("name"),
+        "my brother": None,
+        "my best friend": (memory.get("personal", {}).get("friends", {}).get("close_friends", [{}])[0] or {}).get("name"),
+        "my close friend": (memory.get("personal", {}).get("friends", {}).get("close_friends", [{}])[0] or {}).get("name"),
+    }
+
+    if normalized in alias_map and alias_map[normalized]:
+        return alias_map[normalized], None
+
+    return _extract_known_contact(target_text), None
+
+
 def _resolve_email_target(target_text):
     memory = load_memory()
     normalized = _clean_text(target_text).lower()
@@ -1115,6 +1136,30 @@ def memory_whatsapp_message(command):
     )
 
 
+def relationship_whatsapp_message(command):
+    match = re.match(
+        r"^(?:message|whatsapp)\s+(my emergency contact|emergency contact|my father|my mother|my sister|my best friend|my close friend)\s+about\s+(.+)$",
+        command,
+    )
+    if not match:
+        return "Use this format: message my emergency contact about reach home safely."
+
+    contact_name, error = _resolve_contact_alias(match.group(1))
+    if error:
+        return error
+
+    topic = _clean_text(match.group(2))
+    if not contact_name or not topic:
+        return "Tell me the relationship shortcut and what message you want to send."
+
+    load_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
+    if not _open_url("https://web.whatsapp.com/"):
+        return "I could not open WhatsApp Web right now."
+
+    _whatsapp_contact_message_after_delay(contact_name, topic, delay_seconds=load_delay)
+    return f"Opening WhatsApp Web. I will message {contact_name} in about {load_delay} seconds."
+
+
 def memory_email_shortcut(command):
     match = re.match(r"^(?:mail|email)\s+(.+?)\s+about\s+(.+)$", command)
     if not match:
@@ -1133,6 +1178,39 @@ def memory_email_shortcut(command):
         "Hello,\n\n"
         f"This is regarding {topic}. "
         "Please review it when convenient.\n\n"
+        "Regards,\n"
+        "Hari Hara Sudhan"
+    )
+
+    if _open_gmail_draft(recipient, subject, body):
+        delay = get_setting("browser.gmail_load_delay_seconds", 8)
+        return f"Opening a mail draft to {recipient} about {topic}. Give it about {delay} seconds to load."
+    return "I could not open the email draft right now."
+
+
+def relationship_email_shortcut(command):
+    match = re.match(
+        r"^(?:mail|email)\s+(my emergency contact|emergency contact|my father|my mother|my sister|my best friend|my close friend)\s+about\s+(.+)$",
+        command,
+    )
+    if not match:
+        return "Use this format: mail my father about today's plan."
+
+    relation_text = match.group(1)
+    topic = _clean_text(match.group(2))
+    resolved_target, _error = _resolve_contact_alias(relation_text)
+    recipient, recipient_error = _resolve_email_target(resolved_target or relation_text)
+
+    if recipient_error:
+        return recipient_error
+    if not recipient or not topic:
+        return "Tell me who to mail and what it should be about."
+
+    subject = topic.title()
+    body = (
+        "Hello,\n\n"
+        f"This is regarding {topic}. "
+        "Please check it when convenient.\n\n"
         "Regards,\n"
         "Hari Hara Sudhan"
     )
