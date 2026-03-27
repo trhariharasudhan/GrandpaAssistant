@@ -308,6 +308,56 @@ def delete_event(command):
     return f"Deleted event: {removed.get('title', 'Untitled event')}"
 
 
+def clear_all_events():
+    data = _load_data()
+    events = data["events"]
+
+    if not events:
+        return "You do not have any events to clear."
+
+    count = len(events)
+    data["events"] = []
+    _save_data(data)
+    return f"Cleared all events: {count} event(s)."
+
+
+def clear_today_events():
+    today = datetime.date.today().isoformat()
+    data = _load_data()
+    events = data["events"]
+    today_events_list = [event for event in events if event.get("date") == today]
+
+    if not today_events_list:
+        return "You do not have any events for today to clear."
+
+    data["events"] = [event for event in events if event.get("date") != today]
+    _save_data(data)
+    return f"Cleared today's events: {len(today_events_list)} event(s)."
+
+
+def clear_past_events():
+    today = datetime.date.today()
+    data = _load_data()
+    events = data["events"]
+    past_events = []
+
+    for event in events:
+        try:
+            event_date = datetime.date.fromisoformat(event.get("date"))
+        except Exception:
+            continue
+
+        if event_date < today:
+            past_events.append(event)
+
+    if not past_events:
+        return "You do not have any past events to clear."
+
+    data["events"] = [event for event in events if event not in past_events]
+    _save_data(data)
+    return f"Cleared past events: {len(past_events)} event(s)."
+
+
 def get_due_event_titles(days_ahead=1):
     today = datetime.date.today()
     end_date = today + datetime.timedelta(days=days_ahead)
