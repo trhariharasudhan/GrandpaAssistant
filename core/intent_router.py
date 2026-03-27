@@ -24,6 +24,8 @@ from modules.event_module import (
     clear_today_events,
     delete_event,
     list_events,
+    rename_event,
+    reschedule_event,
     today_events,
     upcoming_events,
 )
@@ -133,6 +135,8 @@ from modules.task_module import (
     mark_all_tasks_done,
     mark_all_tasks_pending,
     overdue_items,
+    rename_reminder,
+    reschedule_reminder,
     snooze_reminder,
 )
 
@@ -304,6 +308,22 @@ COMMAND_REGISTRY = [
         "patterns": ["delete event"],
         "type": "startswith",
         "handler": delete_event,
+        "category": "events",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "events.rename",
+        "patterns": ["rename event about", "rename event titled"],
+        "type": "startswith",
+        "handler": rename_event,
+        "category": "events",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "events.reschedule",
+        "patterns": ["reschedule event about", "reschedule event titled"],
+        "type": "startswith",
+        "handler": reschedule_event,
         "category": "events",
         "confidence": 0.98,
     },
@@ -1236,6 +1256,22 @@ COMMAND_REGISTRY = [
         "handler": snooze_reminder,
         "category": "reminders",
         "confidence": 0.97,
+    },
+    {
+        "intent": "reminders.rename",
+        "patterns": ["rename reminder about", "rename reminder titled"],
+        "type": "startswith",
+        "handler": rename_reminder,
+        "category": "reminders",
+        "confidence": 0.98,
+    },
+    {
+        "intent": "reminders.reschedule",
+        "patterns": ["reschedule reminder about", "reschedule reminder titled"],
+        "type": "startswith",
+        "handler": reschedule_reminder,
+        "category": "reminders",
+        "confidence": 0.98,
     },
     {
         "intent": "modes.list",

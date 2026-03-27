@@ -679,6 +679,59 @@ def delete_reminder_by_title(command):
     return f"Deleted reminder: {reminder.get('title', 'Untitled reminder')}"
 
 
+def rename_reminder(command):
+    match = re.match(
+        r"^(?:rename|update|change)\s+reminder\s+(?:about|titled)\s+(.+?)\s+to\s+(.+)$",
+        command,
+    )
+    if not match:
+        return "Tell me which reminder you want to rename and the new title."
+
+    current_title = _clean_text(match.group(1))
+    new_title = _clean_text(match.group(2))
+    if not current_title or not new_title:
+        return "I need both the current reminder title and the new title."
+
+    data = _load_data()
+    reminder = _match_by_title(data["reminders"], current_title)
+    if not reminder:
+        return f"I could not find a reminder matching '{current_title}'."
+
+    reminder["title"] = new_title
+    _save_data(data)
+    return f"Reminder renamed to: {new_title}"
+
+
+def reschedule_reminder(command):
+    match = re.match(
+        r"^(?:reschedule|update|change)\s+reminder\s+(?:about|titled)\s+(.+?)\s+to\s+(.+)$",
+        command,
+    )
+    if not match:
+        return "Tell me which reminder you want to reschedule and the new time."
+
+    title_text = _clean_text(match.group(1))
+    schedule_text = _clean_text(match.group(2))
+    if not title_text or not schedule_text:
+        return "I need the reminder title and the new schedule."
+
+    data = _load_data()
+    reminder = _match_by_title(data["reminders"], title_text)
+    if not reminder:
+        return f"I could not find a reminder matching '{title_text}'."
+
+    due_datetime = _extract_due_datetime(schedule_text)
+    due_date = due_datetime.date().isoformat() if due_datetime else _extract_due_date(schedule_text)
+
+    if due_datetime is None and due_date is None:
+        return "Tell me the new date or time for that reminder."
+
+    reminder["due_date"] = due_date
+    reminder["due_at"] = due_datetime.isoformat(timespec="minutes") if due_datetime else None
+    _save_data(data)
+    return f"Reminder rescheduled to {_format_due_value(reminder)}."
+
+
 def snooze_reminder(command):
     target = _parse_snooze_target(command)
     snooze_delta = _parse_snooze_delta(command)

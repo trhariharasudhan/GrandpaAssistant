@@ -308,6 +308,97 @@ def delete_event(command):
     return f"Deleted event: {removed.get('title', 'Untitled event')}"
 
 
+def _match_event_by_title(events, title_text):
+    query = _clean_text(title_text).lower()
+    if not query:
+        return None
+
+    candidates = []
+    for event in events:
+        title = _clean_text(event.get("title", "")).lower()
+        if not title:
+            continue
+
+        score = 0
+        if title == query:
+            score = 100
+        elif title.startswith(query):
+            score = 90
+        elif query in title:
+            score = 80
+        else:
+            query_words = [word for word in query.split() if word]
+            overlap = sum(1 for word in query_words if word in title)
+            if overlap:
+                score = overlap * 10
+
+        if score:
+            candidates.append((score, event))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: (item[0], item[1].get("created_at", "")), reverse=True)
+    return candidates[0][1]
+
+
+def rename_event(command):
+    match = re.match(
+        r"^(?:rename|update|change)\s+event\s+(?:about|titled)\s+(.+?)\s+to\s+(.+)$",
+        command,
+    )
+    if not match:
+        return "Tell me which event you want to rename and the new title."
+
+    current_title = _clean_text(match.group(1))
+    new_title = _clean_text(match.group(2))
+    if not current_title or not new_title:
+        return "I need both the current event title and the new title."
+
+    data = _load_data()
+    event = _match_event_by_title(data["events"], current_title)
+    if not event:
+        return f"I could not find an event matching '{current_title}'."
+
+    event["title"] = new_title
+    _save_data(data)
+    return f"Event renamed to: {new_title}"
+
+
+def reschedule_event(command):
+    match = re.match(
+        r"^(?:reschedule|update|change)\s+event\s+(?:about|titled)\s+(.+?)\s+to\s+(.+)$",
+        command,
+    )
+    if not match:
+        return "Tell me which event you want to reschedule and the new time."
+
+    title_text = _clean_text(match.group(1))
+    schedule_text = _clean_text(match.group(2))
+    if not title_text or not schedule_text:
+        return "I need the event title and the new schedule."
+
+    data = _load_data()
+    event = _match_event_by_title(data["events"], title_text)
+    if not event:
+        return f"I could not find an event matching '{title_text}'."
+
+    event_datetime = _extract_event_datetime(schedule_text)
+    date_value = event_datetime.date().isoformat() if event_datetime else _extract_event_date(schedule_text)
+    time_value = event_datetime.strftime("%H:%M") if event_datetime else _extract_event_time(schedule_text)
+
+    if date_value is None and time_value is None:
+        return "Tell me the new date or time for that event."
+
+    event["date"] = date_value
+    event["time"] = time_value
+    _save_data(data)
+
+    if date_value and time_value:
+        return f"Event rescheduled to {_format_date(date_value)} at {_format_time(time_value)}."
+    return f"Event rescheduled to {_format_date(date_value)}."
+
+
 def clear_all_events():
     data = _load_data()
     events = data["events"]
