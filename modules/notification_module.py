@@ -508,6 +508,26 @@ def run_night_routine():
     return "I could not run the night routine right now."
 
 
+def run_contact_morning_routine(command):
+    relation = command
+    prefixes = [
+        "message and remind",
+        "run contact morning routine for",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            relation = command.replace(prefix, "", 1).strip()
+            break
+
+    if not relation:
+        return "Tell me which contact you want me to use for the routine."
+
+    return (
+        f"Morning combo ready for {relation}. "
+        f"Use message {relation} about today's plan and remind {relation} about check-in tonight."
+    )
+
+
 def show_event_popup():
     due_events = get_due_event_titles(days_ahead=1)
     parts = []

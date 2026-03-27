@@ -8,6 +8,7 @@ from modules.browser_automation_module import (
     browser_refresh,
     browser_scroll_down,
     browser_scroll_up,
+    create_event_from_selected_text,
     create_reminder_from_selected_browser_text,
     copy_selected_browser_text,
     copy_current_page_title,
@@ -18,13 +19,18 @@ from modules.browser_automation_module import (
     open_whatsapp_web,
     open_youtube,
     read_selected_browser_text_aloud,
+    save_selected_text_as_task,
     save_selected_browser_text_as_note,
+    search_selected_text_and_read_summary,
     search_selected_text_and_summarize,
     search_selected_text_on_google,
     search_selected_text_on_youtube,
     search_google,
     search_youtube,
+    send_selected_text_to_email,
+    send_selected_text_to_whatsapp,
     summarize_selected_browser_text_ai,
+    summarize_selected_text_and_read_aloud,
     summarize_selected_text_and_save_note,
 )
 from modules.calendar_module import get_date, get_day, get_period, get_time
@@ -91,6 +97,7 @@ from modules.messaging_automation_module import (
     whatsapp_message_contact,
 )
 from modules.notification_module import (
+    run_contact_morning_routine,
     run_morning_routine,
     run_night_routine,
     show_agenda_popup,
@@ -1278,6 +1285,28 @@ COMMAND_REGISTRY = [
         "confidence": 0.95,
     },
     {
+        "intent": "app.browser.selection_summary_voice",
+        "patterns": [
+            "summarize selected text and read aloud",
+            "summarize browser selection and read aloud",
+        ],
+        "type": "exact",
+        "handler": lambda command: summarize_selected_text_and_read_aloud(),
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "app.browser.selection_search_voice",
+        "patterns": [
+            "search selected text and read summary",
+            "search browser selection and read summary",
+        ],
+        "type": "exact",
+        "handler": lambda command: search_selected_text_and_read_summary(),
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
         "intent": "app.browser.selection_explain_note",
         "patterns": [
             "explain selected text and save note",
@@ -1286,6 +1315,52 @@ COMMAND_REGISTRY = [
         ],
         "type": "exact",
         "handler": lambda command: explain_selected_text_and_save_note(),
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "app.browser.selection_task",
+        "patterns": [
+            "save selected text as task",
+            "add selected text as task",
+        ],
+        "type": "exact",
+        "handler": lambda command: save_selected_text_as_task(),
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "app.browser.selection_event",
+        "patterns": [
+            "create event from selected text",
+            "add event from selected text",
+        ],
+        "type": "startswith",
+        "handler": create_event_from_selected_text,
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "app.browser.selection_whatsapp",
+        "patterns": [
+            "send selected text to",
+            "message selected text to",
+            "whatsapp selected text to",
+        ],
+        "type": "startswith",
+        "handler": send_selected_text_to_whatsapp,
+        "category": "app_intelligence",
+        "confidence": 0.95,
+    },
+    {
+        "intent": "app.browser.selection_email",
+        "patterns": [
+            "mail selected text to",
+            "email selected text to",
+            "send selected text by email to",
+        ],
+        "type": "startswith",
+        "handler": send_selected_text_to_email,
         "category": "app_intelligence",
         "confidence": 0.95,
     },
@@ -1474,6 +1549,17 @@ COMMAND_REGISTRY = [
         "handler": lambda command: run_night_routine(),
         "category": "notifications",
         "confidence": 0.96,
+    },
+    {
+        "intent": "notifications.routine.contact_combo",
+        "patterns": [
+            "message and remind",
+            "run contact morning routine for",
+        ],
+        "type": "startswith",
+        "handler": run_contact_morning_routine,
+        "category": "notifications",
+        "confidence": 0.9,
     },
     {
         "intent": "notifications.summary",

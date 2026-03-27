@@ -6,8 +6,10 @@ import keyboard
 import pyperclip
 
 from brain.ai_engine import ask_ollama
+from modules.event_module import add_event
+from modules.messaging_automation_module import quick_email_shortcut, quick_whatsapp_message
 from modules.notes_module import add_note
-from modules.task_module import add_reminder
+from modules.task_module import add_reminder, add_task
 from utils.config import get_setting
 
 
@@ -377,3 +379,112 @@ def search_selected_text_and_summarize(command=None):
             None,
         )
     return f"I could not open Google search right now. Quick summary: {summary}"
+
+
+def summarize_selected_text_and_read_aloud(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    prompt = (
+        "Summarize this browser-selected text in one or two short spoken sentences.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    summary = ask_ollama(prompt, compact=True)
+    return f"Selected text summary: {summary}"
+
+
+def search_selected_text_and_read_summary(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    summary = ask_ollama(
+        "Summarize this browser-selected text in one or two short spoken sentences.\n\n"
+        f"Selected text:\n{selected[:4000]}",
+        compact=True,
+    )
+    url = "https://www.google.com/search?q=" + urllib.parse.quote_plus(selected)
+    opened = _open_url(url)
+    if opened:
+        return _with_feedback(f"Searching Google for the selected text. Spoken summary: {summary}", None)
+    return f"I could not open Google search right now. Spoken summary: {summary}"
+
+
+def save_selected_text_as_task(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    cleaned = " ".join(selected.split())
+    if len(cleaned) > 180:
+        cleaned = cleaned[:180].rsplit(" ", 1)[0] + " ..."
+    return add_task(f"add task review {cleaned}")
+
+
+def create_event_from_selected_text(command):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    suffix = command
+    prefixes = [
+        "create event from selected text",
+        "add event from selected text",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            suffix = command.replace(prefix, "", 1).strip()
+            break
+
+    cleaned = " ".join(selected.split())
+    if len(cleaned) > 120:
+        cleaned = cleaned[:120].rsplit(" ", 1)[0] + " ..."
+    event_command = f"add event review {cleaned}"
+    if suffix:
+        event_command = f"{event_command} {suffix}"
+    return add_event(event_command)
+
+
+def send_selected_text_to_whatsapp(command):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    match = None
+    for pattern in [
+        r"^(?:send|message)\s+selected text to\s+(.+)$",
+        r"^(?:whatsapp)\s+selected text to\s+(.+)$",
+    ]:
+        match = __import__("re").match(pattern, command)
+        if match:
+            break
+
+    if not match:
+        return "Tell me who should receive the selected text on WhatsApp."
+
+    target = " ".join(match.group(1).split())
+    cleaned = " ".join(selected.split())
+    return quick_whatsapp_message(f"message {target} saying {cleaned[:900]}")
+
+
+def send_selected_text_to_email(command):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    match = None
+    for pattern in [
+        r"^(?:mail|email)\s+selected text to\s+(.+)$",
+        r"^(?:send)\s+selected text by email to\s+(.+)$",
+    ]:
+        match = __import__("re").match(pattern, command)
+        if match:
+            break
+
+    if not match:
+        return "Tell me who should receive the selected text by email."
+
+    target = " ".join(match.group(1).split())
+    cleaned = " ".join(selected.split())
+    return quick_email_shortcut(f"mail {target} {cleaned[:900]}")

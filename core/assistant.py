@@ -120,7 +120,7 @@ def _overlay_suggestions():
             ("Open My Portfolio", "open my portfolio"),
             ("Mail My Mother About Today Plan", "mail my mother about today plan"),
         ],
-        "Browser (12)": [
+        "Browser (18)": [
             ("Open Result 2 In New Tab", "open result 2 in new tab"),
             ("Copy Selected Browser Text", "copy selected browser text"),
             ("Search Selected Text On Google", "search selected text on google"),
@@ -133,6 +133,12 @@ def _overlay_suggestions():
             ("Search Selected Text And Summarize", "search selected text and summarize"),
             ("Summarize Selected Text And Save Note", "summarize selected text and save note"),
             ("Explain Selected Text And Save Note", "explain selected text and save note"),
+            ("Summarize Selected Text And Read Aloud", "summarize selected text and read aloud"),
+            ("Search Selected Text And Read Summary", "search selected text and read summary"),
+            ("Save Selected Text As Task", "save selected text as task"),
+            ("Create Event From Selected Text Tomorrow At 6 PM", "create event from selected text tomorrow at 6 pm"),
+            ("Send Selected Text To Jeevan", "send selected text to jeevan"),
+            ("Mail Selected Text To My Mother", "mail selected text to my mother"),
         ],
         "System (5)": [
             ("Weather", "weather"),
@@ -141,7 +147,7 @@ def _overlay_suggestions():
             ("System Status", "system status"),
             ("Export Summary", "export productivity summary"),
         ],
-        "Actions (7)": [
+        "Actions (8)": [
             ("Complete Latest Task", "complete latest task"),
             ("Latest Event", "latest event"),
             ("Delete Latest Event", "delete latest event"),
@@ -149,6 +155,7 @@ def _overlay_suggestions():
             ("Show Weather Popup", "show weather popup"),
             ("Run Morning Routine", "run morning routine"),
             ("Run Night Routine", "run night routine"),
+            ("Message And Remind My Father", "message and remind my father"),
         ],
         "OCR (2)": [
             ("Copy Selected Area Text", "copy selected area text"),
