@@ -290,6 +290,28 @@ def upcoming_events():
     return "Upcoming events: " + " | ".join(lines)
 
 
+def _get_latest_created_event(events):
+    if not events:
+        return None
+
+    return max(events, key=lambda event: event.get("created_at", ""))
+
+
+def latest_event():
+    data = _load_data()
+    event = _get_latest_created_event(data["events"])
+
+    if not event:
+        return "You do not have any saved events right now."
+
+    title = event.get("title", "Untitled event")
+    date_text = _format_date(event.get("date"))
+    time_value = event.get("time")
+    if time_value:
+        return f"Your latest event is {title} on {date_text} at {_format_time(time_value)}."
+    return f"Your latest event is {title} on {date_text}."
+
+
 def delete_event(command):
     raw = command.replace("delete event", "", 1).strip()
     if not raw.isdigit():
@@ -306,6 +328,18 @@ def delete_event(command):
     data["events"] = events
     _save_data(data)
     return f"Deleted event: {removed.get('title', 'Untitled event')}"
+
+
+def delete_latest_event():
+    data = _load_data()
+    event = _get_latest_created_event(data["events"])
+
+    if not event:
+        return "You do not have any saved events to delete."
+
+    data["events"].remove(event)
+    _save_data(data)
+    return f"Deleted latest event: {event.get('title', 'Untitled event')}"
 
 
 def _match_event_by_title(events, title_text):
@@ -340,6 +374,28 @@ def _match_event_by_title(events, title_text):
 
     candidates.sort(key=lambda item: (item[0], item[1].get("created_at", "")), reverse=True)
     return candidates[0][1]
+
+
+def delete_event_by_title(command):
+    match = re.match(
+        r"^(?:delete|remove)\s+event\s+(?:about|titled)\s+(.+)$",
+        command,
+    )
+    if not match:
+        return "Tell me which event title you want to delete."
+
+    title_text = _clean_text(match.group(1))
+    if not title_text:
+        return "Tell me which event title you want to delete."
+
+    data = _load_data()
+    event = _match_event_by_title(data["events"], title_text)
+    if not event:
+        return f"I could not find an event matching '{title_text}'."
+
+    data["events"].remove(event)
+    _save_data(data)
+    return f"Deleted event: {event.get('title', 'Untitled event')}"
 
 
 def rename_event(command):
