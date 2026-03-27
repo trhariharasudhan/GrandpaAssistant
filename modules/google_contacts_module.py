@@ -5,6 +5,8 @@ import threading
 import time
 from difflib import SequenceMatcher
 
+from brain.database import LEGACY_MEMORY_PATH
+
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -14,6 +16,25 @@ CACHE_PATH = os.path.join(DATA_DIR, "google_contacts_cache.json")
 ALIAS_PATH = os.path.join(DATA_DIR, "contact_aliases.json")
 META_PATH = os.path.join(DATA_DIR, "google_contacts_meta.json")
 SCOPES = ["https://www.googleapis.com/auth/contacts.readonly"]
+TRANSLITERATION_EQUIVALENTS = {
+    "appa": ["அப்பா", "அப்பா ❤️", "அப்பா🙏"],
+    "amma": ["அம்மா", "அம்மா ❤️", "அம்மா🙏"],
+    "anna": ["அண்ணா"],
+    "akka": ["அக்கா"],
+    "thambi": ["தம்பி"],
+    "thangachi": ["தங்கச்சி"],
+    "thangai": ["தங்கை"],
+    "paati": ["பாட்டி"],
+    "patti": ["பாட்டி"],
+    "thaatha": ["தாத்தா"],
+    "thatha": ["தாத்தா"],
+    "mama": ["மாமா"],
+    "athai": ["அத்தை"],
+    "chithi": ["சித்தி"],
+    "chittappa": ["சித்தப்பா"],
+    "periyamma": ["பெரியம்மா"],
+    "periyappa": ["பெரியப்பா"],
+}
 
 
 def _ensure_data_dir():
@@ -82,6 +103,26 @@ def _save_meta(meta):
     _ensure_data_dir()
     with open(META_PATH, "w", encoding="utf-8") as file:
         json.dump(meta, file, indent=4, ensure_ascii=False)
+
+
+def _load_memory_file():
+    if not os.path.exists(LEGACY_MEMORY_PATH):
+        return {}
+    try:
+        with open(LEGACY_MEMORY_PATH, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except Exception:
+        return {}
+
+
+def _save_memory_file(memory):
+    with open(LEGACY_MEMORY_PATH, "w", encoding="utf-8") as file:
+        json.dump(memory, file, indent=4, ensure_ascii=False)
+
+
+def _get_contact_bucket(memory):
+    personal = memory.setdefault("personal", {})
+    return personal.setdefault("synced_google_contacts", [])
 
 
 def _build_contact_entry(person):
@@ -241,6 +282,16 @@ def _score_contact(query, contact):
     return best_score
 
 
+def _candidate_queries(contact_name):
+    normalized_query = _normalize_name(contact_name)
+    candidates = [normalized_query]
+    for tamil_variant in TRANSLITERATION_EQUIVALENTS.get(normalized_query, []):
+        normalized_variant = _normalize_name(tamil_variant)
+        if normalized_variant and normalized_variant not in candidates:
+            candidates.append(normalized_variant)
+    return candidates
+
+
 def get_google_contact_matches(contact_name, limit=3):
     contacts = _load_cache()
     if not contacts:
@@ -261,11 +312,16 @@ def get_google_contact_matches(contact_name, limit=3):
             if raw_query and raw_query == " ".join(str(candidate or "").strip().lower().split()):
                 return [(contact, 1.0)]
 
-    ranked = sorted(
-        ((contact, _score_contact(contact_name, contact)) for contact in contacts),
-        key=lambda item: item[1],
-        reverse=True,
-    )
+    scored = []
+    queries = _candidate_queries(contact_name)
+    for contact in contacts:
+        best_score = 0.0
+        for query in queries:
+            score = _score_contact(query, contact)
+            best_score = max(best_score, score)
+        scored.append((contact, best_score))
+
+    ranked = sorted(scored, key=lambda item: item[1], reverse=True)
     ranked = [item for item in ranked if item[1] >= 0.55]
     return ranked[:limit]
 
@@ -347,6 +403,78 @@ def list_contact_aliases():
         return "I do not have any saved contact aliases yet."
     parts = [f"{alias} -> {target}" for alias, target in sorted(aliases.items())]
     return "Saved contact aliases: " + " | ".join(parts[:20])
+
+
+def merge_google_contacts_into_memory(limit=200):
+    contacts = _load_cache()
+    if not contacts:
+        return False, "I do not have any synced Google contacts to merge yet."
+
+    memory = _load_memory_file()
+    bucket = _get_contact_bucket(memory)
+    merged = 0
+    seen = {
+        (_normalize_name(item.get("name")), str(item.get("phone") or ""), str(item.get("email") or ""))
+        for item in bucket
+        if isinstance(item, dict)
+    }
+
+    for contact in contacts[:limit]:
+        entry = {
+            "name": contact.get("display_name"),
+            "phone": contact.get("phone"),
+            "email": contact.get("email"),
+            "aliases": contact.get("aliases", []),
+        }
+        key = (
+            _normalize_name(entry.get("name")),
+            str(entry.get("phone") or ""),
+            str(entry.get("email") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        bucket.append(entry)
+        merged += 1
+
+    _save_memory_file(memory)
+    return True, f"Merged {merged} Google contacts into local memory."
+
+
+def import_google_contact_to_memory(contact_name):
+    ranked = get_google_contact_matches(contact_name, limit=3)
+    if not ranked:
+        return False, f"I could not find a synced Google contact matching {contact_name}."
+    if len(ranked) > 1 and ranked[0][1] - ranked[1][1] < 0.12:
+        options = " | ".join(item[0].get("display_name") for item in ranked)
+        return False, f"I found multiple contacts for {contact_name}: {options}. Tell me the exact one."
+
+    contact = ranked[0][0]
+    memory = _load_memory_file()
+    bucket = _get_contact_bucket(memory)
+    key = (
+        _normalize_name(contact.get("display_name")),
+        str(contact.get("phone") or ""),
+        str(contact.get("email") or ""),
+    )
+    existing = {
+        (_normalize_name(item.get("name")), str(item.get("phone") or ""), str(item.get("email") or ""))
+        for item in bucket
+        if isinstance(item, dict)
+    }
+    if key in existing:
+        return True, f"{contact.get('display_name')} is already merged into local memory."
+
+    bucket.append(
+        {
+            "name": contact.get("display_name"),
+            "phone": contact.get("phone"),
+            "email": contact.get("email"),
+            "aliases": contact.get("aliases", []),
+        }
+    )
+    _save_memory_file(memory)
+    return True, f"Merged {contact.get('display_name')} into local memory."
 
 
 def auto_refresh_google_contacts(refresh_hours=24):

@@ -81,8 +81,10 @@ from modules.web_module import wikipedia_search
 from modules.notes_module import add_note
 from modules.task_module import add_reminder
 from modules.google_contacts_module import (
+    import_google_contact_to_memory,
     list_contact_aliases,
     list_google_contacts,
+    merge_google_contacts_into_memory,
     remove_contact_alias,
     set_contact_alias,
     sync_google_contacts,
@@ -159,6 +161,8 @@ def _normalize_voice_friendly_command(command):
         "sync contacts": "sync google contacts",
         "refresh contacts": "refresh google contacts",
         "list contacts": "list google contacts",
+        "merge contacts to memory": "merge google contacts to memory",
+        "import contacts to memory": "merge google contacts to memory",
         "read this selected text": "read selected text aloud",
         "read selected text": "read selected text aloud",
         "translate this selected text to tamil": "translate selected text to tamil",
@@ -176,6 +180,14 @@ def _normalize_voice_friendly_command(command):
     prefix_aliases = [
         ("show me ", ""),
         ("open up ", "open "),
+        ("call to ", "call "),
+        ("text ", "message "),
+        ("message to ", "message "),
+        ("mail to ", "mail "),
+        ("email to ", "mail "),
+        ("send message to ", "message "),
+        ("send whatsapp to ", "message "),
+        ("send whatsapp message to ", "send whatsapp message to "),
     ]
     for prefix, replacement in prefix_aliases:
         if normalized.startswith(prefix):
@@ -377,6 +389,20 @@ def _handle_contact_lookup_command(command):
 
     if command in ["list google contacts", "show google contacts", "show synced contacts"]:
         return list_google_contacts()
+
+    if command in [
+        "merge google contacts to memory",
+        "merge contacts to memory",
+        "import google contacts to memory",
+    ]:
+        return merge_google_contacts_into_memory()[1]
+
+    import_contact_match = re.match(
+        r"^(?:merge|import)\s+google contact\s+(.+?)\s+to\s+memory$",
+        command,
+    )
+    if import_contact_match:
+        return import_google_contact_to_memory(import_contact_match.group(1).strip())[1]
 
     if command in ["list contact aliases", "show contact aliases"]:
         return list_contact_aliases()

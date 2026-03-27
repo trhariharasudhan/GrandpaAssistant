@@ -10,6 +10,7 @@ import webbrowser
 import keyboard
 
 from brain.memory_engine import get_named_contact_field, load_memory
+from modules.google_contacts_module import get_google_contact_field
 from modules.notification_module import show_custom_popup
 from utils.config import get_setting
 
@@ -270,6 +271,18 @@ def _resolve_email_target(target_text):
                 return candidate["email"], None
             display_name = candidate["name"] or candidate["nickname"] or target_text
             return None, f"I found {display_name}, but I do not have an email saved yet."
+
+    google_value, google_name, google_suggestions = get_google_contact_field(target_text, "email")
+    if google_value:
+        return google_value, None
+    if google_suggestions:
+        return None, (
+            f"I found multiple Google contacts for {target_text}: "
+            + " | ".join(google_suggestions)
+            + ". Say the exact name or set a contact alias."
+        )
+    if google_name:
+        return None, f"I found {google_name}, but I do not have an email saved yet."
 
     if "@" in normalized:
         return _clean_text(target_text), None
