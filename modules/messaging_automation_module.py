@@ -9,7 +9,7 @@ import webbrowser
 
 import keyboard
 
-from brain.memory_engine import load_memory
+from brain.memory_engine import get_named_contact_field, load_memory
 from modules.notification_module import show_custom_popup
 from utils.config import get_setting
 
@@ -121,6 +121,29 @@ def _open_url(url):
         return bool(webbrowser.open(url, new=2))
     except Exception:
         return False
+
+
+def _normalize_phone_number(value):
+    digits = re.sub(r"\D+", "", str(value or ""))
+    if not digits:
+        return None
+    if digits.startswith("0"):
+        digits = digits.lstrip("0")
+    if len(digits) == 10:
+        digits = f"91{digits}"
+    return digits
+
+
+def _open_whatsapp_direct_chat(contact_name, message_text=""):
+    phone_value, _reply = get_named_contact_field(contact_name, "phone")
+    phone_number = _normalize_phone_number(phone_value)
+    if not phone_number:
+        return False
+
+    url = f"https://wa.me/{phone_number}"
+    if message_text:
+        url += f"?text={urllib.parse.quote(message_text)}"
+    return _open_url(url)
 
 
 def _open_gmail_draft(recipient="", subject="", body=""):
@@ -334,6 +357,27 @@ def _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seco
 
             time.sleep(max(0.8, retry_delay))
             keyboard.write(message_text, delay=0.03)
+            if auto_send:
+                time.sleep(send_confirm_delay)
+                for _ in range(send_press_count):
+                    keyboard.send("enter")
+                    time.sleep(0.15)
+            _show_whatsapp_popup(contact_name, message_text, auto_send)
+        except Exception:
+            _show_whatsapp_failure_popup(contact_name)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def _confirm_prefilled_whatsapp_after_delay(contact_name, message_text, delay_seconds=8):
+    def worker():
+        time.sleep(delay_seconds)
+        try:
+            auto_send = bool(get_setting("browser.whatsapp_auto_send", True))
+            send_press_count = max(1, int(get_setting("browser.whatsapp_send_press_count", 1)))
+            send_confirm_delay = max(
+                0.2, float(get_setting("browser.whatsapp_send_confirm_delay_seconds", 0.8))
+            )
             if auto_send:
                 time.sleep(send_confirm_delay)
                 for _ in range(send_press_count):
@@ -1100,14 +1144,20 @@ def whatsapp_message_contact(command):
         return "Tell me the contact name and the message text."
 
     load_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
-    if not _open_url("https://web.whatsapp.com/"):
+    opened_direct = _open_whatsapp_direct_chat(contact_name, message_text)
+    if not opened_direct and not _open_url("https://web.whatsapp.com/"):
         return "I could not open WhatsApp Web right now."
 
-    _whatsapp_contact_message_after_delay(
-        contact_name,
-        message_text,
-        delay_seconds=load_delay,
-    )
+    if opened_direct:
+        auto_send = get_setting("browser.whatsapp_auto_send", True)
+        if auto_send:
+            _confirm_prefilled_whatsapp_after_delay(contact_name, message_text, delay_seconds=load_delay)
+        return (
+            f"Opening direct WhatsApp chat for {contact_name}. "
+            f"The message is prefilled and I will try to send it in about {load_delay} seconds."
+        )
+
+    _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seconds=load_delay)
     return (
         f"Opening WhatsApp Web. I will search for {contact_name} and send your message "
         f"in about {load_delay} seconds. If search misses, I will retry automatically."
@@ -1126,14 +1176,21 @@ def memory_whatsapp_message(command):
 
     message_text = topic[0].upper() + topic[1:] if topic else topic
     load_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
-    if not _open_url("https://web.whatsapp.com/"):
+    opened_direct = _open_whatsapp_direct_chat(contact_name, message_text)
+    if not opened_direct and not _open_url("https://web.whatsapp.com/"):
         return "I could not open WhatsApp Web right now."
 
+    if opened_direct:
+        auto_send = get_setting("browser.whatsapp_auto_send", True)
+        if auto_send:
+            _confirm_prefilled_whatsapp_after_delay(contact_name, message_text, delay_seconds=load_delay)
+        return (
+            f"Opening direct WhatsApp chat for {contact_name}. "
+            f"The message is prefilled and I will try to send it in about {load_delay} seconds."
+        )
+
     _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seconds=load_delay)
-    return (
-        f"Opening WhatsApp Web. I will message {contact_name} about {topic} "
-        f"in about {load_delay} seconds."
-    )
+    return f"Opening WhatsApp Web. I will message {contact_name} about {topic} in about {load_delay} seconds."
 
 
 def relationship_whatsapp_message(command):
@@ -1153,8 +1210,15 @@ def relationship_whatsapp_message(command):
         return "Tell me the relationship shortcut and what message you want to send."
 
     load_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
-    if not _open_url("https://web.whatsapp.com/"):
+    opened_direct = _open_whatsapp_direct_chat(contact_name, topic)
+    if not opened_direct and not _open_url("https://web.whatsapp.com/"):
         return "I could not open WhatsApp Web right now."
+
+    if opened_direct:
+        auto_send = get_setting("browser.whatsapp_auto_send", True)
+        if auto_send:
+            _confirm_prefilled_whatsapp_after_delay(contact_name, topic, delay_seconds=load_delay)
+        return f"Opening direct WhatsApp chat for {contact_name}. I will try to send it in about {load_delay} seconds."
 
     _whatsapp_contact_message_after_delay(contact_name, topic, delay_seconds=load_delay)
     return f"Opening WhatsApp Web. I will message {contact_name} in about {load_delay} seconds."
@@ -1179,8 +1243,18 @@ def quick_whatsapp_message(command):
         return "Tell me who to message and what I should say."
 
     load_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
-    if not _open_url("https://web.whatsapp.com/"):
+    opened_direct = _open_whatsapp_direct_chat(contact_name, message_text)
+    if not opened_direct and not _open_url("https://web.whatsapp.com/"):
         return "I could not open WhatsApp Web right now."
+
+    if opened_direct:
+        auto_send = get_setting("browser.whatsapp_auto_send", True)
+        if auto_send:
+            _confirm_prefilled_whatsapp_after_delay(contact_name, message_text, delay_seconds=load_delay)
+        return (
+            f"Opening direct WhatsApp chat for {contact_name}. "
+            f"The message is prefilled and I will try to send it in about {load_delay} seconds."
+        )
 
     _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seconds=load_delay)
     return f"Opening WhatsApp Web. I will send your message to {contact_name} in about {load_delay} seconds."

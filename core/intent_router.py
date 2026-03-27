@@ -587,7 +587,7 @@ COMMAND_REGISTRY = [
     },
     {
         "intent": "messaging.whatsapp.schedule",
-        "patterns": ["schedule whatsapp message to", "send whatsapp message to"],
+        "patterns": ["schedule whatsapp message to"],
         "type": "startswith",
         "handler": schedule_whatsapp_message,
         "category": "messaging_automation",
@@ -859,7 +859,7 @@ COMMAND_REGISTRY = [
     },
     {
         "intent": "browser.open.whatsapp_web",
-        "patterns": ["open whatsapp web", "start whatsapp web"],
+        "patterns": ["open whatsapp web", "start whatsapp web", "open whatsapp", "open whatsapp app", "start whatsapp"],
         "type": "exact",
         "handler": lambda command: open_whatsapp_web(),
         "category": "browser_automation",
@@ -867,7 +867,7 @@ COMMAND_REGISTRY = [
     },
     {
         "intent": "browser.open.gmail",
-        "patterns": ["open gmail", "open google mail"],
+        "patterns": ["open gmail", "open google mail", "open gmail app", "start gmail", "start gmail app"],
         "type": "exact",
         "handler": lambda command: open_gmail(),
         "category": "browser_automation",

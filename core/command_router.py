@@ -6,6 +6,7 @@ import threading
 import time
 import webbrowser
 
+import keyboard
 from brain.ai_engine import ask_ollama, clear_memory
 from brain.database import get_recent_commands, log_command
 from core.followup_memory import get_best_followup_text, set_last_result
@@ -112,10 +113,26 @@ mouse_stop_requested_by_command = False
 pending_confirmation = None
 
 
+def _try_auto_confirm_phone_call():
+    def worker():
+        try:
+            time.sleep(2.0)
+            for _ in range(3):
+                keyboard.press_and_release("enter")
+                time.sleep(0.7)
+        except Exception:
+            pass
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
 def _normalize_voice_friendly_command(command):
     normalized = " ".join((command or "").lower().strip().split())
     if not normalized:
         return normalized
+
+    normalized = normalized.replace("whats app", "whatsapp")
+    normalized = normalized.replace("google mail", "gmail")
 
     exact_aliases = {
         "what are my settings": "show settings",
@@ -316,8 +333,9 @@ def _handle_contact_action_command(command):
         copied = _copy_to_clipboard(str(value))
         try:
             webbrowser.open(f"tel:{value}")
+            _try_auto_confirm_phone_call()
             return (
-                f"{reply} I also tried opening the dial action."
+                f"{reply} I opened the dial action and also tried to auto-confirm the call."
                 + (" I copied the number to the clipboard too." if copied else "")
             )
         except Exception:
