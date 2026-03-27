@@ -2,6 +2,8 @@ import json
 import os
 import re
 
+from modules.google_contacts_module import get_google_contact_field
+
 from brain.database import (
     LEGACY_MEMORY_PATH,
     get_all_memory_entries,
@@ -467,15 +469,27 @@ def update_named_contact_field(contact_name, field_name, raw_value):
 def get_named_contact_field(contact_name, field_name):
     memory = load_memory()
     contact, resolved_name, _contact_path = _resolve_contact_reference(memory, contact_name)
-    if not contact:
-        return None, f"I could not find a saved contact matching {contact_name}."
-
     normalized_field = CONTACT_FIELD_ALIASES.get(_normalize_alias(field_name))
     if not normalized_field:
-        return None, f"I can check email or phone for {resolved_name} right now."
+        return None, f"I can check email or phone for {resolved_name or contact_name} right now."
+
+    if not contact:
+        google_value, google_name = get_google_contact_field(contact_name, normalized_field)
+        if google_value:
+            return (
+                google_value,
+                f"I found {google_name}'s {normalized_field} from Google Contacts. It is {google_value}.",
+            )
+        return None, f"I could not find a saved contact matching {contact_name}."
 
     value = contact.get(normalized_field)
     if _is_blank(value):
+        google_value, google_name = get_google_contact_field(contact_name, normalized_field)
+        if google_value:
+            return (
+                google_value,
+                f"I found {google_name}'s {normalized_field} from Google Contacts. It is {google_value}.",
+            )
         return None, f"I do not have {resolved_name}'s {normalized_field} saved yet."
 
     return value, f"{resolved_name}'s {normalized_field} is {value}."

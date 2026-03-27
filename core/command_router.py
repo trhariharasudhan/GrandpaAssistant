@@ -80,6 +80,7 @@ from modules.system_module import (
 from modules.web_module import wikipedia_search
 from modules.notes_module import add_note
 from modules.task_module import add_reminder
+from modules.google_contacts_module import list_google_contacts, sync_google_contacts
 from modules.messaging_automation_module import quick_email_shortcut, quick_whatsapp_message
 from controls.brightness_control import handle_brightness
 from controls.volume_control import handle_volume, set_volume_percentage
@@ -149,6 +150,8 @@ def _normalize_voice_friendly_command(command):
         "close quick command": "hide quick overlay",
         "start morning routine": "run morning routine",
         "start night routine": "run night routine",
+        "sync contacts": "sync google contacts",
+        "refresh contacts": "refresh google contacts",
         "read this selected text": "read selected text aloud",
         "read selected text": "read selected text aloud",
         "translate this selected text to tamil": "translate selected text to tamil",
@@ -357,6 +360,17 @@ def _handle_contact_action_command(command):
 
 
 def _handle_contact_lookup_command(command):
+    if command in [
+        "sync google contacts",
+        "refresh google contacts",
+        "sync my google contacts",
+        "refresh my google contacts",
+    ]:
+        return sync_google_contacts()[1]
+
+    if command in ["list google contacts", "show google contacts", "show synced contacts"]:
+        return list_google_contacts()
+
     match = re.match(
         r"^what is\s+(.+?)\s+(email|mail|phone|mobile|number|whatsapp)$",
         command,

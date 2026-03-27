@@ -14,3 +14,6 @@ data/scheduled_messages.json
 data/notification_state.json
 data/overlay_state.json
 data/exports/
+credentials.json
+data/google_token.json
+data/google_contacts_cache.json
