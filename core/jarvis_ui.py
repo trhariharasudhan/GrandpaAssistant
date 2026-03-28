@@ -191,7 +191,7 @@ class JarvisUI:
                 cursor="hand2",
             ).pack(side="left", padx=(0, 10))
 
-        console_wrap = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=(0, 18))
+        console_wrap = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=0)
         console_wrap.grid(row=1, column=0, sticky="nsew")
         console_wrap.grid_columnconfigure(0, weight=1)
         console_wrap.grid_rowconfigure(1, weight=1)
@@ -223,7 +223,7 @@ class JarvisUI:
         self.console.insert("end", "Assistant ready.\n\n", ("assistant", "body"))
         self.console.configure(state="disabled")
 
-        bottom = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=(0, 22))
+        bottom = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=0)
         bottom.grid(row=2, column=0, sticky="ew")
         bottom.grid_columnconfigure(0, weight=1)
 
