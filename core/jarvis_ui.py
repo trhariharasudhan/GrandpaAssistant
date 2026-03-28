@@ -196,29 +196,20 @@ class JarvisUI:
             "assistant_body",
             foreground=PALETTE["light"],
             font=("Consolas", 12),
-            lmargin1=12,
+            lmargin1=0,
             lmargin2=12,
-            spacing1=3,
             spacing3=12,
             justify="left",
-        )
-        self.console.tag_configure(
-            "user_label",
-            foreground=PALETTE["white"],
-            font=("Segoe UI Semibold", 12),
-            rmargin=12,
-            justify="right",
         )
         self.console.tag_configure(
             "user_body",
             foreground=PALETTE["white"],
             font=("Consolas", 12),
             rmargin=12,
-            spacing1=3,
             spacing3=12,
             justify="right",
         )
-        self.console.insert("end", "Grandpa\n", ("assistant_label",))
+        self.console.insert("end", "Grandpa : ", ("assistant_label",))
         self.console.insert("end", "Assistant ready.\n\n", ("assistant_body",))
         self.console.configure(state="disabled")
 
@@ -434,10 +425,9 @@ class JarvisUI:
 
         self.console.configure(state="normal")
         if tag == "assistant":
-            self.console.insert("end", "Grandpa\n", ("assistant_label",))
+            self.console.insert("end", "Grandpa : ", ("assistant_label",))
             self.console.insert("end", f"{cleaned}\n\n", ("assistant_body",))
         else:
-            self.console.insert("end", "You\n", ("user_label",))
             self.console.insert("end", f"{cleaned}\n\n", ("user_body",))
         self.console.configure(state="disabled")
         self.console.see("end")
