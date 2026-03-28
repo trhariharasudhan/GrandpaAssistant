@@ -53,17 +53,19 @@ class JarvisUI:
         self.time_var = tk.StringVar()
         self.date_var = tk.StringVar()
         self.input_var = tk.StringVar()
-        self.voice_state_var = tk.StringVar(value="Voice Off")
-        self.response_mode_var = tk.StringVar(value="Voice")
+        self.voice_state_var = tk.StringVar(value="Text Mode")
         self.tasks_var = tk.StringVar(value="0 pending")
         self.reminders_var = tk.StringVar(value="0 reminders")
         self.weather_var = tk.StringVar(value="Weather unavailable")
         self.health_var = tk.StringVar(value="Health unavailable")
-        self.voice_button = None
         self.voice_thread = None
         self.voice_stop_requested = False
         self.command_running = False
         self._real_voice_speak = voice_speak_module.speak
+        self.mode_is_voice = False
+        self.mode_toggle_canvas = None
+        self.bottom = None
+        self.entry = None
 
         self._configure_styles()
         self._build_layout()
@@ -138,41 +140,25 @@ class JarvisUI:
         ).pack(anchor="w", pady=(2, 0))
         voice_row = tk.Frame(title_wrap, bg=PALETTE["light"])
         voice_row.pack(anchor="w", pady=(8, 0))
-        voice_status = tk.Label(
+        tk.Label(
             voice_row,
             textvariable=self.voice_state_var,
             font=("Segoe UI Semibold", 11),
             fg=PALETTE["success"],
             bg=PALETTE["light"],
-            cursor="hand2",
-        )
-        voice_status.pack(side="left")
-        voice_status.bind("<Button-1>", lambda _event: self._toggle_voice())
-        tk.Button(
+        ).pack(side="left")
+        self.mode_toggle_canvas = tk.Canvas(
             voice_row,
-            text="Mic",
-            command=self._toggle_voice,
-            bg=PALETTE["dark"],
-            fg=PALETTE["white"],
-            activebackground=PALETTE["dark"],
-            activeforeground=PALETTE["white"],
-            relief="flat",
+            width=72,
+            height=34,
+            bg=PALETTE["light"],
+            highlightthickness=0,
             bd=0,
-            padx=12,
-            pady=4,
-            font=("Segoe UI Semibold", 10),
             cursor="hand2",
-        ).pack(side="left", padx=(10, 0))
-        mode_selector = ttk.Combobox(
-            voice_row,
-            textvariable=self.response_mode_var,
-            values=["Voice", "Text"],
-            state="readonly",
-            width=8,
-            font=("Segoe UI", 10),
         )
-        mode_selector.pack(side="left", padx=(10, 0))
-        mode_selector.bind("<<ComboboxSelected>>", lambda _event: self._apply_response_mode())
+        self.mode_toggle_canvas.pack(side="left", padx=(12, 0))
+        self.mode_toggle_canvas.bind("<Button-1>", lambda _event: self._toggle_mode())
+        self._draw_mode_toggle()
 
         time_wrap = tk.Frame(header, bg=PALETTE["light"])
         time_wrap.grid(row=0, column=1, sticky="e")
@@ -260,15 +246,15 @@ class JarvisUI:
         self.console.insert("end", "Assistant ready.\n\n", ("assistant_body",))
         self.console.configure(state="disabled")
 
-        bottom = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=16)
-        bottom.pack(fill="x", side="bottom")
-        bottom.grid_columnconfigure(0, weight=1)
+        self.bottom = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=16)
+        self.bottom.pack(fill="x", side="bottom")
+        self.bottom.grid_columnconfigure(0, weight=1)
 
-        entry_wrap = tk.Frame(bottom, bg=PALETTE["light"], bd=0, highlightthickness=0)
+        entry_wrap = tk.Frame(self.bottom, bg=PALETTE["light"], bd=0, highlightthickness=0)
         entry_wrap.grid(row=0, column=0, sticky="ew", padx=(0, 12))
         entry_wrap.grid_columnconfigure(0, weight=1)
 
-        entry = tk.Entry(
+        self.entry = tk.Entry(
             entry_wrap,
             textvariable=self.input_var,
             font=("Segoe UI", 12),
@@ -278,12 +264,12 @@ class JarvisUI:
             bd=0,
             insertbackground=PALETTE["dark"],
         )
-        entry.grid(row=0, column=0, sticky="ew", padx=16, pady=14)
-        entry.bind("<Return>", lambda _event: self._submit_command())
-        entry.focus_set()
+        self.entry.grid(row=0, column=0, sticky="ew", padx=16, pady=14)
+        self.entry.bind("<Return>", lambda _event: self._submit_command())
+        self.entry.focus_set()
 
         tk.Button(
-            bottom,
+            self.bottom,
             text="Run",
             command=self._submit_command,
             bg=PALETTE["primary"],
@@ -391,41 +377,50 @@ class JarvisUI:
             self._append_message("Grandpa", message, "assistant")
 
     def _apply_response_mode(self):
-        selected = (self.response_mode_var.get() or "Voice").strip().lower()
-        if selected == "text":
-            voice_speak_module.set_response_mode("text")
-        else:
+        if self.mode_is_voice:
             voice_speak_module.set_response_mode("voice")
-
-    def _set_voice_ui_state(self, listening):
-        if listening:
-            self.voice_state_var.set("Listening...")
-            if self.voice_button:
-                self.voice_button.config(
-                    text="Stop Voice",
-                    bg=PALETTE["danger"],
-                    activebackground=PALETTE["danger"],
-                )
+            self.voice_state_var.set("Voice Mode")
+            if self.bottom:
+                self.bottom.pack_forget()
         else:
-            self.voice_state_var.set("Voice Off")
-            if self.voice_button:
-                self.voice_button.config(
-                    text="Start Voice",
-                    bg=PALETTE["dark"],
-                    activebackground=PALETTE["dark"],
-                )
+            voice_speak_module.set_response_mode("text")
+            self.voice_state_var.set("Text Mode")
+            if self.bottom and not self.bottom.winfo_manager():
+                self.bottom.pack(fill="x", side="bottom")
+            if self.entry:
+                self.entry.focus_set()
+        self._draw_mode_toggle()
 
-    def _toggle_voice(self):
-        if self.voice_thread and self.voice_thread.is_alive():
+    def _draw_mode_toggle(self):
+        if not self.mode_toggle_canvas:
+            return
+        canvas = self.mode_toggle_canvas
+        canvas.delete("all")
+        bg = PALETTE["dark"] if self.mode_is_voice else "#20232d"
+        glow = PALETTE["orange"] if self.mode_is_voice else PALETTE["gray_dark"]
+        knob_x = 50 if self.mode_is_voice else 22
+        canvas.create_oval(4, 4, 68, 30, fill=bg, outline="")
+        canvas.create_oval(8, 8, 64, 26, fill=PALETTE["dark"], outline="")
+        canvas.create_oval(knob_x - 12, 5, knob_x + 12, 29, fill="#1b1f29", outline=glow, width=2)
+        canvas.create_oval(10, 12, 14, 16, fill=PALETTE["danger"], outline="")
+
+    def _toggle_mode(self):
+        if self.mode_is_voice:
             self.voice_stop_requested = True
-            self._set_voice_ui_state(False)
+            self.mode_is_voice = False
+            self._apply_response_mode()
+            self._append_message("Grandpa", "Switched to text mode.", "assistant")
             return
 
+        self.mode_is_voice = True
         self.voice_stop_requested = False
-        self._set_voice_ui_state(True)
-        self._append_message("Grandpa", "Voice listening started.", "assistant")
+        self._apply_response_mode()
+        self._append_message("Grandpa", "Voice mode active.", "assistant")
         self.voice_thread = threading.Thread(target=self._voice_loop, daemon=True)
         self.voice_thread.start()
+
+    def _toggle_voice(self):
+        self._toggle_mode()
 
     def _voice_loop(self):
         while not self.voice_stop_requested:
@@ -440,8 +435,8 @@ class JarvisUI:
                 continue
 
             self.root.after(0, lambda value=spoken: self._dispatch_command(value, show_in_input=False))
-
-        self.root.after(0, lambda: self._set_voice_ui_state(False))
+        self.mode_is_voice = False
+        self.root.after(0, self._apply_response_mode)
 
     def _close_window(self):
         self.voice_stop_requested = True
