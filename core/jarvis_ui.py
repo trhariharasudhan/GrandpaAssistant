@@ -282,23 +282,6 @@ class JarvisUI:
         entry.bind("<Return>", lambda _event: self._submit_command())
         entry.focus_set()
 
-        self.voice_button = tk.Button(
-            bottom,
-            text="Start Voice",
-            command=self._toggle_voice,
-            bg=PALETTE["dark"],
-            fg=PALETTE["white"],
-            activebackground=PALETTE["dark"],
-            activeforeground=PALETTE["white"],
-            relief="flat",
-            bd=0,
-            padx=18,
-            pady=14,
-            font=("Segoe UI Semibold", 12),
-            cursor="hand2",
-        )
-        self.voice_button.grid(row=0, column=1, sticky="e", padx=(0, 10))
-
         tk.Button(
             bottom,
             text="Run",
@@ -313,7 +296,7 @@ class JarvisUI:
             pady=14,
             font=("Segoe UI Semibold", 12),
             cursor="hand2",
-        ).grid(row=0, column=2, sticky="e")
+        ).grid(row=0, column=1, sticky="e")
 
     def _build_card(self, parent, column, title, variable, accent):
         card = tk.Frame(parent, bg=PALETTE["white"], padx=18, pady=16)
