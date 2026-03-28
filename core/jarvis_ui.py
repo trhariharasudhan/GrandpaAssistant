@@ -133,13 +133,33 @@ class JarvisUI:
             fg=PALETTE["gray"],
             bg=PALETTE["light"],
         ).pack(anchor="w", pady=(2, 0))
-        tk.Label(
-            title_wrap,
+        voice_row = tk.Frame(title_wrap, bg=PALETTE["light"])
+        voice_row.pack(anchor="w", pady=(8, 0))
+        voice_status = tk.Label(
+            voice_row,
             textvariable=self.voice_state_var,
             font=("Segoe UI Semibold", 11),
             fg=PALETTE["success"],
             bg=PALETTE["light"],
-        ).pack(anchor="w", pady=(8, 0))
+            cursor="hand2",
+        )
+        voice_status.pack(side="left")
+        voice_status.bind("<Button-1>", lambda _event: self._toggle_voice())
+        tk.Button(
+            voice_row,
+            text="Mic",
+            command=self._toggle_voice,
+            bg=PALETTE["dark"],
+            fg=PALETTE["white"],
+            activebackground=PALETTE["dark"],
+            activeforeground=PALETTE["white"],
+            relief="flat",
+            bd=0,
+            padx=12,
+            pady=4,
+            font=("Segoe UI Semibold", 10),
+            cursor="hand2",
+        ).pack(side="left", padx=(10, 0))
 
         time_wrap = tk.Frame(header, bg=PALETTE["light"])
         time_wrap.grid(row=0, column=1, sticky="e")
@@ -159,7 +179,7 @@ class JarvisUI:
         ).pack(anchor="e")
 
         cards = tk.Frame(outer, bg=PALETTE["light"])
-        cards.grid(row=1, column=0, sticky="ew", pady=(22, 20))
+        cards.grid(row=1, column=0, sticky="ew", pady=(18, 16))
         for index in range(4):
             cards.grid_columnconfigure(index, weight=1)
 
@@ -170,11 +190,9 @@ class JarvisUI:
 
         main = tk.Frame(outer, bg=PALETTE["white"], bd=0, highlightthickness=0)
         main.grid(row=2, column=0, sticky="nsew")
-        main.grid_columnconfigure(0, weight=1)
-        main.grid_rowconfigure(0, weight=1)
 
         console_wrap = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=0)
-        console_wrap.grid(row=0, column=0, sticky="nsew")
+        console_wrap.pack(fill="both", expand=True)
         console_wrap.grid_columnconfigure(0, weight=1)
         console_wrap.grid_rowconfigure(1, weight=1)
 
@@ -197,6 +215,7 @@ class JarvisUI:
             font=("Consolas", 12),
             padx=16,
             pady=16,
+            height=16,
         )
         self.console.grid(row=1, column=0, sticky="nsew")
         self.console.tag_configure(
@@ -228,8 +247,8 @@ class JarvisUI:
         self.console.insert("end", "Assistant ready.\n\n", ("assistant_body",))
         self.console.configure(state="disabled")
 
-        bottom = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=0)
-        bottom.grid(row=1, column=0, sticky="ew")
+        bottom = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=16)
+        bottom.pack(fill="x", side="bottom")
         bottom.grid_columnconfigure(0, weight=1)
 
         entry_wrap = tk.Frame(bottom, bg=PALETTE["light"], bd=0, highlightthickness=0)
@@ -297,10 +316,10 @@ class JarvisUI:
         tk.Label(
             card,
             textvariable=variable,
-            font=("Segoe UI Semibold", 14),
+            font=("Segoe UI Semibold", 13),
             fg=PALETTE["dark"],
             bg=PALETTE["white"],
-            wraplength=210,
+            wraplength=190,
             justify="left",
         ).pack(anchor="w", pady=(6, 0))
 
@@ -319,7 +338,7 @@ class JarvisUI:
 
     def _update_clock(self):
         now = datetime.datetime.now()
-        self.time_var.set(now.strftime("%I:%M %p"))
+        self.time_var.set(now.strftime("%I:%M:%S %p"))
         self.date_var.set(now.strftime("%A, %d %B %Y"))
         self.root.after(1000, self._update_clock)
 
