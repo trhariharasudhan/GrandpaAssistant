@@ -452,7 +452,7 @@ class JarvisUI:
             if not cleaned:
                 return
             self.root.after(0, lambda value=cleaned: self._append_message("Grandpa", value, "assistant"))
-            if (self.response_mode_var.get() or "Voice").strip().lower() == "voice":
+            if self.mode_is_voice:
                 original_voice_speak(cleaned, already_printed=True)
 
         command_router_module.speak = ui_speak
@@ -493,7 +493,7 @@ class JarvisUI:
                 if cleaned:
                     spoken_messages.append(cleaned)
                     self.root.after(0, lambda value=cleaned: original_ui_append("Grandpa", value, "assistant"))
-                    if (self.response_mode_var.get() or "Voice").strip().lower() == "voice":
+                    if self.mode_is_voice:
                         original_voice_speak(cleaned, already_printed=True)
 
             command_router_module.speak = capture_speak
@@ -502,7 +502,7 @@ class JarvisUI:
                 try:
                     command_router_module.process_command(command.lower(), self.installed_apps, input_mode="text")
                 except Exception as error:
-                    output = f"Assistant error: {error}"
+                    output = "I hit a small interface issue while handling that command."
                 else:
                     output = self._sanitize_output(buffer.getvalue(), spoken_messages)
 
