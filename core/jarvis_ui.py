@@ -1,6 +1,7 @@
 import contextlib
 import datetime
 import io
+import re
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -99,8 +100,8 @@ class JarvisUI:
 
         logo = tk.Canvas(
             logo_wrap,
-            width=92,
-            height=92,
+            width=118,
+            height=118,
             bg=PALETTE["light"],
             highlightthickness=0,
             bd=0,
@@ -183,10 +184,42 @@ class JarvisUI:
             pady=16,
         )
         self.console.grid(row=1, column=0, sticky="nsew")
-        self.console.tag_configure("you", foreground=PALETTE["secondary"], font=("Segoe UI Semibold", 11))
-        self.console.tag_configure("assistant", foreground=PALETTE["cyan"], font=("Segoe UI Semibold", 11))
-        self.console.tag_configure("body", foreground=PALETTE["light"], font=("Consolas", 12))
-        self.console.insert("end", "Assistant ready.\n\n", ("assistant", "body"))
+        self.console.tag_configure(
+            "assistant_label",
+            foreground=PALETTE["secondary"],
+            font=("Segoe UI Semibold", 12),
+            lmargin1=12,
+            lmargin2=12,
+            justify="left",
+        )
+        self.console.tag_configure(
+            "assistant_body",
+            foreground=PALETTE["light"],
+            font=("Consolas", 12),
+            lmargin1=12,
+            lmargin2=12,
+            spacing1=3,
+            spacing3=12,
+            justify="left",
+        )
+        self.console.tag_configure(
+            "user_label",
+            foreground=PALETTE["white"],
+            font=("Segoe UI Semibold", 12),
+            rmargin=12,
+            justify="right",
+        )
+        self.console.tag_configure(
+            "user_body",
+            foreground=PALETTE["white"],
+            font=("Consolas", 12),
+            rmargin=12,
+            spacing1=3,
+            spacing3=12,
+            justify="right",
+        )
+        self.console.insert("end", "Grandpa\n", ("assistant_label",))
+        self.console.insert("end", "Assistant ready.\n\n", ("assistant_body",))
         self.console.configure(state="disabled")
 
         bottom = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=0)
@@ -249,15 +282,17 @@ class JarvisUI:
         ).pack(anchor="w", pady=(6, 0))
 
     def _draw_logo(self, canvas):
-        canvas.create_polygon(18, 14, 32, 24, 32, 48, 12, 26, fill=PALETTE["secondary"], outline="")
-        canvas.create_polygon(74, 14, 60, 24, 60, 48, 80, 26, fill=PALETTE["secondary"], outline="")
-        canvas.create_oval(23, 28, 69, 66, fill=PALETTE["secondary"], outline="")
-        canvas.create_polygon(24, 50, 14, 76, 30, 90, 38, 62, fill=PALETTE["light"], outline="")
-        canvas.create_polygon(68, 50, 78, 76, 62, 90, 54, 62, fill=PALETTE["light"], outline="")
-        canvas.create_polygon(30, 60, 46, 88, 62, 60, 60, 84, 46, 92, 32, 84, fill=PALETTE["gray"], outline="")
-        canvas.create_oval(28, 42, 42, 55, fill=PALETTE["orange"], outline="")
-        canvas.create_oval(52, 44, 57, 49, fill=PALETTE["dark"], outline="")
-        canvas.create_oval(43, 52, 49, 58, fill=PALETTE["dark"], outline="")
+        canvas.create_polygon(20, 18, 42, 30, 42, 56, 18, 34, fill="#e7b55a", outline="")
+        canvas.create_polygon(98, 18, 76, 30, 76, 56, 100, 34, fill="#e7b55a", outline="")
+        canvas.create_oval(28, 28, 90, 72, fill="#e7b55a", outline="")
+        canvas.create_polygon(28, 58, 18, 92, 36, 106, 48, 70, fill=PALETTE["light"], outline="")
+        canvas.create_polygon(90, 58, 100, 92, 82, 106, 70, 70, fill=PALETTE["light"], outline="")
+        canvas.create_polygon(42, 74, 59, 112, 76, 74, 72, 98, 59, 110, 46, 98, fill="#d7d7db", outline="")
+        canvas.create_polygon(47, 48, 59, 42, 71, 48, 68, 61, 59, 66, 50, 61, fill="#f3e7c8", outline="")
+        canvas.create_oval(41, 47, 54, 60, fill="#b78b3e", outline="")
+        canvas.create_oval(68, 49, 74, 55, fill=PALETTE["dark"], outline="")
+        canvas.create_oval(56, 61, 63, 68, fill=PALETTE["dark"], outline="")
+        canvas.create_line(59, 68, 59, 76, fill=PALETTE["light"], width=2)
 
     def _update_clock(self):
         now = datetime.datetime.now()
@@ -343,15 +378,26 @@ class JarvisUI:
         threading.Thread(target=self._execute_command, args=(command,), daemon=True).start()
 
     def _execute_command(self, command):
+        spoken_messages = []
         buffer = io.StringIO()
         with self._patched_speaker():
+            original_ui_append = self._append_message
+
+            def capture_speak(text, *args, **kwargs):
+                cleaned = self._clean_console_text(str(text))
+                if cleaned:
+                    spoken_messages.append(cleaned)
+                    self.root.after(0, lambda value=cleaned: original_ui_append("Grandpa", value, "assistant"))
+
+            command_router_module.speak = capture_speak
+            voice_speak_module.speak = capture_speak
             with contextlib.redirect_stdout(buffer):
                 try:
                     command_router_module.process_command(command.lower(), self.installed_apps, input_mode="text")
                 except Exception as error:
                     output = f"Assistant error: {error}"
                 else:
-                    output = buffer.getvalue().strip()
+                    output = self._sanitize_output(buffer.getvalue(), spoken_messages)
 
         self.root.after(0, lambda: self._finish_command(output))
 
@@ -360,10 +406,39 @@ class JarvisUI:
             self._append_message("Grandpa", output, "assistant")
         self._refresh_cards()
 
+    def _clean_console_text(self, text):
+        cleaned = re.sub(r"\x1b\[[0-9;]*m", "", text or "")
+        cleaned = cleaned.replace("\r", "")
+        cleaned = "\n".join(line.strip() for line in cleaned.splitlines() if line.strip())
+        return cleaned.strip()
+
+    def _sanitize_output(self, raw_output, spoken_messages):
+        cleaned = self._clean_console_text(raw_output)
+        if not cleaned:
+            return ""
+
+        filtered_lines = []
+        for line in cleaned.splitlines():
+            normalized = line.strip()
+            if normalized.startswith("Grandpa:") or normalized.startswith("You:"):
+                continue
+            if any(normalized == message or normalized in message or message in normalized for message in spoken_messages):
+                continue
+            filtered_lines.append(normalized)
+        return "\n".join(filtered_lines).strip()
+
     def _append_message(self, speaker, text, tag):
+        cleaned = self._clean_console_text(text)
+        if not cleaned:
+            return
+
         self.console.configure(state="normal")
-        self.console.insert("end", f"{speaker}: ", tag)
-        self.console.insert("end", f"{text}\n\n", "body")
+        if tag == "assistant":
+            self.console.insert("end", "Grandpa\n", ("assistant_label",))
+            self.console.insert("end", f"{cleaned}\n\n", ("assistant_body",))
+        else:
+            self.console.insert("end", "You\n", ("user_label",))
+            self.console.insert("end", f"{cleaned}\n\n", ("user_body",))
         self.console.configure(state="disabled")
         self.console.see("end")
 
