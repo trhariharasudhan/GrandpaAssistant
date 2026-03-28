@@ -69,15 +69,15 @@ class JarvisUI:
         root = self.root
 
         header = tk.Frame(root, bg=self.colors["bg"])
-        header.pack(fill="x", padx=18, pady=(18, 12))
+        header.pack(fill="x", padx=24, pady=(24, 10))
 
         title_wrap = tk.Frame(header, bg=self.colors["bg"])
         title_wrap.pack(side="left", fill="x", expand=True)
-        self._label(title_wrap, "Grandpa Assistant", size=28, bold=True, color=self.colors["accent"]).pack(anchor="w")
+        self._label(title_wrap, "Grandpa Assistant", size=30, bold=True, color=self.colors["accent"]).pack(anchor="w")
         self._label(
             title_wrap,
-            "Voice-first Jarvis control center for commands, context, and automation",
-            size=11,
+            "Simple control center",
+            size=12,
             color=self.colors["muted"],
         ).pack(anchor="w", pady=(4, 0))
 
@@ -88,54 +88,52 @@ class JarvisUI:
         self.subtitle_label = self._label(status_wrap, "", size=10, color=self.colors["muted"])
         self.subtitle_label.pack(anchor="e", pady=(3, 0))
 
-        body = tk.Frame(root, bg=self.colors["bg"])
-        body.pack(fill="both", expand=True, padx=18, pady=(0, 18))
-        body.grid_columnconfigure(1, weight=1)
-        body.grid_rowconfigure(0, weight=1)
+        status_panel = self._panel(root, bg=self.colors["panel_alt"])
+        status_panel.pack(fill="x", padx=24, pady=(0, 10))
+        self.status_values = {}
 
-        left_col = tk.Frame(body, bg=self.colors["bg"], width=320)
-        left_col.grid(row=0, column=0, sticky="nsw", padx=(0, 12))
+        for index, label in enumerate(["Tasks", "Reminders", "Weather", "Health"]):
+            card = tk.Frame(status_panel, bg=status_panel.cget("bg"))
+            card.grid(row=0, column=index, sticky="ew", padx=(12 if index == 0 else 8, 12 if index == 3 else 0), pady=12)
+            status_panel.grid_columnconfigure(index, weight=1)
+            self._label(card, label, size=10, bold=True, color=self.colors["muted"]).pack(anchor="w")
+            value_label = self._label(card, "-", size=12, bold=True)
+            value_label.pack(anchor="w", pady=(4, 0))
+            self.status_values[label.lower()] = value_label
 
-        center_col = tk.Frame(body, bg=self.colors["bg"])
-        center_col.grid(row=0, column=1, sticky="nsew", padx=(0, 12))
-        center_col.grid_rowconfigure(1, weight=1)
-        center_col.grid_columnconfigure(0, weight=1)
+        quick_panel = self._panel(root)
+        quick_panel.pack(fill="x", padx=24, pady=(0, 10))
+        self._label(quick_panel, "Quick Actions", size=12, bold=True, color=self.colors["muted"]).pack(anchor="w", padx=14, pady=(10, 8))
 
-        right_col = tk.Frame(body, bg=self.colors["bg"], width=280)
-        right_col.grid(row=0, column=2, sticky="nse")
+        quick_wrap = tk.Frame(quick_panel, bg=quick_panel.cget("bg"))
+        quick_wrap.pack(fill="x", padx=12, pady=(0, 12))
 
-        self._build_left_cards(left_col)
-        self._build_center_console(center_col)
-        self._build_right_actions(right_col)
+        action_commands = [
+            ("Agenda", "today agenda"),
+            ("Weather", "weather"),
+            ("System", "system status"),
+            ("Call Appa", "call appa"),
+            ("Message Amma", "message to amma saying saptiya"),
+            ("Settings", "show settings"),
+        ]
 
-    def _build_left_cards(self, parent):
-        hero = self._panel(parent, bg=self.colors["panel_alt"])
-        hero.pack(fill="x", pady=(0, 12))
-        self._label(hero, "System Pulse", size=15, bold=True).pack(anchor="w", padx=14, pady=(14, 6))
-        self.hero_status = self._label(hero, "", size=11, color=self.colors["muted"], justify="left", wraplength=280)
-        self.hero_status.pack(anchor="w", padx=14, pady=(0, 14))
+        for index, (label, command) in enumerate(action_commands):
+            button = tk.Button(
+                quick_wrap,
+                text=label,
+                command=lambda cmd=command: self._submit_command(cmd),
+                bg="#155e75",
+                fg="white",
+                relief="flat",
+                font=("Segoe UI", 10, "bold"),
+                cursor="hand2",
+                padx=14,
+                pady=8,
+            )
+            button.grid(row=0, column=index, padx=(0, 8), sticky="w")
 
-        agenda = self._panel(parent, bg=self.colors["card"])
-        agenda.pack(fill="x", pady=(0, 12))
-        self._label(agenda, "Today", size=14, bold=True).pack(anchor="w", padx=14, pady=(14, 6))
-        self.agenda_label = self._label(agenda, "", size=10, color=self.colors["muted"], justify="left", wraplength=280)
-        self.agenda_label.pack(anchor="w", padx=14, pady=(0, 14))
-
-        memory = self._panel(parent)
-        memory.pack(fill="x")
-        self._label(memory, "Recent Commands", size=14, bold=True).pack(anchor="w", padx=14, pady=(14, 8))
-        self.recent_commands_label = self._label(memory, "", size=10, color=self.colors["muted"], justify="left", wraplength=280)
-        self.recent_commands_label.pack(anchor="w", padx=14, pady=(0, 14))
-
-    def _build_center_console(self, parent):
-        summary = self._panel(parent, bg=self.colors["panel_alt"])
-        summary.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        self._label(summary, "Mission Brief", size=15, bold=True).pack(anchor="w", padx=16, pady=(14, 6))
-        self.dashboard_label = self._label(summary, "", size=10, color=self.colors["muted"], justify="left", wraplength=660)
-        self.dashboard_label.pack(anchor="w", padx=16, pady=(0, 14))
-
-        console_panel = self._panel(parent, bg="#0f1d24")
-        console_panel.grid(row=1, column=0, sticky="nsew")
+        console_panel = self._panel(root, bg="#0f1d24")
+        console_panel.pack(fill="both", expand=True, padx=24, pady=(0, 18))
         console_panel.grid_rowconfigure(1, weight=1)
         console_panel.grid_columnconfigure(0, weight=1)
 
@@ -183,52 +181,6 @@ class JarvisUI:
             cursor="hand2",
         )
         send_button.grid(row=0, column=1)
-
-    def _build_right_actions(self, parent):
-        quick = self._panel(parent, bg=self.colors["panel_alt"])
-        quick.pack(fill="x", pady=(0, 12))
-        self._label(quick, "Quick Actions", size=14, bold=True).pack(anchor="w", padx=14, pady=(14, 8))
-
-        action_commands = [
-            ("Today Agenda", "today agenda"),
-            ("System Status", "system status"),
-            ("Weather", "weather"),
-            ("Show Settings", "show settings"),
-            ("Run Morning Routine", "run morning routine"),
-            ("Open Overlay", "open quick overlay"),
-            ("Call Appa", "call appa"),
-            ("Message Amma", "message to amma saying saptiya"),
-        ]
-
-        for label, command in action_commands:
-            button = tk.Button(
-                quick,
-                text=label,
-                command=lambda cmd=command: self._submit_command(cmd),
-                bg="#0d7a72",
-                fg="white",
-                relief="flat",
-                font=("Segoe UI", 10, "bold"),
-                cursor="hand2",
-                padx=10,
-                pady=10,
-                wraplength=220,
-                justify="center",
-            )
-            button.pack(fill="x", padx=14, pady=(0, 10))
-
-        status = self._panel(parent)
-        status.pack(fill="both", expand=True)
-        self._label(status, "Live Panels", size=14, bold=True).pack(anchor="w", padx=14, pady=(14, 8))
-
-        self.weather_label = self._label(status, "", size=10, color=self.colors["muted"], justify="left", wraplength=220)
-        self.weather_label.pack(anchor="w", padx=14, pady=(0, 12))
-
-        self.health_label = self._label(status, "", size=10, color=self.colors["muted"], justify="left", wraplength=220)
-        self.health_label.pack(anchor="w", padx=14, pady=(0, 12))
-
-        self.events_label = self._label(status, "", size=10, color=self.colors["muted"], justify="left", wraplength=220)
-        self.events_label.pack(anchor="w", padx=14, pady=(0, 14))
 
     def _append_console(self, speaker, text):
         self.console.configure(state="normal")
@@ -284,67 +236,27 @@ class JarvisUI:
         self.root.after(1000, self._tick_clock)
 
     def _refresh_dashboard(self):
-        try:
-            self.dashboard_label.config(text=build_dashboard_report())
-        except Exception:
-            self.dashboard_label.config(text="Dashboard summary is not available right now.")
+        task_data = get_task_data()
+        pending_count = sum(1 for item in task_data.get("tasks", []) if not item.get("completed"))
+        reminder_count = len(task_data.get("reminders", []))
+
+        self.status_values["tasks"].config(text=f"{pending_count} pending")
+        self.status_values["reminders"].config(text=f"{reminder_count} active")
 
         try:
-            self.hero_status.config(text=get_system_status())
+            weather = get_weather_report("weather")
+            self.status_values["weather"].config(text=(weather.split(".")[0].strip() if weather else "Unavailable")[:34])
         except Exception:
-            self.hero_status.config(text="System health summary is not available right now.")
+            self.status_values["weather"].config(text="Unavailable")
 
         try:
-            self.agenda_label.config(text=build_today_agenda())
+            health_text = get_system_status()
+            short_health = "Healthy" if health_text else "Unavailable"
+            self.status_values["health"].config(text=short_health)
         except Exception:
-            self.agenda_label.config(text="Today agenda is not available right now.")
+            self.status_values["health"].config(text="Unavailable")
 
-        try:
-            recent = get_recent_commands(limit=6)
-            if recent:
-                recent_text = " | ".join(recent)
-            else:
-                recent_text = "No recent commands yet."
-            self.recent_commands_label.config(text=recent_text)
-        except Exception:
-            self.recent_commands_label.config(text="Recent commands are not available right now.")
-
-        try:
-            self.weather_label.config(text=get_weather_report("weather"))
-        except Exception:
-            self.weather_label.config(text="Weather report is not available right now.")
-
-        try:
-            self.health_label.config(text=get_system_status())
-        except Exception:
-            self.health_label.config(text="Health panel is not available right now.")
-
-        try:
-            events = get_event_data().get("events", [])
-            upcoming = sorted(
-                [event for event in events if event.get("date")],
-                key=lambda item: (item.get("date") or "9999-12-31", item.get("time") or "23:59"),
-            )
-            if upcoming:
-                lines = []
-                for event in upcoming[:3]:
-                    line = event.get("title", "Untitled event")
-                    if event.get("time"):
-                        line += f" at {event.get('time')}"
-                    lines.append(line)
-                self.events_label.config(text="Upcoming: " + " | ".join(lines))
-            else:
-                self.events_label.config(text="No upcoming events right now.")
-        except Exception:
-            self.events_label.config(text="Event panel is not available right now.")
-
-        try:
-            task_data = get_task_data()
-            pending_count = sum(1 for item in task_data.get("tasks", []) if not item.get("completed"))
-            reminder_count = len(task_data.get("reminders", []))
-            self.root.title(f"Grandpa Assistant Control Center  |  {pending_count} tasks  |  {reminder_count} reminders")
-        except Exception:
-            pass
+        self.root.title(f"Grandpa Assistant  |  {pending_count} tasks  |  {reminder_count} reminders")
 
         self.root.after(15000, self._refresh_dashboard)
 
