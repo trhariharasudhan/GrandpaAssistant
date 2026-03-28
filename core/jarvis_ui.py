@@ -5,11 +5,11 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-from brain.database import get_recent_commands
-from core.command_router import process_command
+import core.command_router as command_router_module
 from modules.health_module import get_system_status
 from modules.task_module import get_task_data
 from modules.weather_module import get_weather_report
+import voice.speak as voice_speak_module
 
 
 PALETTE = {
@@ -38,8 +38,9 @@ PALETTE = {
 
 
 class JarvisUI:
-    def __init__(self, installed_apps):
+    def __init__(self, installed_apps, startup_messages=None):
         self.installed_apps = installed_apps
+        self.startup_messages = startup_messages or []
         self.root = tk.Tk()
         self.root.title("Grandpa Assistant")
         self.root.geometry("1180x760")
@@ -58,6 +59,7 @@ class JarvisUI:
         self._build_layout()
         self._update_clock()
         self._refresh_cards()
+        self._load_startup_messages()
 
     def _configure_styles(self):
         style = ttk.Style()
@@ -153,46 +155,10 @@ class JarvisUI:
         main = tk.Frame(outer, bg=PALETTE["white"], bd=0, highlightthickness=0)
         main.grid(row=2, column=0, sticky="nsew")
         main.grid_columnconfigure(0, weight=1)
-        main.grid_rowconfigure(1, weight=1)
-
-        quick = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=18)
-        quick.grid(row=0, column=0, sticky="ew")
-        tk.Label(
-            quick,
-            text="Quick Actions",
-            font=("Segoe UI Semibold", 13),
-            fg=PALETTE["dark"],
-            bg=PALETTE["white"],
-        ).pack(anchor="w")
-
-        quick_buttons = tk.Frame(quick, bg=PALETTE["white"])
-        quick_buttons.pack(anchor="w", pady=(12, 0), fill="x")
-
-        actions = [
-            ("Today Agenda", "today agenda", PALETTE["primary"]),
-            ("System Status", "system status", PALETTE["dark"]),
-            ("Weather", "weather", PALETTE["secondary"]),
-            ("Call Appa", "call appa", PALETTE["success"]),
-        ]
-        for text, command, color in actions:
-            tk.Button(
-                quick_buttons,
-                text=text,
-                command=lambda value=command: self._run_quick_action(value),
-                bg=color,
-                fg=PALETTE["white"] if color != PALETTE["secondary"] else PALETTE["dark"],
-                activebackground=color,
-                activeforeground=PALETTE["white"] if color != PALETTE["secondary"] else PALETTE["dark"],
-                relief="flat",
-                bd=0,
-                padx=16,
-                pady=10,
-                font=("Segoe UI Semibold", 11),
-                cursor="hand2",
-            ).pack(side="left", padx=(0, 10))
+        main.grid_rowconfigure(0, weight=1)
 
         console_wrap = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=0)
-        console_wrap.grid(row=1, column=0, sticky="nsew")
+        console_wrap.grid(row=0, column=0, sticky="nsew")
         console_wrap.grid_columnconfigure(0, weight=1)
         console_wrap.grid_rowconfigure(1, weight=1)
 
@@ -224,7 +190,7 @@ class JarvisUI:
         self.console.configure(state="disabled")
 
         bottom = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=0)
-        bottom.grid(row=2, column=0, sticky="ew")
+        bottom.grid(row=1, column=0, sticky="ew")
         bottom.grid_columnconfigure(0, weight=1)
 
         entry_wrap = tk.Frame(bottom, bg=PALETTE["light"], bd=0, highlightthickness=0)
@@ -347,9 +313,25 @@ class JarvisUI:
             parts.append(f"Battery {battery_match.group(1)}%")
         return " | ".join(parts) if parts else self._compact_text(text, 50)
 
-    def _run_quick_action(self, command):
-        self.input_var.set(command)
-        self._submit_command()
+    def _load_startup_messages(self):
+        for message in self.startup_messages:
+            self._append_message("Grandpa", message, "assistant")
+
+    @contextlib.contextmanager
+    def _patched_speaker(self):
+        original_command_router_speak = command_router_module.speak
+        original_voice_speak = voice_speak_module.speak
+
+        def ui_speak(text, *args, **kwargs):
+            self.root.after(0, lambda: self._append_message("Grandpa", str(text), "assistant"))
+
+        command_router_module.speak = ui_speak
+        voice_speak_module.speak = ui_speak
+        try:
+            yield
+        finally:
+            command_router_module.speak = original_command_router_speak
+            voice_speak_module.speak = original_voice_speak
 
     def _submit_command(self):
         command = self.input_var.get().strip()
@@ -362,18 +344,20 @@ class JarvisUI:
 
     def _execute_command(self, command):
         buffer = io.StringIO()
-        with contextlib.redirect_stdout(buffer):
-            try:
-                process_command(command.lower(), self.installed_apps, input_mode="text")
-            except Exception as error:
-                output = f"Assistant error: {error}"
-            else:
-                output = buffer.getvalue().strip() or "Command completed."
+        with self._patched_speaker():
+            with contextlib.redirect_stdout(buffer):
+                try:
+                    command_router_module.process_command(command.lower(), self.installed_apps, input_mode="text")
+                except Exception as error:
+                    output = f"Assistant error: {error}"
+                else:
+                    output = buffer.getvalue().strip()
 
         self.root.after(0, lambda: self._finish_command(output))
 
     def _finish_command(self, output):
-        self._append_message("Grandpa", output, "assistant")
+        if output:
+            self._append_message("Grandpa", output, "assistant")
         self._refresh_cards()
 
     def _append_message(self, speaker, text, tag):
@@ -387,6 +371,6 @@ class JarvisUI:
         self.root.mainloop()
 
 
-def launch_jarvis_ui(installed_apps):
-    ui = JarvisUI(installed_apps)
+def launch_jarvis_ui(installed_apps, startup_messages=None):
+    ui = JarvisUI(installed_apps, startup_messages=startup_messages)
     ui.run()

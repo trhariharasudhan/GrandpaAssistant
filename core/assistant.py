@@ -453,6 +453,46 @@ def main(start_in_tray=False, start_in_ui=False):
     INSTALLED_APPS.update(scan_store_apps())
     categorized = categorize_apps(INSTALLED_APPS)
 
+    startup_messages = [
+        "Hello Grandchild!",
+        build_daily_brief(),
+    ]
+    urgent_alert = build_due_reminder_alert()
+    if urgent_alert != "No urgent reminders right now.":
+        startup_messages.append(urgent_alert)
+    startup_messages.append(build_proactive_nudge())
+
+    if start_in_ui:
+        show_startup_notifications()
+        show_startup_brief_popup()
+        show_startup_agenda_popup()
+        show_startup_health_popup()
+        show_startup_weather_popup()
+        show_startup_status_popup()
+        show_startup_recap_popup()
+        run_startup_daily_automations()
+        start_notification_monitor()
+        restore_scheduled_jobs()
+        if get_setting("google_contacts.auto_refresh_enabled", True):
+            start_google_contacts_auto_refresh(get_setting("google_contacts.auto_refresh_hours", 24))
+        if get_setting("ocr.region_hotkey_enabled", True):
+            register_region_hotkey(
+                _handle_ocr_hotkey_result,
+                get_setting("ocr.region_hotkey", "ctrl+shift+o"),
+            )
+        if get_setting("overlay.hotkey_enabled", True):
+            register_overlay_hotkey(
+                _handle_overlay_command,
+                get_setting("overlay.hotkey", "ctrl+shift+space"),
+                suggestions_provider=_overlay_suggestions,
+                recent_provider=get_recent_commands,
+                recent_actions_provider=lambda: get_recent_commands(limit=4),
+                context_provider=_overlay_context_items,
+            )
+        set_response_mode("text")
+        launch_jarvis_ui(INSTALLED_APPS, startup_messages=startup_messages)
+        return
+
     print("\n========= INSTALLED APPLICATIONS =========")
     print("Total apps found:", len(INSTALLED_APPS))
 
@@ -462,12 +502,8 @@ def main(start_in_tray=False, start_in_ui=False):
             for app in apps:
                 print("  *", app)
 
-    speak("Hello Grandchild!")
-    speak(build_daily_brief())
-    urgent_alert = build_due_reminder_alert()
-    if urgent_alert != "No urgent reminders right now.":
-        speak(urgent_alert)
-    speak(build_proactive_nudge())
+    for startup_message in startup_messages:
+        speak(startup_message)
     show_startup_notifications()
     show_startup_brief_popup()
     show_startup_agenda_popup()
@@ -508,11 +544,6 @@ def main(start_in_tray=False, start_in_ui=False):
             speak("Background tray mode activated.")
             voice_mode()
             return
-
-    if start_in_ui:
-        set_response_mode("text")
-        launch_jarvis_ui(INSTALLED_APPS)
-        return
 
     try:
         print("\nChoose to enter input mode (1 - Voice / 2 - Text / 3 - Jarvis UI): ", end="")
