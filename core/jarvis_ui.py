@@ -3,6 +3,7 @@ import datetime
 import io
 import re
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk
 
@@ -10,6 +11,7 @@ import core.command_router as command_router_module
 from modules.health_module import get_system_status
 from modules.task_module import get_task_data
 from modules.weather_module import get_weather_report
+from voice.listen import listen
 import voice.speak as voice_speak_module
 
 
@@ -51,16 +53,22 @@ class JarvisUI:
         self.time_var = tk.StringVar()
         self.date_var = tk.StringVar()
         self.input_var = tk.StringVar()
+        self.voice_state_var = tk.StringVar(value="Voice Off")
         self.tasks_var = tk.StringVar(value="0 pending")
         self.reminders_var = tk.StringVar(value="0 reminders")
         self.weather_var = tk.StringVar(value="Weather unavailable")
         self.health_var = tk.StringVar(value="Health unavailable")
+        self.voice_button = None
+        self.voice_thread = None
+        self.voice_stop_requested = False
+        self.command_running = False
 
         self._configure_styles()
         self._build_layout()
         self._update_clock()
         self._refresh_cards()
         self._load_startup_messages()
+        self.root.protocol("WM_DELETE_WINDOW", self._close_window)
 
     def _configure_styles(self):
         style = ttk.Style()
@@ -125,6 +133,13 @@ class JarvisUI:
             fg=PALETTE["gray"],
             bg=PALETTE["light"],
         ).pack(anchor="w", pady=(2, 0))
+        tk.Label(
+            title_wrap,
+            textvariable=self.voice_state_var,
+            font=("Segoe UI Semibold", 11),
+            fg=PALETTE["success"],
+            bg=PALETTE["light"],
+        ).pack(anchor="w", pady=(8, 0))
 
         time_wrap = tk.Frame(header, bg=PALETTE["light"])
         time_wrap.grid(row=0, column=1, sticky="e")
@@ -235,6 +250,23 @@ class JarvisUI:
         entry.bind("<Return>", lambda _event: self._submit_command())
         entry.focus_set()
 
+        self.voice_button = tk.Button(
+            bottom,
+            text="Start Voice",
+            command=self._toggle_voice,
+            bg=PALETTE["dark"],
+            fg=PALETTE["white"],
+            activebackground=PALETTE["dark"],
+            activeforeground=PALETTE["white"],
+            relief="flat",
+            bd=0,
+            padx=18,
+            pady=14,
+            font=("Segoe UI Semibold", 12),
+            cursor="hand2",
+        )
+        self.voice_button.grid(row=0, column=1, sticky="e", padx=(0, 10))
+
         tk.Button(
             bottom,
             text="Run",
@@ -249,7 +281,7 @@ class JarvisUI:
             pady=14,
             font=("Segoe UI Semibold", 12),
             cursor="hand2",
-        ).grid(row=0, column=1, sticky="e")
+        ).grid(row=0, column=2, sticky="e")
 
     def _build_card(self, parent, column, title, variable, accent):
         card = tk.Frame(parent, bg=PALETTE["white"], padx=18, pady=16)
@@ -343,6 +375,56 @@ class JarvisUI:
         for message in self.startup_messages:
             self._append_message("Grandpa", message, "assistant")
 
+    def _set_voice_ui_state(self, listening):
+        if listening:
+            self.voice_state_var.set("Listening...")
+            if self.voice_button:
+                self.voice_button.config(
+                    text="Stop Voice",
+                    bg=PALETTE["danger"],
+                    activebackground=PALETTE["danger"],
+                )
+        else:
+            self.voice_state_var.set("Voice Off")
+            if self.voice_button:
+                self.voice_button.config(
+                    text="Start Voice",
+                    bg=PALETTE["dark"],
+                    activebackground=PALETTE["dark"],
+                )
+
+    def _toggle_voice(self):
+        if self.voice_thread and self.voice_thread.is_alive():
+            self.voice_stop_requested = True
+            self._set_voice_ui_state(False)
+            return
+
+        self.voice_stop_requested = False
+        self._set_voice_ui_state(True)
+        self._append_message("Grandpa", "Voice listening started.", "assistant")
+        self.voice_thread = threading.Thread(target=self._voice_loop, daemon=True)
+        self.voice_thread.start()
+
+    def _voice_loop(self):
+        while not self.voice_stop_requested:
+            if self.command_running:
+                time.sleep(0.2)
+                continue
+
+            spoken = listen(for_wake_word=False)
+            if self.voice_stop_requested:
+                break
+            if not spoken:
+                continue
+
+            self.root.after(0, lambda value=spoken: self._dispatch_command(value, show_in_input=False))
+
+        self.root.after(0, lambda: self._set_voice_ui_state(False))
+
+    def _close_window(self):
+        self.voice_stop_requested = True
+        self.root.destroy()
+
     @contextlib.contextmanager
     def _patched_speaker(self):
         original_command_router_speak = command_router_module.speak
@@ -365,10 +447,19 @@ class JarvisUI:
             return
 
         self.input_var.set("")
-        self._append_message("You", command, "you")
-        threading.Thread(target=self._execute_command, args=(command,), daemon=True).start()
+        self._dispatch_command(command, show_in_input=True)
+
+    def _dispatch_command(self, command, show_in_input):
+        cleaned = self._clean_console_text(command)
+        if not cleaned:
+            return
+        self._append_message("You", cleaned, "you")
+        if show_in_input:
+            self.input_var.set("")
+        threading.Thread(target=self._execute_command, args=(cleaned,), daemon=True).start()
 
     def _execute_command(self, command):
+        self.command_running = True
         spoken_messages = []
         buffer = io.StringIO()
         with self._patched_speaker():
@@ -396,6 +487,7 @@ class JarvisUI:
         if output:
             self._append_message("Grandpa", output, "assistant")
         self._refresh_cards()
+        self.command_running = False
 
     def _clean_console_text(self, text):
         cleaned = re.sub(r"\x1b\[[0-9;]*m", "", text or "")
