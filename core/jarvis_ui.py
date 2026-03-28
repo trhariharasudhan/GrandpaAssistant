@@ -54,6 +54,7 @@ class JarvisUI:
         self.date_var = tk.StringVar()
         self.input_var = tk.StringVar()
         self.voice_state_var = tk.StringVar(value="Voice Off")
+        self.response_mode_var = tk.StringVar(value="Voice")
         self.tasks_var = tk.StringVar(value="0 pending")
         self.reminders_var = tk.StringVar(value="0 reminders")
         self.weather_var = tk.StringVar(value="Weather unavailable")
@@ -62,12 +63,14 @@ class JarvisUI:
         self.voice_thread = None
         self.voice_stop_requested = False
         self.command_running = False
+        self._real_voice_speak = voice_speak_module.speak
 
         self._configure_styles()
         self._build_layout()
         self._update_clock()
         self._refresh_cards()
         self._load_startup_messages()
+        self._apply_response_mode()
         self.root.protocol("WM_DELETE_WINDOW", self._close_window)
 
     def _configure_styles(self):
@@ -160,6 +163,16 @@ class JarvisUI:
             font=("Segoe UI Semibold", 10),
             cursor="hand2",
         ).pack(side="left", padx=(10, 0))
+        mode_selector = ttk.Combobox(
+            voice_row,
+            textvariable=self.response_mode_var,
+            values=["Voice", "Text"],
+            state="readonly",
+            width=8,
+            font=("Segoe UI", 10),
+        )
+        mode_selector.pack(side="left", padx=(10, 0))
+        mode_selector.bind("<<ComboboxSelected>>", lambda _event: self._apply_response_mode())
 
         time_wrap = tk.Frame(header, bg=PALETTE["light"])
         time_wrap.grid(row=0, column=1, sticky="e")
@@ -394,6 +407,13 @@ class JarvisUI:
         for message in self.startup_messages:
             self._append_message("Grandpa", message, "assistant")
 
+    def _apply_response_mode(self):
+        selected = (self.response_mode_var.get() or "Voice").strip().lower()
+        if selected == "text":
+            voice_speak_module.set_response_mode("text")
+        else:
+            voice_speak_module.set_response_mode("voice")
+
     def _set_voice_ui_state(self, listening):
         if listening:
             self.voice_state_var.set("Listening...")
@@ -447,10 +467,15 @@ class JarvisUI:
     @contextlib.contextmanager
     def _patched_speaker(self):
         original_command_router_speak = command_router_module.speak
-        original_voice_speak = voice_speak_module.speak
+        original_voice_speak = self._real_voice_speak
 
         def ui_speak(text, *args, **kwargs):
-            self.root.after(0, lambda: self._append_message("Grandpa", str(text), "assistant"))
+            cleaned = self._clean_console_text(str(text))
+            if not cleaned:
+                return
+            self.root.after(0, lambda value=cleaned: self._append_message("Grandpa", value, "assistant"))
+            if (self.response_mode_var.get() or "Voice").strip().lower() == "voice":
+                original_voice_speak(cleaned, already_printed=True)
 
         command_router_module.speak = ui_speak
         voice_speak_module.speak = ui_speak
@@ -483,12 +508,15 @@ class JarvisUI:
         buffer = io.StringIO()
         with self._patched_speaker():
             original_ui_append = self._append_message
+            original_voice_speak = self._real_voice_speak
 
             def capture_speak(text, *args, **kwargs):
                 cleaned = self._clean_console_text(str(text))
                 if cleaned:
                     spoken_messages.append(cleaned)
                     self.root.after(0, lambda value=cleaned: original_ui_append("Grandpa", value, "assistant"))
+                    if (self.response_mode_var.get() or "Voice").strip().lower() == "voice":
+                        original_voice_speak(cleaned, already_printed=True)
 
             command_router_module.speak = capture_speak
             voice_speak_module.speak = capture_speak
