@@ -1,267 +1,389 @@
+import contextlib
 import datetime
+import io
 import threading
 import tkinter as tk
-from contextlib import contextmanager
-from tkinter import scrolledtext
+from tkinter import ttk
 
-import core.command_router as command_router
-import modules.system_module as system_module
-import voice.speak as voice_speak_module
 from brain.database import get_recent_commands
-from modules.dashboard_module import build_dashboard_report, build_today_agenda
-from modules.event_module import get_event_data
+from core.command_router import process_command
 from modules.health_module import get_system_status
 from modules.task_module import get_task_data
 from modules.weather_module import get_weather_report
+
+
+PALETTE = {
+    "blue": "#0d6efd",
+    "indigo": "#6610f2",
+    "purple": "#6f42c1",
+    "pink": "#d63384",
+    "red": "#dc3545",
+    "orange": "#fd7e14",
+    "yellow": "#ffc107",
+    "green": "#198754",
+    "teal": "#20c997",
+    "cyan": "#0dcaf0",
+    "white": "#fff",
+    "gray": "#6c757d",
+    "gray_dark": "#343a40",
+    "primary": "#6244c5",
+    "secondary": "#ffc448",
+    "success": "#198754",
+    "info": "#0dcaf0",
+    "warning": "#ffc107",
+    "danger": "#dc3545",
+    "light": "#fafafb",
+    "dark": "#12141d",
+}
 
 
 class JarvisUI:
     def __init__(self, installed_apps):
         self.installed_apps = installed_apps
         self.root = tk.Tk()
-        self.root.title("Grandpa Assistant Control Center")
-        self.root.geometry("1360x860")
-        self.root.minsize(1120, 720)
-        self.root.configure(bg="#08141a")
+        self.root.title("Grandpa Assistant")
+        self.root.geometry("1180x760")
+        self.root.minsize(1040, 680)
+        self.root.configure(bg=PALETTE["light"])
 
-        self._build_styles()
+        self.time_var = tk.StringVar()
+        self.date_var = tk.StringVar()
+        self.input_var = tk.StringVar()
+        self.tasks_var = tk.StringVar(value="0 pending")
+        self.reminders_var = tk.StringVar(value="0 reminders")
+        self.weather_var = tk.StringVar(value="Weather unavailable")
+        self.health_var = tk.StringVar(value="Health unavailable")
+
+        self._configure_styles()
         self._build_layout()
-        self._refresh_dashboard()
-        self._tick_clock()
+        self._update_clock()
+        self._refresh_cards()
 
-    def _build_styles(self):
-        self.colors = {
-            "bg": "#08141a",
-            "panel": "#10232c",
-            "panel_alt": "#132d38",
-            "card": "#173947",
-            "accent": "#f3b74f",
-            "accent_alt": "#67d5c2",
-            "text": "#edf6f2",
-            "muted": "#9bb8bb",
-            "danger": "#ff7b72",
-            "success": "#77dd77",
-            "border": "#245262",
-        }
-
-    def _panel(self, parent, **kwargs):
-        defaults = {
-            "bg": self.colors["panel"],
-            "bd": 0,
-            "highlightthickness": 1,
-            "highlightbackground": self.colors["border"],
-            "highlightcolor": self.colors["border"],
-        }
-        defaults.update(kwargs)
-        return tk.Frame(parent, **defaults)
-
-    def _label(self, parent, text="", size=12, bold=False, color=None, bg=None, **kwargs):
-        return tk.Label(
-            parent,
-            text=text,
-            fg=color or self.colors["text"],
-            bg=bg or parent.cget("bg"),
-            font=("Segoe UI", size, "bold" if bold else "normal"),
-            **kwargs,
+    def _configure_styles(self):
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure(
+            "Jarvis.TFrame",
+            background=PALETTE["light"],
+        )
+        style.configure(
+            "JarvisCard.TFrame",
+            background=PALETTE["white"],
+            borderwidth=0,
+        )
+        style.configure(
+            "Jarvis.TEntry",
+            fieldbackground=PALETTE["white"],
+            foreground=PALETTE["dark"],
+            borderwidth=0,
+            padding=10,
         )
 
     def _build_layout(self):
-        root = self.root
+        self.root.grid_columnconfigure(0, weight=1)
+        self.root.grid_rowconfigure(2, weight=1)
 
-        header = tk.Frame(root, bg=self.colors["bg"])
-        header.pack(fill="x", padx=24, pady=(24, 10))
+        outer = tk.Frame(self.root, bg=PALETTE["light"], padx=28, pady=24)
+        outer.grid(sticky="nsew")
+        outer.grid_columnconfigure(0, weight=1)
+        outer.grid_rowconfigure(2, weight=1)
 
-        title_wrap = tk.Frame(header, bg=self.colors["bg"])
-        title_wrap.pack(side="left", fill="x", expand=True)
-        self._label(title_wrap, "Grandpa Assistant", size=30, bold=True, color=self.colors["accent"]).pack(anchor="w")
-        self._label(
-            title_wrap,
-            "Simple control center",
-            size=12,
-            color=self.colors["muted"],
-        ).pack(anchor="w", pady=(4, 0))
+        header = tk.Frame(outer, bg=PALETTE["light"])
+        header.grid(row=0, column=0, sticky="ew")
+        header.grid_columnconfigure(1, weight=1)
 
-        status_wrap = tk.Frame(header, bg=self.colors["bg"])
-        status_wrap.pack(side="right", anchor="e")
-        self.clock_label = self._label(status_wrap, "", size=18, bold=True, color=self.colors["accent_alt"])
-        self.clock_label.pack(anchor="e")
-        self.subtitle_label = self._label(status_wrap, "", size=10, color=self.colors["muted"])
-        self.subtitle_label.pack(anchor="e", pady=(3, 0))
+        logo_wrap = tk.Frame(header, bg=PALETTE["light"])
+        logo_wrap.grid(row=0, column=0, sticky="w")
 
-        status_panel = self._panel(root, bg=self.colors["panel_alt"])
-        status_panel.pack(fill="x", padx=24, pady=(0, 10))
-        self.status_values = {}
-
-        for index, label in enumerate(["Tasks", "Reminders", "Weather", "Health"]):
-            card = tk.Frame(status_panel, bg=status_panel.cget("bg"))
-            card.grid(row=0, column=index, sticky="ew", padx=(12 if index == 0 else 8, 12 if index == 3 else 0), pady=12)
-            status_panel.grid_columnconfigure(index, weight=1)
-            self._label(card, label, size=10, bold=True, color=self.colors["muted"]).pack(anchor="w")
-            value_label = self._label(card, "-", size=12, bold=True)
-            value_label.pack(anchor="w", pady=(4, 0))
-            self.status_values[label.lower()] = value_label
-
-        quick_panel = self._panel(root)
-        quick_panel.pack(fill="x", padx=24, pady=(0, 10))
-        self._label(quick_panel, "Quick Actions", size=12, bold=True, color=self.colors["muted"]).pack(anchor="w", padx=14, pady=(10, 8))
-
-        quick_wrap = tk.Frame(quick_panel, bg=quick_panel.cget("bg"))
-        quick_wrap.pack(fill="x", padx=12, pady=(0, 12))
-
-        action_commands = [
-            ("Agenda", "today agenda"),
-            ("Weather", "weather"),
-            ("System", "system status"),
-            ("Call Appa", "call appa"),
-            ("Message Amma", "message to amma saying saptiya"),
-            ("Settings", "show settings"),
-        ]
-
-        for index, (label, command) in enumerate(action_commands):
-            button = tk.Button(
-                quick_wrap,
-                text=label,
-                command=lambda cmd=command: self._submit_command(cmd),
-                bg="#155e75",
-                fg="white",
-                relief="flat",
-                font=("Segoe UI", 10, "bold"),
-                cursor="hand2",
-                padx=14,
-                pady=8,
-            )
-            button.grid(row=0, column=index, padx=(0, 8), sticky="w")
-
-        console_panel = self._panel(root, bg="#0f1d24")
-        console_panel.pack(fill="both", expand=True, padx=24, pady=(0, 18))
-        console_panel.grid_rowconfigure(1, weight=1)
-        console_panel.grid_columnconfigure(0, weight=1)
-
-        self._label(console_panel, "Conversation Console", size=15, bold=True).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 8))
-
-        self.console = scrolledtext.ScrolledText(
-            console_panel,
-            wrap="word",
-            bg="#0b171d",
-            fg=self.colors["text"],
-            insertbackground=self.colors["accent"],
-            selectbackground="#245262",
-            relief="flat",
-            font=("Consolas", 11),
-            padx=12,
-            pady=12,
+        logo = tk.Canvas(
+            logo_wrap,
+            width=92,
+            height=92,
+            bg=PALETTE["light"],
+            highlightthickness=0,
+            bd=0,
         )
-        self.console.grid(row=1, column=0, sticky="nsew", padx=14)
+        logo.pack(side="left")
+        self._draw_logo(logo)
+
+        title_wrap = tk.Frame(logo_wrap, bg=PALETTE["light"])
+        title_wrap.pack(side="left", padx=(14, 0))
+        tk.Label(
+            title_wrap,
+            text="Grandpa Assistant",
+            font=("Segoe UI Semibold", 28),
+            fg=PALETTE["dark"],
+            bg=PALETTE["light"],
+        ).pack(anchor="w")
+        tk.Label(
+            title_wrap,
+            text="Simple voice-first control center",
+            font=("Segoe UI", 12),
+            fg=PALETTE["gray"],
+            bg=PALETTE["light"],
+        ).pack(anchor="w", pady=(2, 0))
+
+        time_wrap = tk.Frame(header, bg=PALETTE["light"])
+        time_wrap.grid(row=0, column=1, sticky="e")
+        tk.Label(
+            time_wrap,
+            textvariable=self.time_var,
+            font=("Segoe UI Semibold", 24),
+            fg=PALETTE["primary"],
+            bg=PALETTE["light"],
+        ).pack(anchor="e")
+        tk.Label(
+            time_wrap,
+            textvariable=self.date_var,
+            font=("Segoe UI", 12),
+            fg=PALETTE["gray"],
+            bg=PALETTE["light"],
+        ).pack(anchor="e")
+
+        cards = tk.Frame(outer, bg=PALETTE["light"])
+        cards.grid(row=1, column=0, sticky="ew", pady=(22, 20))
+        for index in range(4):
+            cards.grid_columnconfigure(index, weight=1)
+
+        self._build_card(cards, 0, "Tasks", self.tasks_var, PALETTE["primary"])
+        self._build_card(cards, 1, "Reminders", self.reminders_var, PALETTE["secondary"])
+        self._build_card(cards, 2, "Weather", self.weather_var, PALETTE["cyan"])
+        self._build_card(cards, 3, "Health", self.health_var, PALETTE["green"])
+
+        main = tk.Frame(outer, bg=PALETTE["white"], bd=0, highlightthickness=0)
+        main.grid(row=2, column=0, sticky="nsew")
+        main.grid_columnconfigure(0, weight=1)
+        main.grid_rowconfigure(1, weight=1)
+
+        quick = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=18)
+        quick.grid(row=0, column=0, sticky="ew")
+        tk.Label(
+            quick,
+            text="Quick Actions",
+            font=("Segoe UI Semibold", 13),
+            fg=PALETTE["dark"],
+            bg=PALETTE["white"],
+        ).pack(anchor="w")
+
+        quick_buttons = tk.Frame(quick, bg=PALETTE["white"])
+        quick_buttons.pack(anchor="w", pady=(12, 0), fill="x")
+
+        actions = [
+            ("Today Agenda", "today agenda", PALETTE["primary"]),
+            ("System Status", "system status", PALETTE["dark"]),
+            ("Weather", "weather", PALETTE["secondary"]),
+            ("Call Appa", "call appa", PALETTE["success"]),
+        ]
+        for text, command, color in actions:
+            tk.Button(
+                quick_buttons,
+                text=text,
+                command=lambda value=command: self._run_quick_action(value),
+                bg=color,
+                fg=PALETTE["white"] if color != PALETTE["secondary"] else PALETTE["dark"],
+                activebackground=color,
+                activeforeground=PALETTE["white"] if color != PALETTE["secondary"] else PALETTE["dark"],
+                relief="flat",
+                bd=0,
+                padx=16,
+                pady=10,
+                font=("Segoe UI Semibold", 11),
+                cursor="hand2",
+            ).pack(side="left", padx=(0, 10))
+
+        console_wrap = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=(0, 18))
+        console_wrap.grid(row=1, column=0, sticky="nsew")
+        console_wrap.grid_columnconfigure(0, weight=1)
+        console_wrap.grid_rowconfigure(1, weight=1)
+
+        tk.Label(
+            console_wrap,
+            text="Conversation",
+            font=("Segoe UI Semibold", 13),
+            fg=PALETTE["dark"],
+            bg=PALETTE["white"],
+        ).grid(row=0, column=0, sticky="w", pady=(0, 10))
+
+        self.console = tk.Text(
+            console_wrap,
+            bg=PALETTE["dark"],
+            fg=PALETTE["light"],
+            insertbackground=PALETTE["white"],
+            relief="flat",
+            bd=0,
+            wrap="word",
+            font=("Consolas", 12),
+            padx=16,
+            pady=16,
+        )
+        self.console.grid(row=1, column=0, sticky="nsew")
+        self.console.tag_configure("you", foreground=PALETTE["secondary"], font=("Segoe UI Semibold", 11))
+        self.console.tag_configure("assistant", foreground=PALETTE["cyan"], font=("Segoe UI Semibold", 11))
+        self.console.tag_configure("body", foreground=PALETTE["light"], font=("Consolas", 12))
+        self.console.insert("end", "Assistant ready.\n\n", ("assistant", "body"))
         self.console.configure(state="disabled")
 
-        entry_wrap = tk.Frame(console_panel, bg=console_panel.cget("bg"))
-        entry_wrap.grid(row=2, column=0, sticky="ew", padx=14, pady=14)
+        bottom = tk.Frame(main, bg=PALETTE["white"], padx=22, pady=(0, 22))
+        bottom.grid(row=2, column=0, sticky="ew")
+        bottom.grid_columnconfigure(0, weight=1)
+
+        entry_wrap = tk.Frame(bottom, bg=PALETTE["light"], bd=0, highlightthickness=0)
+        entry_wrap.grid(row=0, column=0, sticky="ew", padx=(0, 12))
         entry_wrap.grid_columnconfigure(0, weight=1)
 
-        self.command_entry = tk.Entry(
+        entry = tk.Entry(
             entry_wrap,
-            bg="#10232c",
-            fg=self.colors["text"],
-            insertbackground=self.colors["accent"],
-            relief="flat",
+            textvariable=self.input_var,
             font=("Segoe UI", 12),
-        )
-        self.command_entry.grid(row=0, column=0, sticky="ew", ipady=10, padx=(0, 10))
-        self.command_entry.bind("<Return>", lambda _event: self._submit_command())
-
-        send_button = tk.Button(
-            entry_wrap,
-            text="Run Command",
-            command=self._submit_command,
-            bg=self.colors["accent"],
-            fg="#1b1408",
+            bg=PALETTE["light"],
+            fg=PALETTE["dark"],
             relief="flat",
-            font=("Segoe UI", 11, "bold"),
-            padx=16,
-            cursor="hand2",
+            bd=0,
+            insertbackground=PALETTE["dark"],
         )
-        send_button.grid(row=0, column=1)
+        entry.grid(row=0, column=0, sticky="ew", padx=16, pady=14)
+        entry.bind("<Return>", lambda _event: self._submit_command())
+        entry.focus_set()
 
-    def _append_console(self, speaker, text):
-        self.console.configure(state="normal")
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        self.console.insert("end", f"[{timestamp}] {speaker}: {text}\n\n")
-        self.console.see("end")
-        self.console.configure(state="disabled")
+        tk.Button(
+            bottom,
+            text="Run",
+            command=self._submit_command,
+            bg=PALETTE["primary"],
+            fg=PALETTE["white"],
+            activebackground=PALETTE["primary"],
+            activeforeground=PALETTE["white"],
+            relief="flat",
+            bd=0,
+            padx=24,
+            pady=14,
+            font=("Segoe UI Semibold", 12),
+            cursor="hand2",
+        ).grid(row=0, column=1, sticky="e")
 
-    @contextmanager
-    def _patched_speakers(self):
-        originals = {
-            "command_router": command_router.speak,
-            "system_module": system_module.speak,
-            "voice_module": voice_speak_module.speak,
-        }
+    def _build_card(self, parent, column, title, variable, accent):
+        card = tk.Frame(parent, bg=PALETTE["white"], padx=18, pady=16)
+        card.grid(row=0, column=column, sticky="nsew", padx=(0 if column == 0 else 10, 0))
+        tk.Frame(card, bg=accent, height=4).pack(fill="x", side="top", pady=(0, 12))
+        tk.Label(
+            card,
+            text=title,
+            font=("Segoe UI Semibold", 11),
+            fg=PALETTE["gray"],
+            bg=PALETTE["white"],
+        ).pack(anchor="w")
+        tk.Label(
+            card,
+            textvariable=variable,
+            font=("Segoe UI Semibold", 14),
+            fg=PALETTE["dark"],
+            bg=PALETTE["white"],
+            wraplength=210,
+            justify="left",
+        ).pack(anchor="w", pady=(6, 0))
 
-        def ui_speak(text, *args, **kwargs):
-            self.root.after(0, lambda: self._append_console("Grandpa", str(text)))
+    def _draw_logo(self, canvas):
+        canvas.create_polygon(18, 14, 32, 24, 32, 48, 12, 26, fill=PALETTE["secondary"], outline="")
+        canvas.create_polygon(74, 14, 60, 24, 60, 48, 80, 26, fill=PALETTE["secondary"], outline="")
+        canvas.create_oval(23, 28, 69, 66, fill=PALETTE["secondary"], outline="")
+        canvas.create_polygon(24, 50, 14, 76, 30, 90, 38, 62, fill=PALETTE["light"], outline="")
+        canvas.create_polygon(68, 50, 78, 76, 62, 90, 54, 62, fill=PALETTE["light"], outline="")
+        canvas.create_polygon(30, 60, 46, 88, 62, 60, 60, 84, 46, 92, 32, 84, fill=PALETTE["gray"], outline="")
+        canvas.create_oval(28, 42, 42, 55, fill=PALETTE["orange"], outline="")
+        canvas.create_oval(52, 44, 57, 49, fill=PALETTE["dark"], outline="")
+        canvas.create_oval(43, 52, 49, 58, fill=PALETTE["dark"], outline="")
 
-        command_router.speak = ui_speak
-        system_module.speak = ui_speak
-        voice_speak_module.speak = ui_speak
-        try:
-            yield
-        finally:
-            command_router.speak = originals["command_router"]
-            system_module.speak = originals["system_module"]
-            voice_speak_module.speak = originals["voice_module"]
-
-    def _run_command_thread(self, command_text):
-        with self._patched_speakers():
-            try:
-                command_router.process_command(command_text.lower().strip(), self.installed_apps, input_mode="text")
-            except Exception as error:
-                self.root.after(0, lambda: self._append_console("System", f"Command failed: {error}"))
-        self.root.after(0, self._refresh_dashboard)
-
-    def _submit_command(self, preset_command=None):
-        command_text = preset_command or self.command_entry.get().strip()
-        if not command_text:
-            return
-
-        if not preset_command:
-            self.command_entry.delete(0, "end")
-
-        self._append_console("You", command_text)
-        threading.Thread(target=self._run_command_thread, args=(command_text,), daemon=True).start()
-
-    def _tick_clock(self):
+    def _update_clock(self):
         now = datetime.datetime.now()
-        self.clock_label.config(text=now.strftime("%I:%M %p"))
-        self.subtitle_label.config(text=now.strftime("%A, %d %B %Y"))
-        self.root.after(1000, self._tick_clock)
+        self.time_var.set(now.strftime("%I:%M %p"))
+        self.date_var.set(now.strftime("%A, %d %B %Y"))
+        self.root.after(1000, self._update_clock)
 
-    def _refresh_dashboard(self):
-        task_data = get_task_data()
-        pending_count = sum(1 for item in task_data.get("tasks", []) if not item.get("completed"))
-        reminder_count = len(task_data.get("reminders", []))
-
-        self.status_values["tasks"].config(text=f"{pending_count} pending")
-        self.status_values["reminders"].config(text=f"{reminder_count} active")
+    def _refresh_cards(self):
+        try:
+            data = get_task_data()
+            pending = [task for task in data.get("tasks", []) if not task.get("completed")]
+            reminders = data.get("reminders", [])
+            self.tasks_var.set(f"{len(pending)} pending")
+            self.reminders_var.set(f"{len(reminders)} reminders")
+        except Exception:
+            self.tasks_var.set("Unavailable")
+            self.reminders_var.set("Unavailable")
 
         try:
             weather = get_weather_report("weather")
-            self.status_values["weather"].config(text=(weather.split(".")[0].strip() if weather else "Unavailable")[:34])
+            self.weather_var.set(self._compact_text(weather, 50))
         except Exception:
-            self.status_values["weather"].config(text="Unavailable")
+            self.weather_var.set("Unavailable")
 
         try:
-            health_text = get_system_status()
-            short_health = "Healthy" if health_text else "Unavailable"
-            self.status_values["health"].config(text=short_health)
+            health = get_system_status()
+            self.health_var.set(self._compact_health(health))
         except Exception:
-            self.status_values["health"].config(text="Unavailable")
+            self.health_var.set("Unavailable")
 
-        self.root.title(f"Grandpa Assistant  |  {pending_count} tasks  |  {reminder_count} reminders")
+        self.root.after(120000, self._refresh_cards)
 
-        self.root.after(15000, self._refresh_dashboard)
+    def _compact_text(self, text, limit):
+        if not text:
+            return "Unavailable"
+        text = " ".join(str(text).split())
+        if len(text) <= limit:
+            return text
+        return text[: limit - 3].rstrip() + "..."
+
+    def _compact_health(self, text):
+        if not text:
+            return "Unavailable"
+        cpu_match = __import__("re").search(r"CPU usage is currently ([0-9.]+)", text)
+        ram_match = __import__("re").search(r"RAM usage is ([0-9.]+)", text)
+        battery_match = __import__("re").search(r"Battery is at ([0-9.]+)%", text)
+        parts = []
+        if cpu_match:
+            parts.append(f"CPU {cpu_match.group(1)}%")
+        if ram_match:
+            parts.append(f"RAM {ram_match.group(1)}%")
+        if battery_match:
+            parts.append(f"Battery {battery_match.group(1)}%")
+        return " | ".join(parts) if parts else self._compact_text(text, 50)
+
+    def _run_quick_action(self, command):
+        self.input_var.set(command)
+        self._submit_command()
+
+    def _submit_command(self):
+        command = self.input_var.get().strip()
+        if not command:
+            return
+
+        self.input_var.set("")
+        self._append_message("You", command, "you")
+        threading.Thread(target=self._execute_command, args=(command,), daemon=True).start()
+
+    def _execute_command(self, command):
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            try:
+                process_command(command.lower(), self.installed_apps, input_mode="text")
+            except Exception as error:
+                output = f"Assistant error: {error}"
+            else:
+                output = buffer.getvalue().strip() or "Command completed."
+
+        self.root.after(0, lambda: self._finish_command(output))
+
+    def _finish_command(self, output):
+        self._append_message("Grandpa", output, "assistant")
+        self._refresh_cards()
+
+    def _append_message(self, speaker, text, tag):
+        self.console.configure(state="normal")
+        self.console.insert("end", f"{speaker}: ", tag)
+        self.console.insert("end", f"{text}\n\n", "body")
+        self.console.configure(state="disabled")
+        self.console.see("end")
 
     def run(self):
-        self.command_entry.focus_set()
         self.root.mainloop()
 
 
