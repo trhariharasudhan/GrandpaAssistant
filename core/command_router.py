@@ -145,6 +145,8 @@ from modules.window_context_module import (
     editor_run_current_file,
     editor_save_current_file,
     get_active_app_name,
+    handle_visible_screen_action,
+    handle_whatsapp_screen_action,
     summarize_code_editor,
 )
 from controls.brightness_control import handle_brightness
@@ -2817,6 +2819,16 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     voice_access_reply = handle_voice_access_control(command)
     if voice_access_reply:
         speak(voice_access_reply)
+        return
+
+    whatsapp_screen_reply = handle_whatsapp_screen_action(command)
+    if whatsapp_screen_reply:
+        speak(whatsapp_screen_reply)
+        return
+
+    visible_screen_reply = handle_visible_screen_action(command)
+    if visible_screen_reply:
+        speak(visible_screen_reply)
         return
 
     if command in [

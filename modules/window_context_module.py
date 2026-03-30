@@ -17,6 +17,7 @@ from vision.screen_reader import (
 BROWSER_APPS = {"chrome", "msedge", "microsoft edge", "firefox", "brave", "opera"}
 EDITOR_APPS = {"visual studio code", "vscode", "antigravity"}
 EXPLORER_APPS = {"file explorer", "explorer"}
+WHATSAPP_APPS = {"whatsapp"}
 
 
 def get_active_window_info():
@@ -210,6 +211,163 @@ def _confirm_action(message, info):
     if not info:
         return message
     return f"{message} Active window: {info['title']}."
+
+
+def _is_whatsapp_window(info):
+    if not info:
+        return False
+    title = (info.get("title") or "").lower()
+    app_key = (info.get("app_key") or "").lower()
+    return "whatsapp" in title or app_key in WHATSAPP_APPS
+
+
+def _visible_entries(limit=12):
+    entries = get_screen_text_entries()
+    if not entries:
+        return []
+    cleaned = []
+    seen = set()
+    for entry in entries:
+        text = (entry.get("text") or "").strip()
+        lowered = text.lower()
+        if not text or lowered in seen:
+            continue
+        seen.add(lowered)
+        cleaned.append(entry)
+        if len(cleaned) >= limit:
+            break
+    return cleaned
+
+
+def describe_visible_screen_targets(limit=10):
+    entries = _visible_entries(limit=limit)
+    if not entries:
+        return "I could not clearly detect visible items on the current screen."
+    names = [entry["text"] for entry in entries[:limit]]
+    return "Visible items include: " + " | ".join(names)
+
+
+def _click_visible_target(target, click_type="single"):
+    details = find_text_details(target)
+    if not details:
+        return None
+
+    x, y = details["center"]
+    if click_type == "double":
+        pyautogui.doubleClick(x, y)
+    elif click_type == "right":
+        pyautogui.rightClick(x, y)
+    else:
+        pyautogui.click(x, y)
+    return details
+
+
+def handle_visible_screen_action(command):
+    normalized = " ".join((command or "").strip().split())
+    lowered = normalized.lower()
+    info = get_active_window_info()
+
+    if lowered in [
+        "what can you see here",
+        "what is visible here",
+        "what do you see on screen",
+        "list visible items",
+        "show visible items",
+    ]:
+        return describe_visible_screen_targets()
+
+    pattern_map = [
+        (r"^open (?:this )?(?:file|folder|item )?(.+)$", "double", "Opened"),
+        (r"^double click (?:this )?(?:file|folder|item )?(.+)$", "double", "Double-clicked"),
+        (r"^right click (?:this )?(?:file|folder|item )?(.+)$", "right", "Right-clicked"),
+        (r"^select (?:this )?(?:file|folder|item )?(.+)$", "single", "Selected"),
+        (r"^click (?:this )?(?:file|folder|item )?(.+)$", "single", "Clicked"),
+    ]
+
+    for pattern, click_type, verb in pattern_map:
+        match = re.match(pattern, lowered)
+        if not match:
+            continue
+        target = match.group(1).strip()
+        if not target:
+            return f"Tell me which visible item you want me to {verb.lower()}."
+        details = _click_visible_target(target, click_type=click_type)
+        if details:
+            return _confirm_action(f"{verb} {details['text']}.", info)
+        return f"I could not find {target} on the current screen."
+
+    match = re.match(r"^copy (?:this )?(?:file|folder|item )?(.+)$", lowered)
+    if match:
+        target = match.group(1).strip()
+        if not target:
+            return "Tell me which visible item you want me to copy."
+        details = _click_visible_target(target, click_type="single")
+        if not details:
+            return f"I could not find {target} on the current screen."
+        time.sleep(0.1)
+        keyboard.send("ctrl+c")
+        return _confirm_action(f"Selected and copied {details['text']}.", info)
+
+    if lowered in ["copy this", "copy selected item", "copy selected file", "copy selected folder"]:
+        keyboard.send("ctrl+c")
+        return _confirm_action("Copied the currently selected item.", info)
+
+    if lowered in ["paste here", "paste this here", "paste now"]:
+        keyboard.send("ctrl+v")
+        return _confirm_action("Pasted here.", info)
+
+    if lowered in ["open selected item", "open selected file", "open selected folder"]:
+        return explorer_open_selected_item()
+
+    return None
+
+
+def handle_whatsapp_screen_action(command):
+    normalized = " ".join((command or "").strip().split())
+    lowered = normalized.lower()
+    info = get_active_window_info()
+    if not _is_whatsapp_window(info):
+        return None
+
+    if lowered in ["whatsapp status", "what is on whatsapp", "summarize whatsapp"]:
+        return summarize_whatsapp_context()
+
+    tab_map = {
+        "go to status": "Status",
+        "go to updates": "Updates",
+        "go to calls": "Calls",
+        "go to chats": "Chats",
+        "go to communities": "Communities",
+    }
+    if lowered in tab_map:
+        target = tab_map[lowered]
+        details = _click_visible_target(target, click_type="single")
+        if details:
+            return f"Opened WhatsApp {target.lower()}."
+        return f"I could not find WhatsApp {target.lower()} right now."
+
+    open_chat_match = re.match(r"^(?:open chat|open whatsapp chat|go to chat)\s+(.+)$", lowered)
+    if open_chat_match:
+        target = open_chat_match.group(1).strip()
+        details = _click_visible_target(target, click_type="single")
+        if details:
+            return f"Opened WhatsApp chat {details['text']}."
+        return f"I could not find WhatsApp chat {target} right now."
+
+    call_match = re.match(r"^(?:call on whatsapp|whatsapp call|open whatsapp call for)\s+(.+)$", lowered)
+    if call_match:
+        target = call_match.group(1).strip()
+        details = _click_visible_target(target, click_type="single")
+        if not details:
+            return f"I could not find WhatsApp chat {target} right now."
+        time.sleep(0.8)
+        for button_text in ["Voice call", "Call", "voice call"]:
+            call_details = _click_visible_target(button_text, click_type="single")
+            if call_details:
+                return f"Opened WhatsApp chat {details['text']} and started the call flow."
+        return f"Opened WhatsApp chat {details['text']}, but I could not find the call button."
+
+    return None
 
 
 def get_current_browser_page_title():
