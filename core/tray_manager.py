@@ -18,6 +18,8 @@ except ImportError:
 _tray_icon = None
 _tray_thread = None
 _exit_callback = None
+_open_react_browser_callback = None
+_open_react_desktop_callback = None
 
 
 def is_tray_available():
@@ -27,6 +29,12 @@ def is_tray_available():
 def set_tray_exit_callback(callback):
     global _exit_callback
     _exit_callback = callback
+
+
+def set_tray_open_callbacks(open_react_browser=None, open_react_desktop=None):
+    global _open_react_browser_callback, _open_react_desktop_callback
+    _open_react_browser_callback = open_react_browser
+    _open_react_desktop_callback = open_react_desktop
 
 
 def _get_console_window():
@@ -80,8 +88,22 @@ def start_tray(on_quit=None):
         if callback:
             callback()
 
+    def open_react_browser_action(icon, item):
+        if _open_react_browser_callback:
+            _open_react_browser_callback()
+        else:
+            icon.notify("React browser launcher is not configured.")
+
+    def open_react_desktop_action(icon, item):
+        if _open_react_desktop_callback:
+            _open_react_desktop_callback()
+        else:
+            icon.notify("React desktop launcher is not configured.")
+
     menu = pystray.Menu(
         pystray.MenuItem("Open Grandpa Assistant", restore_action),
+        pystray.MenuItem("Open React Browser UI", open_react_browser_action),
+        pystray.MenuItem("Open React Desktop UI", open_react_desktop_action),
         pystray.MenuItem("Exit Assistant", quit_action),
     )
 

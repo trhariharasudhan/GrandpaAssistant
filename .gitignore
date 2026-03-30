@@ -23,3 +23,4 @@ data/google_calendar_token.json
 data/google_calendar_cache.json
 data/telegram_state.json
 data/telegram_remote_log.json
+/package-lock.json

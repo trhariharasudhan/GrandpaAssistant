@@ -258,6 +258,15 @@ This opens:
 - React dev server
 - Electron desktop shell
 
+### Frontend-only launchers
+
+If the backend is already running in tray or another window:
+
+```powershell
+start_react_frontend.cmd
+start_react_electron.cmd
+```
+
 ### Start directly in tray mode
 
 ```powershell

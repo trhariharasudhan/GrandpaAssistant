@@ -114,6 +114,11 @@ from modules.google_calendar_module import (
     upcoming_google_calendar_events,
 )
 from modules.messaging_automation_module import quick_email_shortcut, quick_whatsapp_message
+from modules.desktop_launch_module import (
+    open_react_browser_ui,
+    open_react_desktop_ui,
+    tray_react_status,
+)
 from modules.startup_module import (
     disable_startup_auto_launch,
     enable_startup_auto_launch,
@@ -1648,6 +1653,56 @@ def _handle_config_command(command):
         "auto launch status",
     ]:
         return startup_auto_launch_status()
+
+    if command in [
+        "open react ui",
+        "open react browser ui",
+        "open web ui",
+    ]:
+        _ok, reply = open_react_browser_ui()
+        return reply
+
+    if command in [
+        "open react desktop",
+        "open desktop shell",
+        "open react desktop ui",
+    ]:
+        _ok, reply = open_react_desktop_ui()
+        return reply
+
+    if command in [
+        "tray react status",
+        "react tray status",
+    ]:
+        return tray_react_status()
+
+    if command in [
+        "enable tray react ui",
+        "enable react ui on tray startup",
+    ]:
+        update_setting("startup.react_ui_on_tray_enabled", True)
+        return "Tray React UI launch enabled."
+
+    if command in [
+        "disable tray react ui",
+        "disable react ui on tray startup",
+    ]:
+        update_setting("startup.react_ui_on_tray_enabled", False)
+        return "Tray React UI launch disabled."
+
+    if command in [
+        "set tray react mode to browser",
+        "set react tray mode to browser",
+    ]:
+        update_setting("startup.react_ui_on_tray_mode", "browser")
+        return "Tray React UI mode set to browser."
+
+    if command in [
+        "set tray react mode to desktop",
+        "set react tray mode to desktop",
+    ]:
+        update_setting("startup.react_ui_on_tray_mode", "desktop")
+        return "Tray React UI mode set to desktop."
 
     if command in ["enable health popup", "turn on health popup"]:
         update_setting("notifications.health_popup_enabled", True)

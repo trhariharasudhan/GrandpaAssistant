@@ -22,7 +22,7 @@ from core.quick_overlay import (
     show_quick_overlay,
     unregister_overlay_hotkey,
 )
-from core.tray_manager import set_tray_exit_callback, start_tray, stop_tray
+from core.tray_manager import set_tray_exit_callback, set_tray_open_callbacks, start_tray, stop_tray
 from modules.app_scan_module import categorize_apps, get_all_apps, scan_store_apps
 from modules.briefing_module import build_daily_brief, build_due_reminder_alert
 from modules.dictation_module import handle_dictation_text, is_dictation_active, stop_dictation
@@ -40,6 +40,7 @@ from modules.notification_module import (
 )
 from modules.profile_module import build_proactive_nudge
 from modules.messaging_automation_module import restore_scheduled_jobs
+from modules.desktop_launch_module import launch_react_for_tray, open_react_browser_ui, open_react_desktop_ui
 from modules.startup_module import refresh_startup_auto_launch
 from modules.google_contacts_module import start_google_contacts_auto_refresh
 from modules.telegram_module import start_telegram_remote_control
@@ -526,6 +527,10 @@ def main(start_in_tray=False, start_in_ui=False):
     global WAKE_MATCH_THRESHOLD, WAKE_RETRY_WINDOW
 
     set_tray_exit_callback(exit_assistant)
+    set_tray_open_callbacks(
+        open_react_browser=lambda: open_react_browser_ui(),
+        open_react_desktop=lambda: open_react_desktop_ui(),
+    )
     WAKE_WORD = get_setting("wake_word", "hey grandpa")
     INITIAL_TIMEOUT = get_setting("initial_timeout", 15)
     ACTIVE_TIMEOUT = get_setting("active_timeout", 60)
@@ -624,6 +629,7 @@ def main(start_in_tray=False, start_in_ui=False):
         if message:
             print(message)
         if success:
+            launch_react_for_tray()
             set_response_mode("voice")
             speak("Background tray mode activated.")
             voice_mode()

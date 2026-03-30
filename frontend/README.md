@@ -36,6 +36,13 @@ Or to open backend, frontend, and Electron desktop shell together:
 start_react_desktop.cmd
 ```
 
+If the Python backend is already running, you can launch frontend only:
+
+```powershell
+start_react_frontend.cmd
+start_react_electron.cmd
+```
+
 ## Current bridge
 
 - fetches assistant UI state from `http://127.0.0.1:8765/api/ui-state`
