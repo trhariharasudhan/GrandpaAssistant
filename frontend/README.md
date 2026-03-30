@@ -93,6 +93,12 @@ Project-root helper:
 build_react_desktop.cmd
 ```
 
+Setup shortcut for the built portable app:
+
+```powershell
+setup_portable_desktop.cmd
+```
+
 Current direction:
 
 - React + Vite frontend

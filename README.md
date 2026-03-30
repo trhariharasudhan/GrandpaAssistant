@@ -273,6 +273,18 @@ start_react_electron.cmd
 build_react_desktop.cmd
 ```
 
+### Setup portable app shortcut
+
+```powershell
+setup_portable_desktop.cmd
+```
+
+To enable startup launch for the packaged app:
+
+```powershell
+setup_portable_desktop.cmd /startup-on
+```
+
 ### Start directly in tray mode
 
 ```powershell
