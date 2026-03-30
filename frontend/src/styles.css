@@ -198,6 +198,11 @@ input {
   line-height: 1.5;
 }
 
+.compact-list {
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 .status-list li strong {
   color: var(--bs-dark);
 }

@@ -920,7 +920,14 @@ export default function App() {
             {workspaceTab === "settings" ? (
               <div className="workspace-grid">
                 <div className="workspace-card">
-                  <h3>Assistant Settings</h3>
+                  <h3>Runtime</h3>
+                  <ul className="mini-list compact-list">
+                    <li>{`Wake word: ${uiState.settings.wake_word}`}</li>
+                    <li>{`Voice profile: ${uiState.settings.voice_profile}`}</li>
+                    <li>{`Offline mode: ${uiState.settings.offline_mode ? "On" : "Off"}`}</li>
+                    <li>{`Developer mode: ${uiState.settings.developer_mode ? "On" : "Off"}`}</li>
+                    <li>{`Emergency mode: ${uiState.settings.emergency_mode ? "On" : "Off"}`}</li>
+                  </ul>
                   <div className="stack-form">
                     <input
                       value={wakeWordInput}
@@ -936,20 +943,58 @@ export default function App() {
                     <button className="action-button" onClick={() => runCommand("voice status")}>Voice Status</button>
                     <button className="action-button" onClick={() => runCommand("offline mode status")}>Offline Status</button>
                     <button className="action-button" onClick={() => runCommand("developer mode status")}>Developer Status</button>
-                    <button className="action-button" onClick={() => runCommand("assistant startup status")}>Startup Status</button>
-                    <button className="action-button" onClick={() => runCommand("google calendar status")}>Calendar Status</button>
+                    <button className="action-button" onClick={() => runCommand(uiState.settings.offline_mode ? "disable offline mode" : "enable offline mode")}>
+                      {uiState.settings.offline_mode ? "Disable Offline" : "Enable Offline"}
+                    </button>
+                    <button className="action-button" onClick={() => runCommand(uiState.settings.developer_mode ? "disable developer mode" : "enable developer mode")}>
+                      {uiState.settings.developer_mode ? "Disable Dev" : "Enable Dev"}
+                    </button>
                   </div>
                 </div>
 
                 <div className="workspace-card">
-                  <h3>Profiles</h3>
+                  <h3>Preferences</h3>
+                  <ul className="mini-list compact-list">
+                    <li>{`Preferred language: ${uiState.memory.preferred_language}`}</li>
+                    <li>{`Favorite contact: ${uiState.memory.favorite_contact}`}</li>
+                    <li>{`Current mode: ${mode === "voice" ? "Voice" : "Text"}`}</li>
+                  </ul>
                   <div className="action-grid compact">
                     <button className="action-button" onClick={() => runCommand("set preferred language to tamil")}>Tamil</button>
                     <button className="action-button" onClick={() => runCommand("set preferred language to english")}>English</button>
                     <button className="action-button" onClick={() => runCommand("set preferred tone to friendly")}>Friendly</button>
                     <button className="action-button" onClick={() => runCommand("set preferred tone to professional")}>Professional</button>
+                    <button className="action-button" onClick={() => runCommand("what is my preferred language")}>Language Status</button>
+                    <button className="action-button" onClick={() => runCommand("what are my settings")}>Profile Summary</button>
+                  </div>
+                </div>
+
+                <div className="workspace-card">
+                  <h3>Startup</h3>
+                  <ul className="mini-list compact-list">
+                    <li>{startupState.summary}</li>
+                    <li>{`Auto launch: ${startupState.auto_launch_enabled ? "Enabled" : "Disabled"}`}</li>
+                    <li>{`Tray launch: ${startupState.tray_mode ? "Enabled" : "Disabled"}`}</li>
+                  </ul>
+                  <div className="action-grid compact">
                     <button className="action-button" onClick={() => runCommand("enable assistant startup")}>Enable Startup</button>
                     <button className="action-button" onClick={() => runCommand("disable assistant startup")}>Disable Startup</button>
+                    <button className="action-button" onClick={() => runCommand("enable tray startup")}>Enable Tray Startup</button>
+                    <button className="action-button" onClick={() => runCommand("disable tray startup")}>Disable Tray Startup</button>
+                    <button className="action-button" onClick={() => runCommand("assistant startup status")}>Startup Status</button>
+                    <button className="action-button" onClick={() => runCommand("tray react status")}>Tray React Status</button>
+                  </div>
+                </div>
+
+                <div className="workspace-card">
+                  <h3>Integrations</h3>
+                  <div className="action-grid compact">
+                    <button className="action-button" onClick={() => runCommand("google calendar status")}>Calendar Status</button>
+                    <button className="action-button" onClick={() => runCommand("sync google calendar")}>Sync Calendar</button>
+                    <button className="action-button" onClick={() => runCommand("telegram status")}>Telegram Status</button>
+                    <button className="action-button" onClick={() => runCommand("telegram remote status")}>Telegram Remote</button>
+                    <button className="action-button" onClick={() => runCommand("github summary")}>GitHub Summary</button>
+                    <button className="action-button" onClick={() => runCommand("offline ai status")}>Offline AI Status</button>
                   </div>
                 </div>
               </div>
