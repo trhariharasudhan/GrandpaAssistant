@@ -129,8 +129,11 @@ from modules.notes_module import (
     summarize_notes,
 )
 from modules.profile_module import (
+    build_emotion_snapshot,
     build_focus_suggestion,
+    build_habit_snapshot,
     build_personal_snapshot,
+    build_personalized_suggestion,
     build_profile_summary,
     build_proactive_nudge,
 )
@@ -1024,13 +1027,39 @@ COMMAND_REGISTRY = [
         "intent": "profile.snapshot",
         "patterns": [
             "personal snapshot",
-            "tell me my habits",
             "summarize my personal details",
+            "personal details snapshot",
         ],
         "type": "exact",
         "handler": lambda command: build_personal_snapshot(),
         "category": "profile",
         "confidence": 0.97,
+    },
+    {
+        "intent": "profile.habits",
+        "patterns": [
+            "what are my habits",
+            "what commands do i use most",
+            "show my command habits",
+            "what do i use this assistant for the most",
+        ],
+        "type": "exact",
+        "handler": lambda command: build_habit_snapshot(),
+        "category": "profile",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "profile.emotion",
+        "patterns": [
+            "how am i feeling",
+            "what mood am i in",
+            "emotion snapshot",
+            "what emotion did you detect",
+        ],
+        "type": "exact",
+        "handler": lambda command: build_emotion_snapshot(),
+        "category": "profile",
+        "confidence": 0.96,
     },
     {
         "intent": "profile.nudge",
@@ -1043,6 +1072,19 @@ COMMAND_REGISTRY = [
         ],
         "type": "exact",
         "handler": lambda command: build_proactive_nudge(),
+        "category": "profile",
+        "confidence": 0.97,
+    },
+    {
+        "intent": "profile.personalized_suggestion",
+        "patterns": [
+            "what do you suggest i do next",
+            "give me a personalized suggestion",
+            "what should i do based on my habits",
+            "smart suggestion for me",
+        ],
+        "type": "exact",
+        "handler": lambda command: build_personalized_suggestion(),
         "category": "profile",
         "confidence": 0.97,
     },

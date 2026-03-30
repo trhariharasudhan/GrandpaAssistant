@@ -1,3 +1,5 @@
+import re
+
 import speech_recognition as sr
 
 from utils.config import get_setting, update_setting
@@ -53,6 +55,42 @@ VOICE_PROFILES = {
     },
 }
 
+OFFLINE_DIRECT_ALIASES = {
+    "time": "what is the time now",
+    "time now": "what is the time now",
+    "date": "what is the date",
+    "date today": "what is the date",
+    "today date": "what is the date",
+    "agenda": "today agenda",
+    "agenda today": "today agenda",
+    "today agenda": "today agenda",
+    "weather": "weather",
+    "weather now": "weather",
+    "settings": "show settings",
+    "status": "system status",
+    "offline help": "offline help",
+    "notes": "list notes",
+    "tasks": "show tasks",
+    "reminders": "show reminders",
+}
+
+
+def _postprocess_command(command):
+    cleaned = " ".join(str(command or "").strip().lower().split())
+    if not cleaned:
+        return None
+
+    # Voice input often includes the wake phrase even when we're already
+    # listening for direct commands inside the UI.
+    cleaned = re.sub(r"^(?:hey\s+grandpa|hello\s+grandpa|hi\s+grandpa)\b[\s,]*", "", cleaned)
+    cleaned = re.sub(r"^(?:grandpa|odin)\b[\s,]*", "", cleaned)
+
+    cleaned = re.sub(r"^(?:please|could you|can you)\s+", "", cleaned)
+    cleaned = " ".join(cleaned.split())
+    if get_setting("assistant.offline_mode_enabled", False):
+        cleaned = OFFLINE_DIRECT_ALIASES.get(cleaned, cleaned)
+    return cleaned or None
+
 
 def _active_voice_settings():
     mode = get_setting("voice.mode", "normal")
@@ -102,6 +140,18 @@ def apply_voice_profile(profile_name):
 
 def current_voice_mode():
     return get_setting("voice.mode", "normal")
+
+
+def voice_status_summary():
+    settings = _active_voice_settings()
+    offline_mode = get_setting("assistant.offline_mode_enabled", False)
+    return (
+        f"Voice profile is {settings['mode']}. "
+        f"Listen timeout is {settings['listen_timeout']} seconds. "
+        f"Phrase limit is {settings['phrase_time_limit']} seconds. "
+        f"Wake threshold is {settings['wake_match_threshold']}. "
+        f"Offline mode is {'on' if offline_mode else 'off'}."
+    )
 
 
 def _should_recalibrate(settings):
@@ -161,7 +211,9 @@ def listen(for_wake_word=False):
             )
 
             command = recognizer.recognize_google(audio)
-            command = command.lower().strip()
+            command = _postprocess_command(command)
+            if not command:
+                return None
             if len(command) < settings["min_command_chars"]:
                 return None
             return command

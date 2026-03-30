@@ -214,6 +214,50 @@ The project supports:
 python main.py
 ```
 
+### React frontend startup
+
+```powershell
+start_react_ui.cmd
+```
+
+This opens:
+
+- Python backend assistant
+- React frontend dev UI
+
+Manual option:
+
+```powershell
+python main.py
+cd frontend
+npm install
+npm run dev
+```
+
+### React frontend with browser
+
+```powershell
+start_react_full.cmd
+```
+
+This opens:
+
+- Python backend
+- React dev server
+- browser at `http://127.0.0.1:4173`
+
+### React desktop shell
+
+```powershell
+start_react_desktop.cmd
+```
+
+This opens:
+
+- Python backend
+- React dev server
+- Electron desktop shell
+
 ### Start directly in tray mode
 
 ```powershell

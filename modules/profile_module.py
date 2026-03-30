@@ -1,7 +1,19 @@
 import datetime
 
+from brain.database import get_command_frequency
 from brain.memory_engine import load_memory
+from brain.memory_engine import get_memory, set_memory
 from modules.task_module import get_task_data
+
+
+EMOTION_KEYWORDS = {
+    "happy": ["happy", "good", "great", "excited", "awesome", "super"],
+    "sad": ["sad", "down", "upset", "hurt", "crying", "depressed"],
+    "stressed": ["stress", "stressed", "pressure", "overwhelmed", "anxious"],
+    "angry": ["angry", "mad", "annoyed", "irritated", "furious"],
+    "tired": ["tired", "sleepy", "exhausted", "drained", "low energy"],
+    "confused": ["confused", "lost", "stuck", "blank", "unclear"],
+}
 
 
 def _safe_get(data, path, default=None):
@@ -11,6 +23,11 @@ def _safe_get(data, path, default=None):
             return default
         current = current[key]
     return current
+
+
+def _compact_list(values, limit=3):
+    values = [str(value) for value in values if value]
+    return values[:limit]
 
 
 def _join_values(values):
@@ -76,6 +93,89 @@ def build_profile_summary():
         parts.append(f"One of your favorite series is {_first_value(favorite_series)}.")
 
     return " ".join(parts)
+
+
+def detect_emotion(text):
+    normalized = " " + " ".join((text or "").lower().split()) + " "
+    for emotion, keywords in EMOTION_KEYWORDS.items():
+        for keyword in keywords:
+            if f" {keyword} " in normalized:
+                return emotion
+    return None
+
+
+def remember_emotion_signal(text):
+    emotion = detect_emotion(text)
+    if not emotion:
+        return None
+    set_memory("personal.assistant.last_detected_emotion", emotion)
+    set_memory("personal.assistant.last_detected_emotion_at", datetime.datetime.now().isoformat())
+    return emotion
+
+
+def build_emotion_snapshot():
+    emotion = get_memory("personal.assistant.last_detected_emotion")
+    detected_at = get_memory("personal.assistant.last_detected_emotion_at")
+    if not emotion:
+        return "I have not picked up a clear emotional signal from you yet."
+
+    soft_map = {
+        "happy": "You seem to be in a positive mood.",
+        "sad": "You seem a bit low right now.",
+        "stressed": "You seem under pressure right now.",
+        "angry": "You sound frustrated right now.",
+        "tired": "You seem tired right now.",
+        "confused": "You seem a little stuck right now.",
+    }
+    response = soft_map.get(emotion, f"You seem {emotion} right now.")
+    if detected_at:
+        try:
+            time_text = datetime.datetime.fromisoformat(detected_at).strftime("%I:%M %p")
+            response += f" I last picked that up around {time_text}."
+        except ValueError:
+            pass
+    return response
+
+
+def _classify_command(command_text):
+    text = (command_text or "").lower().strip()
+    if not text:
+        return "general"
+    if text.startswith(("call ", "message ", "mail ", "email ", "send whatsapp")):
+        return "communication"
+    if text.startswith(("add task", "complete", "delete task", "remind ", "latest reminder", "what is due")):
+        return "productivity"
+    if text.startswith(("open ", "search ", "summarize selected", "copy selected", "read selected")):
+        return "browser"
+    if text.startswith(("note", "take a note", "add note", "latest note", "list notes")):
+        return "notes"
+    if text.startswith(("weather", "system status", "battery", "storage", "show settings")):
+        return "system"
+    return "general"
+
+
+def build_habit_snapshot():
+    frequency = get_command_frequency(limit=150)
+    if not frequency:
+        return "I do not have enough command history to learn your habits yet."
+
+    top_commands = frequency[:3]
+    category_counts = {}
+    for command_text, count in frequency[:25]:
+        category = _classify_command(command_text)
+        category_counts[category] = category_counts.get(category, 0) + count
+
+    top_category = max(category_counts.items(), key=lambda item: item[1])[0] if category_counts else "general"
+    command_line = " | ".join(f"{command} ({count})" for command, count in top_commands)
+    category_line = {
+        "communication": "You use communication commands the most.",
+        "productivity": "You mostly use the assistant for tasks and reminders.",
+        "browser": "You often use browser and text-intelligence workflows.",
+        "notes": "You regularly use note-related workflows.",
+        "system": "You often check system and status commands.",
+        "general": "Your command usage is still broad and mixed.",
+    }.get(top_category, "Your command usage is still broad and mixed.")
+    return f"{category_line} Top repeated commands: {command_line}."
 
 
 def build_focus_suggestion():
@@ -152,6 +252,47 @@ def build_personal_snapshot():
         parts.append(f"You enjoy foods like {_join_values(favorite_foods[:5])}.")
 
     return " ".join(parts) if parts else "I do not have enough personal snapshot details saved yet."
+
+
+def build_personalized_suggestion():
+    memory = load_memory()
+    data = get_task_data()
+    pending_tasks = [task for task in data.get("tasks", []) if not task.get("completed")]
+    reminders = data.get("reminders", [])
+    emotion = get_memory("personal.assistant.last_detected_emotion")
+    preferred_name = _safe_get(memory, "personal.assistant.preferred_name_for_user", "Hari")
+    study_time = _safe_get(memory, "personal.routine.study_time")
+    current_focus = _safe_get(memory, "professional.learning_path.current_focus", [])
+
+    if emotion == "stressed":
+        if pending_tasks:
+            return (
+                f"{preferred_name}, keep it simple now. "
+                f"Finish one clear task first: {pending_tasks[0].get('title', 'your top task')}."
+            )
+        return f"{preferred_name}, take one small step now and avoid overloading yourself."
+
+    if emotion == "tired":
+        return (
+            f"{preferred_name}, keep this session light. "
+            "Use quick actions or finish one small pending item before taking a break."
+        )
+
+    if pending_tasks:
+        task_titles = _compact_list([task.get("title", "Untitled task") for task in pending_tasks], limit=2)
+        return f"{preferred_name}, your best next move is to finish {', '.join(task_titles)}."
+
+    if reminders:
+        reminder_title = reminders[0].get("title", "your reminder")
+        return f"{preferred_name}, clear {reminder_title} first so the rest of the day stays clean."
+
+    if current_focus:
+        return f"{preferred_name}, a strong next step is to spend focused time on {_join_values(current_focus[:2])}."
+
+    if study_time:
+        return f"{preferred_name}, your planned study slot is {study_time}. Use that block intentionally."
+
+    return build_proactive_nudge()
 
 
 def _parse_time_label(time_text):

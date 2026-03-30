@@ -1,6 +1,9 @@
+import datetime
 import os
 import re
+import contextlib
 from difflib import SequenceMatcher
+import io
 import sys
 import threading
 import time
@@ -8,8 +11,10 @@ import time
 from colorama import Fore, Style, init
 
 from brain.database import get_recent_commands
+import core.command_router as command_router_module
 from core.command_router import process_command
-from core.jarvis_ui import launch_jarvis_ui
+from core.odin_ui import launch_odin_ui
+from core.web_api import start_web_api
 from core.quick_overlay import (
     get_pinned_commands,
     hide_quick_overlay,
@@ -35,7 +40,9 @@ from modules.notification_module import (
 )
 from modules.profile_module import build_proactive_nudge
 from modules.messaging_automation_module import restore_scheduled_jobs
+from modules.startup_module import refresh_startup_auto_launch
 from modules.google_contacts_module import start_google_contacts_auto_refresh
+from modules.telegram_module import start_telegram_remote_control
 from modules.task_module import get_task_data
 from utils.config import get_setting
 from utils.sound import play_sound
@@ -66,6 +73,83 @@ WAKE_RETRY_WINDOW = get_setting("voice.wake_retry_window_seconds", 6)
 
 stop_event = threading.Event()
 hand_mouse_thread = None
+
+
+def _run_command_for_telegram(command):
+    spoken_messages = []
+    original_router_speak = command_router_module.speak
+    original_voice_speak = voice_speak_module.speak
+    buffer = io.StringIO()
+
+    def capture_speak(text, *args, **kwargs):
+        cleaned = " ".join(str(text or "").split())
+        if cleaned:
+            spoken_messages.append(cleaned)
+
+    command_router_module.speak = capture_speak
+    voice_speak_module.speak = capture_speak
+    try:
+        with contextlib.redirect_stdout(buffer):
+            process_command(command.lower().strip(), INSTALLED_APPS, input_mode="text")
+    finally:
+        command_router_module.speak = original_router_speak
+        voice_speak_module.speak = original_voice_speak
+
+    if spoken_messages:
+        compact = " | ".join(spoken_messages[:3])
+        return compact[:600]
+
+    output = " ".join(buffer.getvalue().split())
+    if output:
+        return output[:350]
+    return "Command completed."
+
+
+def _start_telegram_listener_if_enabled():
+    start_telegram_remote_control(_run_command_for_telegram)
+
+
+def _build_compact_startup_messages():
+    data = get_task_data()
+    pending_count = sum(1 for task in data.get("tasks", []) if not task.get("completed"))
+    overdue_count = 0
+    upcoming_count = 0
+    now = datetime.datetime.now()
+    today = now.date()
+    time_of_day = "morning" if now.hour < 12 else "afternoon" if now.hour < 17 else "evening"
+
+    for reminder in data.get("reminders", []):
+        due_at = reminder.get("due_at")
+        due_date = reminder.get("due_date")
+        due_datetime = None
+        if due_at:
+            try:
+                due_datetime = datetime.datetime.fromisoformat(due_at)
+            except ValueError:
+                due_datetime = None
+        if due_datetime is None and due_date:
+            try:
+                due_datetime = datetime.datetime.combine(
+                    datetime.date.fromisoformat(due_date),
+                    datetime.time(hour=9, minute=0),
+                )
+            except ValueError:
+                due_datetime = None
+        if due_datetime is None:
+            continue
+        if due_datetime < now:
+            overdue_count += 1
+        elif due_datetime.date() == today:
+            upcoming_count += 1
+
+    summary = (
+        f"Good {time_of_day}. "
+        f"You have {pending_count} pending tasks, {overdue_count} overdue reminders, and {upcoming_count} reminders due today."
+    )
+    return [
+        "Hello Grandchild!",
+        summary,
+    ]
 
 
 def _overlay_suggestions():
@@ -452,15 +536,13 @@ def main(start_in_tray=False, start_in_ui=False):
     INSTALLED_APPS = get_all_apps()
     INSTALLED_APPS.update(scan_store_apps())
     categorized = categorize_apps(INSTALLED_APPS)
+    start_web_api(INSTALLED_APPS)
+    refresh_startup_auto_launch()
 
-    startup_messages = [
-        "Hello Grandchild!",
-        build_daily_brief(),
-    ]
+    startup_messages = _build_compact_startup_messages()
     urgent_alert = build_due_reminder_alert()
     if urgent_alert != "No urgent reminders right now.":
         startup_messages.append(urgent_alert)
-    startup_messages.append(build_proactive_nudge())
 
     if start_in_ui:
         show_startup_notifications()
@@ -473,6 +555,7 @@ def main(start_in_tray=False, start_in_ui=False):
         run_startup_daily_automations()
         start_notification_monitor()
         restore_scheduled_jobs()
+        _start_telegram_listener_if_enabled()
         if get_setting("google_contacts.auto_refresh_enabled", True):
             start_google_contacts_auto_refresh(get_setting("google_contacts.auto_refresh_hours", 24))
         if get_setting("ocr.region_hotkey_enabled", True):
@@ -490,7 +573,7 @@ def main(start_in_tray=False, start_in_ui=False):
                 context_provider=_overlay_context_items,
             )
         set_response_mode("text")
-        launch_jarvis_ui(INSTALLED_APPS, startup_messages=startup_messages)
+        launch_odin_ui(INSTALLED_APPS, startup_messages=startup_messages)
         return
 
     print("\n========= INSTALLED APPLICATIONS =========")
@@ -514,6 +597,7 @@ def main(start_in_tray=False, start_in_ui=False):
     run_startup_daily_automations()
     start_notification_monitor()
     restore_scheduled_jobs()
+    _start_telegram_listener_if_enabled()
     if get_setting("google_contacts.auto_refresh_enabled", True):
         start_google_contacts_auto_refresh(get_setting("google_contacts.auto_refresh_hours", 24))
     if get_setting("ocr.region_hotkey_enabled", True):
@@ -546,7 +630,7 @@ def main(start_in_tray=False, start_in_ui=False):
             return
 
     try:
-        print("\nChoose to enter input mode (1 - Voice / 2 - Text / 3 - Jarvis UI): ", end="")
+        print("\nChoose to enter input mode (1 - Voice / 2 - Text / 3 - UI): ", end="")
         mode = input().strip()
     except KeyboardInterrupt:
         print("\nExiting Grandpa Assistant...")
@@ -567,8 +651,8 @@ def main(start_in_tray=False, start_in_ui=False):
     elif mode == "3":
         set_response_mode("text")
         play_sound("start")
-        speak("Jarvis UI activated.")
-        launch_jarvis_ui(INSTALLED_APPS)
+        speak("UI activated.")
+        launch_odin_ui(INSTALLED_APPS)
     else:
         print("Invalid mode selected.")
         play_sound("error")

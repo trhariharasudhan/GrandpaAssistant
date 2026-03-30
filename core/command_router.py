@@ -82,11 +82,13 @@ from modules.system_module import (
 )
 from modules.web_module import wikipedia_search
 from modules.notes_module import add_note
+from modules.profile_module import remember_emotion_signal
 from modules.task_module import add_reminder
 from modules.google_contacts_module import (
     add_favorite_contact,
     ensure_google_contacts_fresh,
     get_recent_contact_change_summary,
+    get_google_contact_matches,
     import_google_contact_to_memory,
     list_contact_aliases,
     list_favorite_contacts,
@@ -97,7 +99,40 @@ from modules.google_contacts_module import (
     set_contact_alias,
     sync_google_contacts,
 )
+from modules.google_calendar_module import (
+    add_google_calendar_event,
+    delete_google_calendar_event_by_title,
+    delete_latest_google_calendar_event,
+    google_calendar_status,
+    list_google_calendar_event_titles,
+    rename_google_calendar_event_by_title,
+    rename_latest_google_calendar_event,
+    reschedule_google_calendar_event_by_title,
+    reschedule_latest_google_calendar_event,
+    sync_google_calendar,
+    today_google_calendar_events,
+    upcoming_google_calendar_events,
+)
 from modules.messaging_automation_module import quick_email_shortcut, quick_whatsapp_message
+from modules.startup_module import (
+    disable_startup_auto_launch,
+    enable_startup_auto_launch,
+    refresh_startup_auto_launch,
+    startup_auto_launch_status,
+)
+from modules.telegram_module import (
+    get_telegram_remote_history,
+    send_telegram_quick_help,
+    send_telegram_alert,
+    send_telegram_message,
+    telegram_status,
+)
+from modules.window_context_module import (
+    editor_run_current_file,
+    editor_save_current_file,
+    get_active_app_name,
+    summarize_code_editor,
+)
 from controls.brightness_control import handle_brightness
 from controls.volume_control import handle_volume, set_volume_percentage
 from utils.sound import play_sound
@@ -118,6 +153,7 @@ from vision.screen_reader import (
     read_selected_area_text,
 )
 from voice.listen import apply_voice_profile, current_voice_mode
+from voice.listen import voice_status_summary
 from voice.speak import (
     append_streaming_reply,
     end_streaming_reply,
@@ -131,17 +167,285 @@ pending_confirmation = None
 last_contact_context = {"name": "", "action": ""}
 
 
-def _try_auto_confirm_phone_call():
-    def worker():
-        try:
-            time.sleep(2.0)
-            for _ in range(3):
-                keyboard.press_and_release("enter")
-                time.sleep(0.7)
-        except Exception:
-            pass
+def _current_location_text():
+    city = get_memory("personal.location.current_location.city")
+    area = get_memory("personal.location.current_location.area")
+    state = get_memory("personal.location.current_location.state")
+    country = get_memory("personal.location.current_location.country")
+    address = get_memory("personal.contact.address")
+    location_parts = [part for part in [area, city, state, country] if part]
+    if address:
+        return address
+    if location_parts:
+        return ", ".join(location_parts)
+    return None
 
-    threading.Thread(target=worker, daemon=True).start()
+
+def _offline_mode_summary():
+    return (
+        "Offline core mode is for local-safe features like tasks, reminders, notes, contacts, OCR, local AI, "
+        "basic system control, and developer shortcuts. Internet-based services like Telegram, Google sync, "
+        "cloud GitHub actions, and online messaging verification may stay limited."
+    )
+
+
+def _offline_quick_help():
+    return (
+        "Offline quick help: tasks, reminders, notes, contacts, OCR, local system commands, local AI, "
+        "developer shortcuts, and saved memory should work best. Cloud sync, Telegram, Google services, and "
+        "internet-dependent messaging checks may stay limited."
+    )
+
+
+def _developer_mode_summary():
+    return (
+        "Developer mode is ready. You can use local coding helpers like summarize code, save current file, run current file, "
+        "open terminal, check git status, and ask for code generation or debugging."
+    )
+
+
+def _developer_workspace_summary():
+    active_app = get_active_app_name()
+    git_line = _local_git_status_summary()
+    if active_app and "code" in active_app.lower():
+        code_line = summarize_code_editor()
+        return f"Developer summary: {code_line} {git_line}"
+    return f"Developer summary: active app is {active_app or 'unknown'}. {git_line}"
+
+
+def _developer_save_and_run():
+    save_reply = editor_save_current_file()
+    run_reply = editor_run_current_file()
+    return f"{save_reply} {run_reply}"
+
+
+def _emergency_mode_summary():
+    return (
+        "Emergency mode is ready. I can alert your emergency contact, share your saved location, and trigger a quick call flow."
+    )
+
+
+def _emergency_quick_response_summary():
+    return (
+        "Emergency quick responses: send emergency alert, send i am safe alert, share my location, call emergency contact."
+    )
+
+
+def _open_local_terminal():
+    try:
+        subprocess.Popen(
+            ["cmd.exe", "/k", f"cd /d {os.getcwd()}"],
+            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+        )
+        return "Opened a local terminal in the current project."
+    except Exception:
+        return "I could not open a local terminal right now."
+
+
+def _local_git_status_summary():
+    try:
+        result = subprocess.run(
+            ["git", "status", "--short", "--branch"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            cwd=os.getcwd(),
+        )
+    except Exception:
+        return "I could not read git status right now."
+
+    output = " ".join((result.stdout or "").split())
+    if not output:
+        return "Git status looks clean right now."
+    return f"Git status: {output}"
+
+
+def _run_git_command(args, timeout=8):
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=os.getcwd(),
+        )
+    except Exception:
+        return None
+
+    if result.returncode != 0:
+        return None
+    return (result.stdout or "").strip()
+
+
+def _git_current_branch_summary():
+    branch = _run_git_command(["branch", "--show-current"])
+    if not branch:
+        return "I could not detect the current git branch."
+    return f"Current git branch is {branch}."
+
+
+def _git_remote_summary():
+    remote = _run_git_command(["remote", "-v"])
+    if not remote:
+        return "I could not read git remotes right now."
+
+    lines = [line.strip() for line in remote.splitlines() if line.strip()]
+    if not lines:
+        return "No git remotes are configured for this repository."
+
+    unique = []
+    seen = set()
+    for line in lines:
+        compact = " ".join(line.split())
+        if compact in seen:
+            continue
+        seen.add(compact)
+        unique.append(compact)
+
+    preview = " | ".join(unique[:3])
+    return f"Git remotes: {preview}"
+
+
+def _git_recent_commits_summary(limit=3):
+    log_output = _run_git_command(["log", f"-{limit}", "--pretty=format:%h %s"])
+    if not log_output:
+        return "I could not read recent git commits right now."
+
+    commits = [line.strip() for line in log_output.splitlines() if line.strip()]
+    if not commits:
+        return "There are no recent git commits to show."
+    return "Recent commits: " + " | ".join(commits)
+
+
+def _git_repo_summary():
+    branch_line = _git_current_branch_summary()
+    status_line = _local_git_status_summary()
+    remote_line = _git_remote_summary()
+    return f"{branch_line} {status_line} {remote_line}"
+
+
+def _build_emergency_alert_message():
+    location = _current_location_text()
+    if location:
+        return f"This is an emergency. My saved location is {location}. Please contact me immediately."
+    return "This is an emergency. Please contact me immediately."
+
+
+def _send_emergency_alert():
+    message = _build_emergency_alert_message()
+    whatsapp_reply = quick_whatsapp_message(f"message my emergency contact saying {message}")
+    telegram_enabled = get_setting("telegram.enabled", False)
+    telegram_alerts_enabled = get_setting("telegram.alerts_enabled", True)
+    if telegram_enabled and telegram_alerts_enabled:
+        _ok, telegram_reply = send_telegram_alert(message)
+        return f"{whatsapp_reply} {telegram_reply}"
+    return whatsapp_reply
+
+
+def _send_safe_alert():
+    location = _current_location_text()
+    message = "I am safe now."
+    if location:
+        message += f" My saved location is {location}."
+    whatsapp_reply = quick_whatsapp_message(f"message my emergency contact saying {message}")
+    telegram_enabled = get_setting("telegram.enabled", False)
+    telegram_alerts_enabled = get_setting("telegram.alerts_enabled", True)
+    if telegram_enabled and telegram_alerts_enabled:
+        _ok, telegram_reply = send_telegram_alert(message)
+        return f"{whatsapp_reply} {telegram_reply}"
+    return whatsapp_reply
+
+
+def _trigger_emergency_protocol():
+    location = _current_location_text()
+    parts = [_send_emergency_alert()]
+    if location:
+        parts.append(f"Saved location: {location}.")
+    parts.append("Emergency protocol started.")
+    return " ".join(part for part in parts if part)
+
+
+def _emergency_protocol_summary():
+    return (
+        "Emergency protocol will send an alert, include your saved location when available, "
+        "and use WhatsApp plus Telegram if Telegram alerts are enabled."
+    )
+
+
+def _share_saved_location():
+    location = _current_location_text()
+    if not location:
+        return "I do not have your location saved yet."
+    copied = _copy_to_clipboard(location)
+    if copied:
+        return f"Your saved location is {location}. I copied it to the clipboard too."
+    return f"Your saved location is {location}."
+
+
+def _share_saved_location_everywhere():
+    location = _current_location_text()
+    if not location:
+        return "I do not have your location saved yet."
+    whatsapp_reply = quick_whatsapp_message(
+        f"message my emergency contact saying My saved location is {location}"
+    )
+    telegram_enabled = get_setting("telegram.enabled", False)
+    if telegram_enabled:
+        _ok, telegram_reply = send_telegram_alert(f"My saved location is {location}")
+        return f"{whatsapp_reply} {telegram_reply}"
+    return whatsapp_reply
+
+
+def _telegram_remote_status():
+    enabled = get_setting("telegram.remote_control_enabled", False)
+    prefix = "Telegram remote control is enabled. " if enabled else "Telegram remote control is disabled. "
+    return prefix + telegram_status()
+
+
+def _set_telegram_bot_token(command):
+    match = re.match(r"^set telegram bot token to\s+(.+)$", command)
+    if not match:
+        return None
+    token = match.group(1).strip()
+    update_setting("telegram.bot_token", token)
+    return "Telegram bot token saved."
+
+
+def _set_telegram_chat_id(command):
+    match = re.match(r"^set telegram chat id to\s+(.+)$", command)
+    if not match:
+        return None
+    chat_id = match.group(1).strip()
+    update_setting("telegram.chat_id", chat_id)
+    return "Telegram chat id saved."
+
+
+def _send_direct_telegram_message(command):
+    match = re.match(
+        r"^(?:send telegram message|telegram message|send telegram alert saying)\s+(.+)$",
+        command,
+    )
+    if not match:
+        return None
+    message = match.group(1).strip()
+    _ok, reply = send_telegram_message(message)
+    return reply
+
+
+def _call_emergency_contact():
+    ensure_google_contacts_fresh(force=True)
+    value, reply = get_named_contact_field("my emergency contact", "phone")
+    if not value:
+        return reply
+    copied = _copy_to_clipboard(str(value))
+    try:
+        webbrowser.open(f"tel:{value}")
+        _try_auto_confirm_phone_call()
+        return reply + (" I copied the number to the clipboard too." if copied else "")
+    except Exception:
+        if copied:
+            return reply + " I copied the number to the clipboard so you can call now."
+        return reply
 
 
 def _normalize_voice_friendly_command(command):
@@ -482,6 +786,13 @@ def _extract_contact_suggestions(reply):
     return [item.strip() for item in match.group(1).split("|") if item.strip()]
 
 
+def _best_contact_display_name(target_text):
+    ranked = get_google_contact_matches(target_text, limit=1)
+    if ranked:
+        return ranked[0][0].get("display_name") or target_text
+    return target_text
+
+
 def _queue_contact_choice(kind, target, options, field=None, message_text=None, topic=None):
     global pending_confirmation
     pending_confirmation = {
@@ -632,11 +943,13 @@ def _maybe_confirm_contact_intent(command):
     if not action_kind or not _should_confirm_contact_action(action_kind):
         return None
 
+    display_target = _best_contact_display_name(target)
+
     if action_kind == "message":
         pending_confirmation = {
             "type": "contact_action_confirm",
             "kind": "message",
-            "message": f"Should I message {target} now?",
+            "message": f"Should I message {display_target} now?",
             "action": lambda: (_remember_contact_context(target, "message") or quick_whatsapp_message(f"message {target} saying {content}")),
         }
         return pending_confirmation["message"]
@@ -645,7 +958,7 @@ def _maybe_confirm_contact_intent(command):
         pending_confirmation = {
             "type": "contact_action_confirm",
             "kind": "mail",
-            "message": f"Should I open a mail draft for {target}?",
+            "message": f"Should I open a mail draft for {display_target}?",
             "action": lambda: (_remember_contact_context(target, "mail") or quick_email_shortcut(f"mail {target} {content}")),
         }
         return pending_confirmation["message"]
@@ -736,7 +1049,7 @@ def _handle_contact_action_command(command):
             pending_confirmation = {
                 "type": "contact_action_confirm",
                 "kind": "call",
-                "message": f"Should I call {target}?",
+                "message": f"Should I call {_best_contact_display_name(target)}?",
                 "action": lambda: _execute_contact_choice({"kind": "call"}, target),
             }
             return pending_confirmation["message"]
@@ -1306,11 +1619,35 @@ def _handle_config_command(command):
 
     if command in ["enable tray startup", "turn on tray startup"]:
         update_setting("startup.tray_mode", True)
+        refresh_startup_auto_launch()
         return "Tray startup enabled."
 
     if command in ["disable tray startup", "turn off tray startup"]:
         update_setting("startup.tray_mode", False)
+        refresh_startup_auto_launch()
         return "Tray startup disabled."
+
+    if command in [
+        "enable assistant startup",
+        "enable startup launch",
+        "turn on assistant startup",
+        "launch assistant on startup",
+    ]:
+        return enable_startup_auto_launch()
+
+    if command in [
+        "disable assistant startup",
+        "disable startup launch",
+        "turn off assistant startup",
+    ]:
+        return disable_startup_auto_launch()
+
+    if command in [
+        "assistant startup status",
+        "startup launch status",
+        "auto launch status",
+    ]:
+        return startup_auto_launch_status()
 
     if command in ["enable health popup", "turn on health popup"]:
         update_setting("notifications.health_popup_enabled", True)
@@ -1586,6 +1923,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     if not pending_confirmation and _maybe_run_multi_action_chain(command, INSTALLED_APPS, input_mode):
         return
     if command:
+        remember_emotion_signal(command)
         log_command(command, source=input_mode)
 
     if pending_confirmation and pending_confirmation.get("type") == "contact_choice":
@@ -1650,6 +1988,276 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     config_reply = _handle_config_command(command)
     if config_reply:
         speak(config_reply)
+        return
+
+    telegram_reply = _set_telegram_bot_token(command)
+    if telegram_reply:
+        speak(telegram_reply)
+        return
+
+    telegram_reply = _set_telegram_chat_id(command)
+    if telegram_reply:
+        speak(telegram_reply)
+        return
+
+    telegram_reply = _send_direct_telegram_message(command)
+    if telegram_reply:
+        speak(telegram_reply)
+        return
+
+    if command in ["enable offline mode", "turn on offline mode", "offline mode on"]:
+        update_setting("assistant.offline_mode_enabled", True)
+        speak("Offline core mode enabled.")
+        return
+
+    if command in ["disable offline mode", "turn off offline mode", "offline mode off"]:
+        update_setting("assistant.offline_mode_enabled", False)
+        speak("Offline core mode disabled.")
+        return
+
+    if command in ["offline mode status", "is offline mode on", "what works offline"]:
+        enabled = get_setting("assistant.offline_mode_enabled", False)
+        prefix = "Offline core mode is enabled. " if enabled else "Offline core mode is disabled. "
+        speak(prefix + _offline_mode_summary())
+        return
+
+    if command in ["offline help", "offline quick help", "offline commands"]:
+        speak(_offline_quick_help())
+        return
+
+    if command in ["offline ai status", "local ai status", "is local ai ready"]:
+        offline_mode = get_setting("assistant.offline_mode_enabled", False)
+        model_name = get_setting("assistant.model", "phi3")
+        if offline_mode:
+            speak(
+                f"Offline mode is enabled. Local AI fallback is ready. Preferred local model is {model_name} when available."
+            )
+        else:
+            speak(
+                f"Offline mode is disabled. Preferred local model is {model_name}. If the local AI server is unavailable, responses may be limited."
+            )
+        return
+
+    if command in ["enable developer mode", "turn on developer mode", "developer mode on"]:
+        update_setting("assistant.developer_mode_enabled", True)
+        speak("Developer mode enabled.")
+        return
+
+    if command in ["disable developer mode", "turn off developer mode", "developer mode off"]:
+        update_setting("assistant.developer_mode_enabled", False)
+        speak("Developer mode disabled.")
+        return
+
+    if command in ["developer mode status", "what is developer mode", "developer help"]:
+        enabled = get_setting("assistant.developer_mode_enabled", False)
+        prefix = "Developer mode is enabled. " if enabled else "Developer mode is disabled. "
+        speak(prefix + _developer_mode_summary())
+        return
+
+    if command in ["voice status", "voice recognition status", "current voice profile"]:
+        speak(voice_status_summary())
+        return
+
+    if command in ["developer summary", "workspace summary", "coding summary"]:
+        speak(_developer_workspace_summary())
+        return
+
+    if command in ["open terminal", "open developer terminal", "start terminal"]:
+        speak(_open_local_terminal())
+        return
+
+    if command in ["git status", "check git status", "developer git status"]:
+        speak(_local_git_status_summary())
+        return
+
+    if command in ["current git branch", "what branch am i on", "git branch"]:
+        speak(_git_current_branch_summary())
+        return
+
+    if command in ["git remotes", "show git remotes", "github remotes"]:
+        speak(_git_remote_summary())
+        return
+
+    if command in ["recent commits", "git recent commits", "show recent commits"]:
+        speak(_git_recent_commits_summary())
+        return
+
+    if command in ["github summary", "git summary", "repository summary"]:
+        speak(_git_repo_summary())
+        return
+
+    if command in ["google calendar status", "calendar sync status"]:
+        speak(google_calendar_status())
+        return
+
+    if command in ["sync google calendar", "refresh google calendar"]:
+        success, reply = sync_google_calendar()
+        speak(reply)
+        return
+
+    if command in ["today in google calendar", "google calendar today", "today google calendar events"]:
+        speak(today_google_calendar_events())
+        return
+
+    if command in ["upcoming google calendar events", "google calendar upcoming events"]:
+        speak(upcoming_google_calendar_events())
+        return
+
+    if command in ["list google calendar event titles", "google calendar titles", "show google calendar titles"]:
+        speak(list_google_calendar_event_titles())
+        return
+
+    if command.startswith(("add google calendar event", "create google calendar event", "schedule google calendar event")):
+        speak(add_google_calendar_event(command))
+        return
+
+    if command in ["delete latest google calendar event", "remove latest google calendar event"]:
+        speak(delete_latest_google_calendar_event())
+        return
+
+    if command.startswith(("rename latest google calendar event", "update latest google calendar event")):
+        speak(rename_latest_google_calendar_event(command))
+        return
+
+    if command.startswith(("delete google calendar event", "remove google calendar event")):
+        speak(delete_google_calendar_event_by_title(command))
+        return
+
+    if command.startswith(("rename google calendar event", "update google calendar event")):
+        speak(rename_google_calendar_event_by_title(command))
+        return
+
+    if command.startswith(("reschedule latest google calendar event", "move latest google calendar event")):
+        speak(reschedule_latest_google_calendar_event(command))
+        return
+
+    if command.startswith(("reschedule google calendar event", "move google calendar event")):
+        speak(reschedule_google_calendar_event_by_title(command))
+        return
+
+    if command in ["enable telegram", "turn on telegram integration", "telegram on"]:
+        update_setting("telegram.enabled", True)
+        speak("Telegram integration enabled.")
+        return
+
+    if command in ["disable telegram", "turn off telegram integration", "telegram off"]:
+        update_setting("telegram.enabled", False)
+        speak("Telegram integration disabled.")
+        return
+
+    if command in ["enable telegram alerts", "turn on telegram alerts"]:
+        update_setting("telegram.alerts_enabled", True)
+        speak("Telegram alerts enabled.")
+        return
+
+    if command in ["disable telegram alerts", "turn off telegram alerts"]:
+        update_setting("telegram.alerts_enabled", False)
+        speak("Telegram alerts disabled.")
+        return
+
+    if command in ["telegram status", "telegram bot status", "is telegram ready"]:
+        speak(telegram_status())
+        return
+
+    if command in ["telegram quick help", "send telegram quick help"]:
+        _ok, reply = send_telegram_quick_help()
+        speak(reply)
+        return
+
+    if command in ["enable telegram remote control", "turn on telegram remote control", "telegram remote on"]:
+        update_setting("telegram.remote_control_enabled", True)
+        speak("Telegram remote control enabled.")
+        return
+
+    if command in ["disable telegram remote control", "turn off telegram remote control", "telegram remote off"]:
+        update_setting("telegram.remote_control_enabled", False)
+        speak("Telegram remote control disabled.")
+        return
+
+    if command in ["telegram remote status", "telegram remote control status"]:
+        speak(_telegram_remote_status())
+        return
+
+    if command in ["telegram remote history", "recent telegram remote commands"]:
+        speak(get_telegram_remote_history())
+        return
+
+    if command in ["save and run current file", "developer save and run", "save run current file"]:
+        speak(_developer_save_and_run())
+        return
+
+    if command in ["debug current code", "summarize current code", "explain current code"]:
+        speak(summarize_code_editor())
+        return
+
+    if command in ["enable emergency mode", "turn on emergency mode", "emergency mode on"]:
+        update_setting("assistant.emergency_mode_enabled", True)
+        speak("Emergency mode enabled.")
+        return
+
+    if command in ["disable emergency mode", "turn off emergency mode", "emergency mode off"]:
+        update_setting("assistant.emergency_mode_enabled", False)
+        speak("Emergency mode disabled.")
+        return
+
+    if command in ["emergency mode status", "what is emergency mode", "emergency help"]:
+        enabled = get_setting("assistant.emergency_mode_enabled", False)
+        prefix = "Emergency mode is enabled. " if enabled else "Emergency mode is disabled. "
+        speak(prefix + _emergency_mode_summary())
+        return
+
+    if command in ["emergency quick response", "emergency quick responses", "quick response system"]:
+        speak(_emergency_quick_response_summary())
+        return
+
+    if command in ["emergency protocol status", "what is emergency protocol"]:
+        speak(_emergency_protocol_summary())
+        return
+
+    if command in ["start emergency protocol", "trigger emergency protocol", "emergency protocol"]:
+        pending_confirmation = {
+            "type": "contact_action_confirm",
+            "message": "Should I start the emergency protocol now?",
+            "action": _trigger_emergency_protocol,
+        }
+        speak(pending_confirmation["message"])
+        return
+
+    if command in ["send emergency alert", "emergency alert", "alert emergency contact", "send sos"]:
+        speak(_send_emergency_alert())
+        return
+
+    if command in ["send i am safe alert", "i am safe alert", "send safe alert"]:
+        speak(_send_safe_alert())
+        return
+
+    if command in ["send safe alert everywhere", "i am safe everywhere"]:
+        speak(_send_safe_alert())
+        return
+
+    if command in ["share my location", "share saved location", "what is my saved location"]:
+        speak(_share_saved_location())
+        return
+
+    if command in ["share my location everywhere", "share saved location everywhere", "send my location to emergency contact"]:
+        speak(_share_saved_location_everywhere())
+        return
+
+    if command in ["send emergency alert everywhere", "send sos everywhere", "alert everyone emergency"]:
+        speak(_send_emergency_alert())
+        return
+
+    if command in ["call emergency contact", "emergency call", "call my emergency contact"]:
+        if _should_confirm_contact_action("call"):
+            display_name = _best_contact_display_name("my emergency contact")
+            pending_confirmation = {
+                "type": "contact_action_confirm",
+                "message": f"Should I call {display_name}?",
+                "action": _call_emergency_contact,
+            }
+            speak(pending_confirmation["message"])
+            return
+        speak(_call_emergency_contact())
         return
 
     if command in ["repeat that", "say that again", "repeat last reply", "repeat last response"]:
@@ -2227,7 +2835,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             return
 
     if "your name" in command:
-        speak("My name is Grandpa. I am your personal assistant.")
+        speak("My name is Odin. You can call me Grandpa.")
         return
 
     if "clear memory" in command:

@@ -37,11 +37,23 @@ DEFAULT_SETTINGS = {
     },
     "startup": {
         "tray_mode": False,
+        "auto_launch_enabled": False,
     },
     "assistant": {
         "persona": "friendly",
         "model": "phi3",
         "compact_voice_replies": True,
+        "offline_mode_enabled": False,
+        "developer_mode_enabled": False,
+        "emergency_mode_enabled": False,
+    },
+    "telegram": {
+        "enabled": False,
+        "bot_token": "",
+        "chat_id": "",
+        "alerts_enabled": True,
+        "remote_control_enabled": False,
+        "poll_interval_seconds": 4,
     },
     "browser": {
         "page_load_delay_seconds": 3,

@@ -2,6 +2,7 @@ import datetime
 
 from modules.briefing_module import build_brief_details, build_due_reminder_alert
 from modules.event_module import get_event_data
+from modules.google_calendar_module import today_google_calendar_summary_lines
 from modules.profile_module import build_focus_suggestion
 from modules.system_module import get_battery_info
 from modules.task_module import get_task_data
@@ -108,25 +109,29 @@ def build_today_agenda():
 
     today_reminders.sort(key=lambda item: item[0])
     event_lines = _today_event_lines()
+    google_event_lines = today_google_calendar_summary_lines()
 
-    parts = [f"Today agenda for {today.strftime('%d %B %Y')}:"]
+    parts = [f"Today agenda for {today.strftime('%d %B %Y')}:"] 
 
     if event_lines:
-        parts.append("Events: " + " | ".join(event_lines) + ".")
+        parts.append("Events: " + " | ".join(event_lines[:3]) + ".")
+
+    if google_event_lines:
+        parts.append("Google Calendar: " + " | ".join(google_event_lines[:3]) + ".")
 
     if today_reminders:
         reminder_lines = [_format_reminder(reminder) for _, reminder in today_reminders[:5]]
-        parts.append("Reminders: " + " | ".join(reminder_lines) + ".")
+        parts.append("Reminders: " + " | ".join(reminder_lines[:3]) + ".")
 
     if pending_tasks:
-        task_lines = ", ".join(task.get("title", "Untitled task") for task in pending_tasks[:5])
-        parts.append(f"Pending tasks: {task_lines}.")
+        task_lines = ", ".join(task.get("title", "Untitled task") for task in pending_tasks[:3])
+        parts.append(f"Focus tasks: {task_lines}.")
     else:
-        parts.append("You have no pending tasks right now.")
+        parts.append("No pending tasks right now.")
 
     focus_line = build_focus_suggestion()
     if focus_line:
-        parts.append(f"Focus: {focus_line}")
+        parts.append(f"Next best step: {focus_line}")
 
     return " ".join(part.strip() for part in parts if part)
 
@@ -158,21 +163,25 @@ def build_daily_recap():
             carry_over_reminders.append(reminder.get("title", "Untitled reminder"))
 
     event_lines = _today_event_lines()
+    google_event_lines = today_google_calendar_summary_lines()
 
     parts = [f"Daily recap for {today.strftime('%d %B %Y')}:"] 
     if completed_today:
-        parts.append("Completed tasks: " + " | ".join(completed_today[:5]) + ".")
+        parts.append("Completed: " + " | ".join(completed_today[:4]) + ".")
     else:
         parts.append("No tasks were marked completed today.")
 
     if pending_tasks:
-        parts.append("Pending carry-over tasks: " + " | ".join(pending_tasks[:5]) + ".")
+        parts.append("Carry-over tasks: " + " | ".join(pending_tasks[:4]) + ".")
 
     if carry_over_reminders:
-        parts.append("Open reminders to review: " + " | ".join(carry_over_reminders[:5]) + ".")
+        parts.append("Open reminders: " + " | ".join(carry_over_reminders[:4]) + ".")
 
     if event_lines:
         parts.append("Today's event trail: " + " | ".join(event_lines[:4]) + ".")
+
+    if google_event_lines:
+        parts.append("Google Calendar trail: " + " | ".join(google_event_lines[:3]) + ".")
 
     focus_line = build_focus_suggestion()
     if focus_line:

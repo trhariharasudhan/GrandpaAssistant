@@ -1,4 +1,5 @@
 import json
+import datetime
 
 import requests
 
@@ -59,7 +60,7 @@ def _build_prompt(prompt, compact=False):
     user_name = get_memory("personal.identity.name") or "Captain"
 
     formatted_prompt = (
-        "You are Grandpa, a personal AI assistant.\n"
+        "You are Odin, a personal AI assistant. The user may affectionately call you Grandpa as a grandfather nickname.\n"
         f"Current persona mode: {persona}.\n"
         f"Persona behavior: {persona_instruction}\n"
         f"The user's name is {user_name}.\n"
@@ -84,6 +85,50 @@ def _build_prompt(prompt, compact=False):
 
     formatted_prompt += f"\nUser: {prompt}\nAssistant:"
     return formatted_prompt
+
+
+def _offline_fallback_response(prompt, compact=False):
+    text = " ".join((prompt or "").lower().strip().split())
+    preferred_name = (
+        get_memory("personal.assistant.preferred_name_for_user")
+        or get_memory("personal.identity.name")
+        or "Captain"
+    )
+    now = datetime.datetime.now()
+
+    if not text:
+        return "I am here." if compact else "I am here and ready."
+
+    if any(phrase in text for phrase in ["your name", "who are you"]):
+        return "My name is Odin. You can call me Grandpa."
+
+    if any(phrase in text for phrase in ["who am i", "my name"]):
+        return f"You are {preferred_name}."
+
+    if any(phrase in text for phrase in ["time now", "what is the time", "tell me the time"]):
+        return f"It is {now.strftime('%I:%M %p')}."
+
+    if any(phrase in text for phrase in ["today date", "what is the date", "what day is it"]):
+        return now.strftime("Today is %A, %d %B %Y.")
+
+    if text in {"hi", "hello", "hey", "hey odin", "hello odin", "hey grandpa"}:
+        return f"Hello {preferred_name}. I am ready."
+
+    if "how are you" in text:
+        return "I am doing well and ready to help."
+
+    if any(phrase in text for phrase in ["what can you do", "help me", "offline help"]):
+        return (
+            "I can still help with local tasks, reminders, notes, contacts, OCR, code helpers, "
+            "and system actions even when the local AI model is unavailable."
+        )
+
+    if compact:
+        return "My local AI model is unavailable right now. I can still help with offline commands and built-in assistant features."
+    return (
+        "My local AI model is unavailable right now. "
+        "I can still help with offline commands, reminders, contacts, notes, OCR, code helpers, and built-in assistant actions."
+    )
 
 
 def ask_ollama(prompt, stream_callback=None, compact=False):
@@ -132,13 +177,22 @@ def ask_ollama(prompt, stream_callback=None, compact=False):
 
     except requests.exceptions.Timeout:
         print("AI Timeout Error")
-        reply = "AI is taking too long to respond."
+        if get_setting("assistant.offline_mode_enabled", False):
+            reply = _offline_fallback_response(prompt, compact=compact)
+        else:
+            reply = "AI is taking too long to respond."
     except requests.exceptions.ConnectionError:
         print("AI Connection Error")
-        reply = "AI server is not running."
+        if get_setting("assistant.offline_mode_enabled", False):
+            reply = _offline_fallback_response(prompt, compact=compact)
+        else:
+            reply = "AI server is not running."
     except Exception as error:
         print("AI Error:", error)
-        reply = "AI server not responding."
+        if get_setting("assistant.offline_mode_enabled", False):
+            reply = _offline_fallback_response(prompt, compact=compact)
+        else:
+            reply = "AI server not responding."
 
     conversation_history.append({"role": "assistant", "content": reply})
     conversation_history = conversation_history[-MAX_MESSAGES:]

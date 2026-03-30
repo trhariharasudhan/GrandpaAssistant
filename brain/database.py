@@ -189,3 +189,30 @@ def get_recent_commands(limit=6):
             break
 
     return recent
+
+
+def get_command_frequency(limit=200):
+    initialize_database()
+
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            """
+            SELECT command_text
+            FROM command_history
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    finally:
+        connection.close()
+
+    frequency = {}
+    for row in rows:
+        command_text = (row["command_text"] or "").strip().lower()
+        if not command_text:
+            continue
+        frequency[command_text] = frequency.get(command_text, 0) + 1
+
+    return sorted(frequency.items(), key=lambda item: (-item[1], item[0]))

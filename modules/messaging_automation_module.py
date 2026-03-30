@@ -161,6 +161,11 @@ def _open_gmail_draft(recipient="", subject="", body=""):
     return _open_url(url)
 
 
+def _summarize_target_name(target_text, fallback=None):
+    cleaned = _clean_text(target_text)
+    return cleaned or fallback or "that contact"
+
+
 def preview_whatsapp_message(command):
     match = re.match(r"^(?:preview whatsapp message to|preview message to)\s+(.+?)\s+(?:saying|that)\s+(.+)$", command)
     if not match:
@@ -1308,12 +1313,15 @@ def quick_whatsapp_message(command):
         if auto_send:
             _confirm_prefilled_whatsapp_after_delay(contact_name, message_text, delay_seconds=load_delay)
         return (
-            f"Opening direct WhatsApp chat for {contact_name}. "
-            f"The message is prefilled and I will try to send it in about {load_delay} seconds."
+            f"Opening WhatsApp for {_summarize_target_name(contact_name)}. "
+            f"I prefilled your message and will try to send it in about {load_delay} seconds."
         )
 
     _whatsapp_contact_message_after_delay(contact_name, message_text, delay_seconds=load_delay)
-    return f"Opening WhatsApp Web. I will send your message to {contact_name} in about {load_delay} seconds."
+    return (
+        f"Opening WhatsApp Web for {_summarize_target_name(contact_name)}. "
+        f"I will search the chat and type your message in about {load_delay} seconds."
+    )
 
 
 def memory_email_shortcut(command):
@@ -1415,5 +1423,8 @@ def quick_email_shortcut(command):
     if _open_gmail_draft(recipient, subject, body):
         delay = get_setting("browser.gmail_load_delay_seconds", 8)
         _show_gmail_popup(recipient, subject)
-        return f"Opening a Gmail draft to {recipient}. It should load in about {delay} seconds."
+        return (
+            f"Opening a Gmail draft for {_summarize_target_name(target_text, recipient)}. "
+            f"It should load in about {delay} seconds."
+        )
     return "I could not open the email draft right now."
