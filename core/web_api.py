@@ -50,6 +50,14 @@ def _compact_text(value):
     return " ".join(str(value or "").split()).strip()
 
 
+def _safe_call(callback, fallback):
+    try:
+        value = callback()
+    except Exception:
+        return fallback
+    return fallback if value is None else value
+
+
 def _load_contact_preview(limit=6):
     if not os.path.exists(GOOGLE_CONTACTS_CACHE_PATH):
         return []
@@ -185,8 +193,8 @@ def stop_voice_api_mode():
 
 
 def _build_ui_state():
-    task_data = get_task_data()
-    event_data = get_event_data()
+    task_data = _safe_call(get_task_data, {"tasks": [], "reminders": []})
+    event_data = _safe_call(get_event_data, {"events": []})
     tasks = task_data.get("tasks", [])
     reminders = task_data.get("reminders", [])
     events = event_data.get("events", [])
@@ -244,17 +252,17 @@ def _build_ui_state():
         suffix = " ".join(part for part in [date_text, time_text] if part)
         event_titles.append(f"{title} - {suffix}".strip(" -"))
 
-    note_summary = latest_note()
-    recent_commands = get_recent_commands(limit=5)
-    preferred_language = get_memory("preferences.language") or "Not set"
-    favorite_contact = get_memory("personal.relationships.favorite_contact") or "Not set"
-    wake_word = get_setting("wake_word", "hey grandpa")
-    voice_profile = get_setting("voice.mode", "normal")
-    contacts_preview = _load_contact_preview()
-    aliases_summary = list_contact_aliases()
-    favorites_summary = list_favorite_contacts()
-    recent_contact_changes = get_recent_contact_change_summary()
-    telegram_history = get_telegram_remote_history(limit=3)
+    note_summary = _safe_call(latest_note, "No saved notes yet.")
+    recent_commands = _safe_call(lambda: get_recent_commands(limit=5), [])
+    preferred_language = _safe_call(lambda: get_memory("preferences.language"), None) or "Not set"
+    favorite_contact = _safe_call(lambda: get_memory("personal.relationships.favorite_contact"), None) or "Not set"
+    wake_word = _safe_call(lambda: get_setting("wake_word", "hey grandpa"), "hey grandpa")
+    voice_profile = _safe_call(lambda: get_setting("voice.mode", "normal"), "normal")
+    contacts_preview = _safe_call(_load_contact_preview, [])
+    aliases_summary = _safe_call(list_contact_aliases, "I do not have any saved contact aliases yet.")
+    favorites_summary = _safe_call(list_favorite_contacts, "You do not have any favorite contacts yet.")
+    recent_contact_changes = _safe_call(get_recent_contact_change_summary, "No recent Google contact changes.")
+    telegram_history = _safe_call(lambda: get_telegram_remote_history(limit=3), "No Telegram remote commands are logged yet.")
     notifications = []
 
     if overdue_count:
@@ -325,8 +333,8 @@ def _build_ui_state():
         "overview": {
             "tasks": f"{pending_tasks} pending",
             "reminders": f"{overdue_count} overdue",
-            "weather": get_weather_report(),
-            "health": get_system_status(),
+            "weather": _safe_call(get_weather_report, "Weather unavailable right now."),
+            "health": _safe_call(get_system_status, "Health unavailable right now."),
         },
         "today": f"Pending tasks: {pending_tasks} | Overdue reminders: {overdue_count}",
         "next_event": next_event,
@@ -346,8 +354,8 @@ def _build_ui_state():
             "wake_word": wake_word,
             "voice_profile": voice_profile,
             "offline_mode": get_setting("assistant.offline_mode_enabled", False),
-            "developer_mode": get_setting("assistant.developer_mode_enabled", False),
-            "emergency_mode": get_setting("assistant.emergency_mode_enabled", False),
+            "developer_mode": _safe_call(lambda: get_setting("assistant.developer_mode_enabled", False), False),
+            "emergency_mode": _safe_call(lambda: get_setting("assistant.emergency_mode_enabled", False), False),
         },
         "contacts": {
             "favorite_contact": favorite_contact,
@@ -357,22 +365,22 @@ def _build_ui_state():
             "recent_changes": recent_contact_changes,
         },
         "emergency": {
-            "location": get_memory("personal.contact.address")
-            or get_memory("personal.location.current_location.city")
+            "location": _safe_call(lambda: get_memory("personal.contact.address"), None)
+            or _safe_call(lambda: get_memory("personal.location.current_location.city"), None)
             or "No saved location.",
-            "contact": get_memory("personal.contact.emergency_contact.name") or "Not set",
-            "mode_enabled": get_setting("assistant.emergency_mode_enabled", False),
+            "contact": _safe_call(lambda: get_memory("personal.contact.emergency_contact.name"), None) or "Not set",
+            "mode_enabled": _safe_call(lambda: get_setting("assistant.emergency_mode_enabled", False), False),
             "protocol_summary": "Alert, location share, and contact call shortcuts are ready.",
         },
         "startup": {
-            "auto_launch_enabled": get_setting("startup.auto_launch_enabled", False),
-            "tray_mode": get_setting("startup.tray_mode", False),
-            "summary": startup_auto_launch_status(),
+            "auto_launch_enabled": _safe_call(lambda: get_setting("startup.auto_launch_enabled", False), False),
+            "tray_mode": _safe_call(lambda: get_setting("startup.tray_mode", False), False),
+            "summary": _safe_call(startup_auto_launch_status, "Startup status unavailable right now."),
             "portable_setup_ready": os.path.exists(
                 os.path.join(os.path.dirname(os.path.dirname(__file__)), "setup_portable_desktop.cmd")
             ),
-            "react_ui_on_tray_enabled": get_setting("startup.react_ui_on_tray_enabled", False),
-            "react_ui_on_tray_mode": get_setting("startup.react_ui_on_tray_mode", "browser"),
+            "react_ui_on_tray_enabled": _safe_call(lambda: get_setting("startup.react_ui_on_tray_enabled", False), False),
+            "react_ui_on_tray_mode": _safe_call(lambda: get_setting("startup.react_ui_on_tray_mode", "browser"), "browser"),
             "react_frontend_ready": os.path.exists(
                 os.path.join(os.path.dirname(os.path.dirname(__file__)), "start_react_frontend.cmd")
             ),
