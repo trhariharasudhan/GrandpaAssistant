@@ -3,6 +3,7 @@ import datetime
 import io
 import json
 import os
+import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -316,6 +317,9 @@ def _build_ui_state():
             "auto_launch_enabled": get_setting("startup.auto_launch_enabled", False),
             "tray_mode": get_setting("startup.tray_mode", False),
             "summary": startup_auto_launch_status(),
+            "portable_setup_ready": os.path.exists(
+                os.path.join(os.path.dirname(os.path.dirname(__file__)), "setup_portable_desktop.cmd")
+            ),
         },
         "voice": _voice_status_payload(),
     }
@@ -395,6 +399,41 @@ class _AssistantApiHandler(BaseHTTPRequestHandler):
                 return
             except Exception as error:
                 self._send_json({"ok": False, "error": f"Startup settings error: {error}"}, status=500)
+                return
+
+        if self.path == "/api/settings/portable-setup":
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except Exception:
+                self._send_json({"ok": False, "error": "Invalid JSON"}, status=400)
+                return
+
+            action = _compact_text(payload.get("action")) or "desktop"
+            root_dir = os.path.dirname(os.path.dirname(__file__))
+            script_path = os.path.join(root_dir, "setup_portable_desktop.cmd")
+            if not os.path.exists(script_path):
+                self._send_json({"ok": False, "error": "Portable setup helper not found."}, status=404)
+                return
+
+            try:
+                args = [script_path]
+                if action == "startup-on":
+                    args.append("/startup-on")
+                elif action == "startup-off":
+                    args.append("/startup-off")
+                subprocess.run(args, cwd=root_dir, check=True, shell=True)
+                if action == "startup-on":
+                    message = "Portable app startup shortcut enabled."
+                elif action == "startup-off":
+                    message = "Portable app startup shortcut disabled."
+                else:
+                    message = "Portable app desktop shortcut created."
+                self._send_json({"ok": True, "message": message, "startup": _build_ui_state()["startup"]})
+                return
+            except Exception as error:
+                self._send_json({"ok": False, "error": f"Portable setup error: {error}"}, status=500)
                 return
 
         if self.path != "/api/command":

@@ -338,6 +338,36 @@ export default function App() {
     }
   };
 
+  const runPortableSetup = async (action) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/settings/portable-setup`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action }),
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.error || "Portable setup failed.");
+      }
+      if (payload.startup) {
+        setStartupState(payload.startup);
+      }
+      setMessages((current) => [
+        ...current,
+        {
+          id: `portable-${Date.now()}`,
+          side: "assistant",
+          text: `Grandpa : ${payload.message}`,
+        },
+      ]);
+      setApiError("");
+    } catch (error) {
+      setApiError(error.message || "Could not run portable setup.");
+    }
+  };
+
   const statusItems = useMemo(
     () => [
       { label: "Tasks", value: uiState.overview.tasks },
@@ -1070,6 +1100,7 @@ export default function App() {
                     <li>{startupState.summary}</li>
                     <li>{`Auto launch: ${startupState.auto_launch_enabled ? "Enabled" : "Disabled"}`}</li>
                     <li>{`Tray launch: ${startupState.tray_mode ? "Enabled" : "Disabled"}`}</li>
+                    <li>{`Portable setup helper: ${startupState.portable_setup_ready ? "Ready" : "Missing"}`}</li>
                   </ul>
                   <div className="action-grid compact">
                     <button className="action-button" onClick={() => runCommand("enable assistant startup")}>Enable Startup</button>
@@ -1078,6 +1109,9 @@ export default function App() {
                     <button className="action-button" onClick={() => runCommand("disable tray startup")}>Disable Tray Startup</button>
                     <button className="action-button" onClick={() => runCommand("assistant startup status")}>Startup Status</button>
                     <button className="action-button" onClick={() => runCommand("tray react status")}>Tray React Status</button>
+                    <button className="action-button" onClick={() => runPortableSetup("desktop")}>Create Desktop Shortcut</button>
+                    <button className="action-button" onClick={() => runPortableSetup("startup-on")}>Portable Startup On</button>
+                    <button className="action-button" onClick={() => runPortableSetup("startup-off")}>Portable Startup Off</button>
                   </div>
                 </div>
 
