@@ -819,6 +819,49 @@ export default function App() {
                     <button className="action-button" onClick={() => runCommand(`reschedule latest google calendar event to ${calendarWhen}`)}>Reschedule Latest</button>
                   </div>
                 </div>
+
+                <div className="workspace-card">
+                  <h3>Manage By Title</h3>
+                  <div className="stack-form">
+                    <input
+                      value={calendarTitle}
+                      onChange={(event) => setCalendarTitle(event.target.value)}
+                      placeholder="Current event title"
+                    />
+                    <input
+                      value={calendarWhen}
+                      onChange={(event) => setCalendarWhen(event.target.value)}
+                      placeholder="New title or new time"
+                    />
+                    <button
+                      onClick={() =>
+                        calendarTitle.trim()
+                          ? runCommand(`delete google calendar event ${calendarTitle}`.trim())
+                          : null
+                      }
+                    >
+                      Delete By Title
+                    </button>
+                    <button
+                      onClick={() =>
+                        calendarTitle.trim() && calendarWhen.trim()
+                          ? runCommand(`rename google calendar event ${calendarTitle} to ${calendarWhen}`.trim())
+                          : null
+                      }
+                    >
+                      Rename By Title
+                    </button>
+                    <button
+                      onClick={() =>
+                        calendarTitle.trim() && calendarWhen.trim()
+                          ? runCommand(`reschedule google calendar event ${calendarTitle} to ${calendarWhen}`.trim())
+                          : null
+                      }
+                    >
+                      Reschedule By Title
+                    </button>
+                  </div>
+                </div>
               </div>
             ) : null}
 
