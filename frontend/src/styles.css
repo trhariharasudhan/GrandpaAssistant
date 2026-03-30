@@ -228,6 +228,21 @@ input {
   font-size: 0.92rem;
 }
 
+.chip-button.active-chip {
+  background: var(--bs-primary);
+  color: var(--bs-white);
+}
+
+.contact-chip-wrap {
+  margin-top: 10px;
+}
+
+.contact-active-line {
+  margin: 10px 0 0;
+  color: var(--bs-gray-dark);
+  font-weight: 600;
+}
+
 .chat-panel {
   display: grid;
   grid-template-rows: auto 1fr auto;

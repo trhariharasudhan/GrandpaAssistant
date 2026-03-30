@@ -70,6 +70,8 @@ export default function App() {
   const [calendarTitle, setCalendarTitle] = useState("");
   const [calendarWhen, setCalendarWhen] = useState("tomorrow at 6 pm");
   const [wakeWordInput, setWakeWordInput] = useState("");
+  const [contactSearch, setContactSearch] = useState("");
+  const [selectedContact, setSelectedContact] = useState("");
   const [messages, setMessages] = useState(initialMessages);
   const [activity, setActivity] = useState("Ready");
   const [uiState, setUiState] = useState({
@@ -342,6 +344,13 @@ export default function App() {
   );
 
   const recentCommands = uiState.recent_commands || [];
+  const filteredContacts = useMemo(() => {
+    const preview = uiState.contacts.preview || [];
+    const query = contactSearch.trim().toLowerCase();
+    if (!query) return preview.slice(0, 6);
+    return preview.filter((item) => item.toLowerCase().includes(query)).slice(0, 6);
+  }, [contactSearch, uiState.contacts.preview]);
+  const activeContact = selectedContact || contactSearch.trim() || uiState.contacts.favorite_contact;
   const memoryItems = [
     `Preferred language: ${uiState.memory.preferred_language}`,
     `Favorite contact: ${uiState.memory.favorite_contact}`,
@@ -541,15 +550,48 @@ export default function App() {
 
           <SectionCard title="Contacts">
             <p>{`Favorite: ${uiState.contacts.favorite_contact}`}</p>
-            <ul className="mini-list">
-              {(uiState.contacts.preview || []).map((item) => (
-                <li key={`contact-${item}`}>{item}</li>
-              ))}
-            </ul>
+            <div className="stack-form compact-gap">
+              <input
+                value={contactSearch}
+                onChange={(event) => setContactSearch(event.target.value)}
+                placeholder="Search contact..."
+              />
+            </div>
+            {filteredContacts.length ? (
+              <div className="command-chips contact-chip-wrap">
+                {filteredContacts.map((item) => (
+                  <button
+                    key={`contact-${item}`}
+                    className={selectedContact === item ? "chip-button active-chip" : "chip-button"}
+                    onClick={() => setSelectedContact(item)}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p>No matching contacts.</p>
+            )}
+            <p className="contact-active-line">{`Active: ${activeContact || "None selected"}`}</p>
             <div className="action-grid">
-              <button className="action-button" onClick={() => runCommand("call appa")}>Call Appa</button>
-              <button className="action-button" onClick={() => runCommand("message to amma saying saptiya")}>Message Amma</button>
-              <button className="action-button" onClick={() => runCommand("mail appa about today plan")}>Mail Appa</button>
+              <button
+                className="action-button"
+                onClick={() => activeContact ? runCommand(`call ${activeContact}`) : null}
+              >
+                Call Contact
+              </button>
+              <button
+                className="action-button"
+                onClick={() => activeContact ? runCommand(`message to ${activeContact} saying hi`) : null}
+              >
+                Message Contact
+              </button>
+              <button
+                className="action-button"
+                onClick={() => activeContact ? runCommand(`mail ${activeContact} about today plan`) : null}
+              >
+                Mail Contact
+              </button>
             </div>
           </SectionCard>
 
