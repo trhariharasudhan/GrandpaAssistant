@@ -73,8 +73,28 @@ npm run dev
 npm run electron:dev
 ```
 
+Build a portable desktop app:
+
+```powershell
+npm install
+npm run desktop:build
+```
+
+Output:
+
+```text
+frontend/release/
+```
+
+Project-root helper:
+
+```powershell
+build_react_desktop.cmd
+```
+
 Current direction:
 
 - React + Vite frontend
 - local Python backend API
 - Electron wrapper for desktop app feel
+- portable Windows build pipeline

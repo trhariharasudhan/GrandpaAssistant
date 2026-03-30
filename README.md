@@ -267,6 +267,12 @@ start_react_frontend.cmd
 start_react_electron.cmd
 ```
 
+### Build portable desktop app
+
+```powershell
+build_react_desktop.cmd
+```
+
 ### Start directly in tray mode
 
 ```powershell

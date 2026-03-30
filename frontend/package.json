@@ -2,13 +2,17 @@
   "name": "grandpa-assistant-ui",
   "private": true,
   "version": "0.1.0",
+  "description": "React and Electron desktop UI for Grandpa Assistant.",
+  "author": "Hari Hara Sudhan",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "electron": "electron .",
-    "electron:dev": "electron ."
+    "electron:dev": "electron .",
+    "desktop:build": "vite build && electron-builder --win portable",
+    "desktop:dir": "vite build && electron-builder --dir"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -17,6 +21,31 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
     "vite": "^5.4.10"
+  },
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "com.grandpaassistant.desktop",
+    "productName": "Grandpa Assistant",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
   }
 }
