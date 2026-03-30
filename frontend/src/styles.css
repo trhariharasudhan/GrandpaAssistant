@@ -113,6 +113,12 @@ input {
   gap: 8px;
   color: var(--bs-gray);
   font-weight: 600;
+  flex-wrap: wrap;
+}
+
+.activity-detail {
+  color: var(--bs-gray);
+  font-weight: 500;
 }
 
 .clock-wrap {
@@ -354,6 +360,10 @@ input {
   font-size: 0.98rem;
 }
 
+.planner-focus-card {
+  background: linear-gradient(180deg, rgba(98, 68, 197, 0.08), rgba(255, 196, 72, 0.08));
+}
+
 .inline-form,
 .stack-form {
   display: flex;
@@ -499,6 +509,11 @@ input {
 
 .voice-banner-copy span {
   color: var(--bs-gray-dark);
+  font-weight: 500;
+}
+
+.voice-banner-copy small {
+  color: var(--bs-gray);
   font-weight: 500;
 }
 

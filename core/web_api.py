@@ -13,12 +13,18 @@ from brain.memory_engine import get_memory
 from core.command_router import process_command
 from modules.event_module import get_event_data
 from modules.google_contacts_module import CACHE_PATH as GOOGLE_CONTACTS_CACHE_PATH
+from modules.google_contacts_module import (
+    get_recent_contact_change_summary,
+    list_contact_aliases,
+    list_favorite_contacts,
+)
 from modules.notes_module import latest_note
 from modules.startup_module import (
     disable_startup_auto_launch,
     enable_startup_auto_launch,
     startup_auto_launch_status,
 )
+from modules.telegram_module import get_telegram_remote_history
 from modules.task_module import get_task_data
 from modules.weather_module import get_weather_report
 from modules.health_module import get_system_status
@@ -37,6 +43,7 @@ _voice_activity = "Ready"
 _voice_transcript = ""
 _voice_error = ""
 _voice_messages = []
+_voice_last_reply = ""
 
 
 def _compact_text(value):
@@ -105,10 +112,14 @@ def _set_voice_state(activity=None, transcript=None, error=None):
 
 
 def _push_voice_messages(messages):
-    global _voice_messages
+    global _voice_messages, _voice_last_reply
     cleaned = [_compact_text(item) for item in (messages or []) if _compact_text(item)]
     if not cleaned:
         return
+    for item in reversed(cleaned):
+        if item.startswith("Grandpa : "):
+            _voice_last_reply = item.replace("Grandpa : ", "", 1)
+            break
     _voice_messages = (_voice_messages + cleaned)[-12:]
 
 
@@ -121,9 +132,15 @@ def _voice_loop():
             if not _voice_enabled:
                 break
             if not heard:
+                _set_voice_state(activity="Listening", transcript="Listening... Speak now.", error="")
                 continue
             _set_voice_state(activity="Thinking", transcript=f"Heard: {heard}", error="")
             replies = _capture_command_reply(heard)
+            _set_voice_state(
+                activity="Speaking",
+                transcript=f"Replying: {_compact_text(replies[0]) if replies else 'Done.'}",
+                error="",
+            )
             _push_voice_messages([f"You : {heard}", *[f"Grandpa : {reply}" for reply in replies]])
             _set_voice_state(activity="Listening", transcript=f"Heard: {heard}", error="")
         except Exception as error:
@@ -146,6 +163,7 @@ def _voice_status_payload():
         "transcript": _voice_transcript,
         "error": _voice_error,
         "messages": _voice_messages[-8:],
+        "last_reply": _voice_last_reply,
     }
 
 
@@ -233,6 +251,10 @@ def _build_ui_state():
     wake_word = get_setting("wake_word", "hey grandpa")
     voice_profile = get_setting("voice.mode", "normal")
     contacts_preview = _load_contact_preview()
+    aliases_summary = list_contact_aliases()
+    favorites_summary = list_favorite_contacts()
+    recent_contact_changes = get_recent_contact_change_summary()
+    telegram_history = get_telegram_remote_history(limit=3)
     notifications = []
 
     if overdue_count:
@@ -275,6 +297,30 @@ def _build_ui_state():
             }
         )
 
+    if get_setting("assistant.emergency_mode_enabled", False):
+        notifications.append(
+            {
+                "level": "warning",
+                "text": "Emergency mode is enabled.",
+            }
+        )
+
+    if recent_contact_changes and "No recent" not in recent_contact_changes:
+        notifications.append(
+            {
+                "level": "info",
+                "text": recent_contact_changes,
+            }
+        )
+
+    if telegram_history and "No Telegram" not in telegram_history:
+        notifications.append(
+            {
+                "level": "neutral",
+                "text": telegram_history,
+            }
+        )
+
     return {
         "overview": {
             "tasks": f"{pending_tasks} pending",
@@ -306,12 +352,17 @@ def _build_ui_state():
         "contacts": {
             "favorite_contact": favorite_contact,
             "preview": contacts_preview or ["No synced contacts yet."],
+            "aliases_summary": aliases_summary,
+            "favorites_summary": favorites_summary,
+            "recent_changes": recent_contact_changes,
         },
         "emergency": {
             "location": get_memory("personal.contact.address")
             or get_memory("personal.location.current_location.city")
             or "No saved location.",
             "contact": get_memory("personal.contact.emergency_contact.name") or "Not set",
+            "mode_enabled": get_setting("assistant.emergency_mode_enabled", False),
+            "protocol_summary": "Alert, location share, and contact call shortcuts are ready.",
         },
         "startup": {
             "auto_launch_enabled": get_setting("startup.auto_launch_enabled", False),
@@ -319,6 +370,14 @@ def _build_ui_state():
             "summary": startup_auto_launch_status(),
             "portable_setup_ready": os.path.exists(
                 os.path.join(os.path.dirname(os.path.dirname(__file__)), "setup_portable_desktop.cmd")
+            ),
+            "react_ui_on_tray_enabled": get_setting("startup.react_ui_on_tray_enabled", False),
+            "react_ui_on_tray_mode": get_setting("startup.react_ui_on_tray_mode", "browser"),
+            "react_frontend_ready": os.path.exists(
+                os.path.join(os.path.dirname(os.path.dirname(__file__)), "start_react_frontend.cmd")
+            ),
+            "react_desktop_ready": os.path.exists(
+                os.path.join(os.path.dirname(os.path.dirname(__file__)), "start_react_electron.cmd")
             ),
         },
         "voice": _voice_status_payload(),

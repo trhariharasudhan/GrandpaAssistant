@@ -74,8 +74,14 @@ export default function App() {
   const [calendarTitle, setCalendarTitle] = useState("");
   const [calendarWhen, setCalendarWhen] = useState("tomorrow at 6 pm");
   const [wakeWordInput, setWakeWordInput] = useState("");
+  const [contactAlias, setContactAlias] = useState("");
+  const [contactAliasTarget, setContactAliasTarget] = useState("");
   const [contactSearch, setContactSearch] = useState("");
   const [selectedContact, setSelectedContact] = useState("");
+  const [selectedPlanner, setSelectedPlanner] = useState({
+    type: "",
+    text: "",
+  });
   const [messages, setMessages] = useState(initialMessages);
   const [activity, setActivity] = useState("Ready");
   const [uiState, setUiState] = useState({
@@ -105,10 +111,15 @@ export default function App() {
     contacts: {
       favorite_contact: "Loading...",
       preview: [],
+      aliases_summary: "Loading...",
+      favorites_summary: "Loading...",
+      recent_changes: "Loading...",
     },
     emergency: {
       location: "Loading...",
       contact: "Loading...",
+      mode_enabled: false,
+      protocol_summary: "Loading...",
     },
     memory: {
       preferred_language: "Loading...",
@@ -127,6 +138,11 @@ export default function App() {
     auto_launch_enabled: false,
     tray_mode: false,
     summary: "Loading...",
+    portable_setup_ready: false,
+    react_ui_on_tray_enabled: false,
+    react_ui_on_tray_mode: "browser",
+    react_frontend_ready: false,
+    react_desktop_ready: false,
   });
 
   useEffect(() => {
@@ -141,6 +157,12 @@ export default function App() {
   useEffect(() => {
     setActivity(mode === "voice" ? voiceStatus.activity || "Ready" : "Ready");
   }, [mode, voiceStatus.activity]);
+
+  useEffect(() => {
+    if (!selectedContact && uiState.contacts.favorite_contact && uiState.contacts.favorite_contact !== "Loading...") {
+      setSelectedContact(uiState.contacts.favorite_contact);
+    }
+  }, [selectedContact, uiState.contacts.favorite_contact]);
 
   useEffect(() => {
     if (mode !== "voice") {
@@ -386,6 +408,7 @@ export default function App() {
     return preview.filter((item) => item.toLowerCase().includes(query)).slice(0, 6);
   }, [contactSearch, uiState.contacts.preview]);
   const activeContact = selectedContact || contactSearch.trim() || uiState.contacts.favorite_contact;
+  const selectedPlannerLabel = selectedPlanner.text ? `${selectedPlanner.type}: ${selectedPlanner.text}` : "Nothing selected";
   const memoryItems = [
     `Preferred language: ${uiState.memory.preferred_language}`,
     `Favorite contact: ${uiState.memory.favorite_contact}`,
@@ -435,6 +458,7 @@ export default function App() {
   const focusPlannerSection = (section, itemText) => {
     const cleaned = cleanPlannerItem(itemText);
     setWorkspaceTab("planner");
+    setSelectedPlanner({ type: section, text: cleaned });
 
     if (section === "task") {
       setTaskInput(cleaned);
@@ -452,6 +476,11 @@ export default function App() {
       setEventText(cleaned);
       setEventTitleInput(cleaned);
     }
+  };
+
+  const selectContact = (value) => {
+    setSelectedContact(value);
+    setContactAliasTarget(value);
   };
 
   const taskQuickActions = [
@@ -501,6 +530,9 @@ export default function App() {
             <div className="activity-row">
               <span className={`orb ${activity.toLowerCase()}`} />
               <span>{activity}</span>
+              {mode === "voice" && voiceStatus.transcript ? (
+                <small className="activity-detail">{voiceStatus.transcript}</small>
+              ) : null}
             </div>
           </div>
         </div>
@@ -633,6 +665,7 @@ export default function App() {
 
           <SectionCard title="Contacts">
             <p>{`Favorite: ${uiState.contacts.favorite_contact}`}</p>
+            <p>{uiState.contacts.recent_changes || "No recent contact changes."}</p>
             <div className="stack-form compact-gap">
               <input
                 value={contactSearch}
@@ -646,7 +679,7 @@ export default function App() {
                   <button
                     key={`contact-${item}`}
                     className={selectedContact === item ? "chip-button active-chip" : "chip-button"}
-                    onClick={() => setSelectedContact(item)}
+                    onClick={() => selectContact(item)}
                   >
                     {item}
                   </button>
@@ -675,24 +708,88 @@ export default function App() {
               >
                 Mail Contact
               </button>
+              <button
+                className="action-button"
+                onClick={() => activeContact ? runCommand(`favorite contact ${activeContact}`) : null}
+              >
+                Favorite Contact
+              </button>
+              <button
+                className="action-button"
+                onClick={() => activeContact ? runCommand(`unfavorite contact ${activeContact}`) : null}
+              >
+                Unfavorite Contact
+              </button>
+              <button className="action-button" onClick={() => runCommand("sync google contacts")}>
+                Sync Contacts
+              </button>
+              <button className="action-button" onClick={() => runCommand("show google contact changes")}>
+                Contact Changes
+              </button>
             </div>
+            <div className="stack-form compact-gap">
+              <input
+                value={contactAlias}
+                onChange={(event) => setContactAlias(event.target.value)}
+                placeholder="Alias (appa, bro...)"
+              />
+              <input
+                value={contactAliasTarget}
+                onChange={(event) => setContactAliasTarget(event.target.value)}
+                placeholder="Exact contact name"
+              />
+              <button
+                onClick={() =>
+                  contactAlias.trim() && contactAliasTarget.trim()
+                    ? runCommand(`set contact alias ${contactAlias} to ${contactAliasTarget}`.trim())
+                    : null
+                }
+              >
+                Save Alias
+              </button>
+              <button
+                onClick={() =>
+                  contactAlias.trim()
+                    ? runCommand(`remove contact alias ${contactAlias}`.trim())
+                    : null
+                }
+              >
+                Remove Alias
+              </button>
+            </div>
+            <ul className="mini-list compact-list">
+              <li>{uiState.contacts.aliases_summary}</li>
+              <li>{uiState.contacts.favorites_summary}</li>
+            </ul>
           </SectionCard>
 
           <SectionCard title="Emergency">
             <ul className="mini-list">
               <li>{`Emergency contact: ${uiState.emergency.contact}`}</li>
               <li>{`Saved location: ${uiState.emergency.location}`}</li>
+              <li>{`Mode: ${uiState.emergency.mode_enabled ? "Enabled" : "Disabled"}`}</li>
+              <li>{uiState.emergency.protocol_summary}</li>
             </ul>
             <div className="action-grid">
               <button className="action-button danger" onClick={() => runCommand("start emergency protocol")}>Start Protocol</button>
               <button className="action-button danger" onClick={() => runCommand("send emergency alert")}>Send Alert</button>
               <button className="action-button" onClick={() => runCommand("send i am safe alert")}>I'm Safe</button>
               <button className="action-button" onClick={() => runCommand("share my location everywhere")}>Share Location</button>
+              <button className="action-button" onClick={() => runCommand(uiState.emergency.mode_enabled ? "disable emergency mode" : "enable emergency mode")}>
+                {uiState.emergency.mode_enabled ? "Disable Emergency" : "Enable Emergency"}
+              </button>
+              <button className="action-button" onClick={() => runCommand("emergency protocol status")}>Protocol Status</button>
             </div>
           </SectionCard>
 
           <SectionCard title="Startup">
             <p>{startupState.summary}</p>
+            <ul className="mini-list compact-list">
+              <li>{`React on tray: ${startupState.react_ui_on_tray_enabled ? "Enabled" : "Disabled"}`}</li>
+              <li>{`Tray mode target: ${startupState.react_ui_on_tray_mode || "browser"}`}</li>
+              <li>{`Browser launcher: ${startupState.react_frontend_ready ? "Ready" : "Missing"}`}</li>
+              <li>{`Desktop launcher: ${startupState.react_desktop_ready ? "Ready" : "Missing"}`}</li>
+            </ul>
             <div className="startup-actions">
               <button
                 className={startupState.auto_launch_enabled ? "soft danger" : "soft success"}
@@ -713,6 +810,12 @@ export default function App() {
                 }
               >
                 {startupState.tray_mode ? "Tray Startup On" : "Tray Startup Off"}
+              </button>
+              <button className="soft" onClick={() => runCommand("open react ui")}>
+                Open React Browser UI
+              </button>
+              <button className="soft" onClick={() => runCommand("open react desktop")}>
+                Open React Desktop UI
               </button>
             </div>
           </SectionCard>
@@ -746,6 +849,73 @@ export default function App() {
 
             {workspaceTab === "planner" ? (
               <div className="workspace-grid">
+                <div className="workspace-card planner-focus-card">
+                  <h3>Selected Item</h3>
+                  <p>{selectedPlannerLabel}</p>
+                  <div className="action-grid compact two-col">
+                    <button
+                      className="action-button"
+                      onClick={() =>
+                        selectedPlanner.type === "task" && selectedPlanner.text
+                          ? runCommand(`complete task titled ${selectedPlanner.text}`)
+                          : null
+                      }
+                    >
+                      Complete Selected
+                    </button>
+                    <button
+                      className="action-button"
+                      onClick={() =>
+                        selectedPlanner.type === "task" && selectedPlanner.text
+                          ? runCommand(`delete task titled ${selectedPlanner.text}`)
+                          : null
+                      }
+                    >
+                      Delete Selected
+                    </button>
+                    <button
+                      className="action-button"
+                      onClick={() =>
+                        selectedPlanner.type === "reminder" && selectedPlanner.text
+                          ? runCommand(`reschedule reminder about ${selectedPlanner.text} to ${reminderRescheduleInput}`.trim())
+                          : null
+                      }
+                    >
+                      Move Reminder
+                    </button>
+                    <button
+                      className="action-button"
+                      onClick={() =>
+                        selectedPlanner.type === "reminder" && selectedPlanner.text
+                          ? runCommand(`delete reminder about ${selectedPlanner.text}`.trim())
+                          : null
+                      }
+                    >
+                      Delete Reminder
+                    </button>
+                    <button
+                      className="action-button"
+                      onClick={() =>
+                        selectedPlanner.type === "event" && selectedPlanner.text
+                          ? runCommand(`reschedule event about ${selectedPlanner.text} to ${eventRescheduleInput}`.trim())
+                          : null
+                      }
+                    >
+                      Move Event
+                    </button>
+                    <button
+                      className="action-button"
+                      onClick={() =>
+                        selectedPlanner.type === "event" && selectedPlanner.text
+                          ? runCommand(`delete event about ${selectedPlanner.text}`.trim())
+                          : null
+                      }
+                    >
+                      Delete Event
+                    </button>
+                  </div>
+                </div>
+
                 <div className="workspace-card">
                   <h3>Tasks</h3>
                   <div className="inline-form">
@@ -1068,6 +1238,13 @@ export default function App() {
                     <button className="action-button" onClick={() => runCommand("voice status")}>Voice Status</button>
                     <button className="action-button" onClick={() => runCommand("offline mode status")}>Offline Status</button>
                     <button className="action-button" onClick={() => runCommand("developer mode status")}>Developer Status</button>
+                    <button className="action-button" onClick={() => runCommand(uiState.settings.emergency_mode ? "disable emergency mode" : "enable emergency mode")}>
+                      {uiState.settings.emergency_mode ? "Disable Emergency" : "Enable Emergency"}
+                    </button>
+                    <button className="action-button" onClick={() => runCommand("set voice mode to sensitive")}>Sensitive Voice</button>
+                    <button className="action-button" onClick={() => runCommand("set voice mode to normal")}>Normal Voice</button>
+                    <button className="action-button" onClick={() => runCommand("enable compact voice replies")}>Compact Replies</button>
+                    <button className="action-button" onClick={() => runCommand("disable compact voice replies")}>Full Replies</button>
                     <button className="action-button" onClick={() => runCommand(uiState.settings.offline_mode ? "disable offline mode" : "enable offline mode")}>
                       {uiState.settings.offline_mode ? "Disable Offline" : "Enable Offline"}
                     </button>
@@ -1107,6 +1284,10 @@ export default function App() {
                     <button className="action-button" onClick={() => runCommand("disable assistant startup")}>Disable Startup</button>
                     <button className="action-button" onClick={() => runCommand("enable tray startup")}>Enable Tray Startup</button>
                     <button className="action-button" onClick={() => runCommand("disable tray startup")}>Disable Tray Startup</button>
+                    <button className="action-button" onClick={() => runCommand("enable tray react ui")}>Tray React On</button>
+                    <button className="action-button" onClick={() => runCommand("disable tray react ui")}>Tray React Off</button>
+                    <button className="action-button" onClick={() => runCommand("set tray react mode to browser")}>Tray Browser</button>
+                    <button className="action-button" onClick={() => runCommand("set tray react mode to desktop")}>Tray Desktop</button>
                     <button className="action-button" onClick={() => runCommand("assistant startup status")}>Startup Status</button>
                     <button className="action-button" onClick={() => runCommand("tray react status")}>Tray React Status</button>
                     <button className="action-button" onClick={() => runPortableSetup("desktop")}>Create Desktop Shortcut</button>
@@ -1122,6 +1303,10 @@ export default function App() {
                     <button className="action-button" onClick={() => runCommand("sync google calendar")}>Sync Calendar</button>
                     <button className="action-button" onClick={() => runCommand("telegram status")}>Telegram Status</button>
                     <button className="action-button" onClick={() => runCommand("telegram remote status")}>Telegram Remote</button>
+                    <button className="action-button" onClick={() => runCommand("enable telegram")}>Telegram On</button>
+                    <button className="action-button" onClick={() => runCommand("disable telegram")}>Telegram Off</button>
+                    <button className="action-button" onClick={() => runCommand("enable telegram alerts")}>Alerts On</button>
+                    <button className="action-button" onClick={() => runCommand("disable telegram alerts")}>Alerts Off</button>
                     <button className="action-button" onClick={() => runCommand("github summary")}>GitHub Summary</button>
                     <button className="action-button" onClick={() => runCommand("offline ai status")}>Offline AI Status</button>
                   </div>
@@ -1169,10 +1354,11 @@ export default function App() {
               </>
             ) : (
               <div className="voice-banner">
-                <span className="orb listening" />
+                <span className={`orb ${(voiceStatus.activity || "listening").toLowerCase()}`} />
                 <div className="voice-banner-copy">
                   <strong>Voice mode active</strong>
                   <span>{voiceStatus.transcript || "Listening... Speak now."}</span>
+                  {voiceStatus.last_reply ? <small>{`Last reply: ${voiceStatus.last_reply}`}</small> : null}
                 </div>
               </div>
             )}
