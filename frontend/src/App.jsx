@@ -62,8 +62,11 @@ export default function App() {
   const [eventWhen, setEventWhen] = useState("tomorrow at 6 pm");
   const [noteInput, setNoteInput] = useState("");
   const [noteSearch, setNoteSearch] = useState("");
-  const [taskRenameInput, setTaskRenameInput] = useState("");
+  const [taskTitleInput, setTaskTitleInput] = useState("");
+  const [reminderTitleInput, setReminderTitleInput] = useState("");
   const [reminderRescheduleInput, setReminderRescheduleInput] = useState("tomorrow at 8 pm");
+  const [eventTitleInput, setEventTitleInput] = useState("");
+  const [eventRescheduleInput, setEventRescheduleInput] = useState("tomorrow at 6 pm");
   const [calendarTitle, setCalendarTitle] = useState("");
   const [calendarWhen, setCalendarWhen] = useState("tomorrow at 6 pm");
   const [wakeWordInput, setWakeWordInput] = useState("");
@@ -637,18 +640,27 @@ export default function App() {
                   </div>
                   <div className="stack-form compact-gap">
                     <input
-                      value={taskRenameInput}
-                      onChange={(event) => setTaskRenameInput(event.target.value)}
-                      placeholder="Rename latest task to..."
+                      value={taskTitleInput}
+                      onChange={(event) => setTaskTitleInput(event.target.value)}
+                      placeholder="Task title..."
                     />
                     <button
                       onClick={() =>
-                        taskRenameInput.trim()
-                          ? runCommand(`rename latest task to ${taskRenameInput}`.trim())
+                        taskTitleInput.trim()
+                          ? runCommand(`complete task titled ${taskTitleInput}`.trim())
                           : null
                       }
                     >
-                      Rename Latest Task
+                      Complete By Title
+                    </button>
+                    <button
+                      onClick={() =>
+                        taskTitleInput.trim()
+                          ? runCommand(`delete task titled ${taskTitleInput}`.trim())
+                          : null
+                      }
+                    >
+                      Delete By Title
                     </button>
                   </div>
                 </div>
@@ -677,18 +689,32 @@ export default function App() {
                   </div>
                   <div className="stack-form compact-gap">
                     <input
+                      value={reminderTitleInput}
+                      onChange={(event) => setReminderTitleInput(event.target.value)}
+                      placeholder="Reminder title..."
+                    />
+                    <input
                       value={reminderRescheduleInput}
                       onChange={(event) => setReminderRescheduleInput(event.target.value)}
                       placeholder="tomorrow at 8 pm"
                     />
                     <button
                       onClick={() =>
-                        reminderRescheduleInput.trim()
-                          ? runCommand(`reschedule latest reminder to ${reminderRescheduleInput}`.trim())
+                        reminderTitleInput.trim() && reminderRescheduleInput.trim()
+                          ? runCommand(`reschedule reminder about ${reminderTitleInput} to ${reminderRescheduleInput}`.trim())
                           : null
                       }
                     >
-                      Reschedule Latest
+                      Reschedule By Title
+                    </button>
+                    <button
+                      onClick={() =>
+                        reminderTitleInput.trim()
+                          ? runCommand(`delete reminder about ${reminderTitleInput}`.trim())
+                          : null
+                      }
+                    >
+                      Delete By Title
                     </button>
                   </div>
                 </div>
@@ -714,6 +740,36 @@ export default function App() {
                         {item.label}
                       </button>
                     ))}
+                  </div>
+                  <div className="stack-form compact-gap">
+                    <input
+                      value={eventTitleInput}
+                      onChange={(event) => setEventTitleInput(event.target.value)}
+                      placeholder="Event title..."
+                    />
+                    <input
+                      value={eventRescheduleInput}
+                      onChange={(event) => setEventRescheduleInput(event.target.value)}
+                      placeholder="tomorrow at 6 pm"
+                    />
+                    <button
+                      onClick={() =>
+                        eventTitleInput.trim() && eventRescheduleInput.trim()
+                          ? runCommand(`reschedule event about ${eventTitleInput} to ${eventRescheduleInput}`.trim())
+                          : null
+                      }
+                    >
+                      Reschedule By Title
+                    </button>
+                    <button
+                      onClick={() =>
+                        eventTitleInput.trim()
+                          ? runCommand(`delete event about ${eventTitleInput}`.trim())
+                          : null
+                      }
+                    >
+                      Delete By Title
+                    </button>
                   </div>
                 </div>
               </div>
