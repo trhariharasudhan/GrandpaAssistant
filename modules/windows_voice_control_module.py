@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import time
 
@@ -40,6 +41,7 @@ SETTINGS_PAGE_MAP = {
 }
 
 DEFAULT_APP_COMMANDS = {
+    "settings": ["cmd.exe", "/c", "start", "ms-settings:"],
     "notepad": ["notepad.exe"],
     "calculator": ["calc.exe"],
     "chrome": ["cmd.exe", "/c", "start", "chrome"],
@@ -57,6 +59,11 @@ DEFAULT_APP_COMMANDS = {
     "photos": ["cmd.exe", "/c", "start", "ms-photos:"],
     "media player": ["cmd.exe", "/c", "start", "mswindowsmusic:"],
     "clock": ["cmd.exe", "/c", "start", "ms-clock:"],
+    "sticky notes": ["cmd.exe", "/c", "start", "ms-sticky-notes:"],
+    "microsoft store": ["cmd.exe", "/c", "start", "ms-windows-store:"],
+    "store": ["cmd.exe", "/c", "start", "ms-windows-store:"],
+    "maps": ["cmd.exe", "/c", "start", "bingmaps:"],
+    "sound recorder": ["cmd.exe", "/c", "start", "ms-callrecording:"],
     "phone link": ["cmd.exe", "/c", "start", "ms-phone:"],
     "voice recorder": ["cmd.exe", "/c", "start", "ms-callrecording:"],
 }
@@ -87,6 +94,15 @@ HOTKEY_ACTIONS = {
     "switch window": (("alt", "tab"), "Switched the active window."),
     "show desktop": (("win", "d"), "Toggled desktop view."),
     "open start menu": (("win",), "Opened the Start menu."),
+    "copy that": (("ctrl", "c"), "Copied the current selection."),
+    "paste that": (("ctrl", "v"), "Pasted from the clipboard."),
+    "select all": (("ctrl", "a"), "Selected everything in the current area."),
+    "undo that": (("ctrl", "z"), "Undid the last action."),
+    "redo that": (("ctrl", "y"), "Redid the last action."),
+    "save this": (("ctrl", "s"), "Tried to save the current item."),
+    "close this window": (("alt", "f4"), "Tried to close the current window."),
+    "next field": (("tab",), "Moved to the next field."),
+    "previous field": (("shift", "tab"), "Moved to the previous field."),
 }
 
 
@@ -108,10 +124,13 @@ def _open_ms_settings(uri):
 
 def open_windows_settings_page(command):
     normalized = " ".join((command or "").lower().strip().split())
-    if not normalized.startswith("open "):
-        return None
+    prefixes = ["open ", "show ", "go to "]
+    target = None
+    for prefix in prefixes:
+        if normalized.startswith(prefix):
+            target = normalized.replace(prefix, "", 1).strip()
+            break
 
-    target = normalized.replace("open ", "", 1).strip()
     if target in SETTINGS_PAGE_MAP:
         uri, label = SETTINGS_PAGE_MAP[target]
         if _open_ms_settings(uri):
@@ -123,10 +142,11 @@ def open_windows_settings_page(command):
 
 def open_default_windows_app(command):
     normalized = " ".join((command or "").lower().strip().split())
-    if not normalized.startswith("open "):
-        return None
-
-    target = normalized.replace("open ", "", 1).strip()
+    target = None
+    for prefix in ["open ", "start ", "launch "]:
+        if normalized.startswith(prefix):
+            target = normalized.replace(prefix, "", 1).strip()
+            break
     if target in DEFAULT_APP_COMMANDS:
         if _run_start_command(DEFAULT_APP_COMMANDS[target]):
             return f"Opening {target}."
@@ -181,6 +201,24 @@ def handle_voice_access_control(command):
 
 def handle_desktop_action(command):
     normalized = " ".join((command or "").lower().strip().split())
+
+    combo_match = re.match(r"^press ((?:ctrl|control|alt|shift|win|windows)(?: [a-z0-9]+)+)$", normalized)
+    if combo_match:
+        raw_combo = combo_match.group(1)
+        key_tokens = raw_combo.split()
+        normalized_keys = []
+        for token in key_tokens:
+            normalized_keys.append(
+                {
+                    "control": "ctrl",
+                    "windows": "win",
+                }.get(token, token)
+            )
+        try:
+            pyautogui.hotkey(*normalized_keys)
+            return f"Pressed {' + '.join(normalized_keys)}."
+        except Exception:
+            return f"I could not press {' + '.join(normalized_keys)} right now."
 
     if normalized in DESKTOP_KEY_ACTIONS:
         key, reply = DESKTOP_KEY_ACTIONS[normalized]
@@ -238,6 +276,69 @@ def handle_desktop_action(command):
         time.sleep(0.2)
         pyautogui.press("enter")
         return f"Searched Start for {text}."
+
+    if normalized.startswith("search for "):
+        text = command.lower().split("search for ", 1)[1].strip()
+        if not text:
+            return "Tell me what you want me to search."
+        pyautogui.hotkey("win", "s")
+        time.sleep(0.6)
+        pyautogui.write(text, interval=0.03)
+        return f"Opened Windows Search for {text}."
+
+    return None
+
+
+def handle_settings_page_action(command):
+    normalized = " ".join((command or "").lower().strip().split())
+
+    scroll_match = re.match(r"^(?:open|show|go to) (.+ settings|windows update) and scroll (down|up)$", normalized)
+    if scroll_match:
+        target = scroll_match.group(1)
+        direction = scroll_match.group(2)
+        open_reply = open_windows_settings_page(f"open {target}")
+        if not open_reply:
+            return None
+        time.sleep(1.8)
+        pyautogui.scroll(-700 if direction == "down" else 700)
+        return f"{open_reply} Then I scrolled {direction}."
+
+    click_match = re.match(r"^(?:open|show|go to) (.+ settings|windows update) and click (.+)$", normalized)
+    if click_match:
+        target = click_match.group(1)
+        click_target = click_match.group(2).strip()
+        open_reply = open_windows_settings_page(f"open {target}")
+        if not open_reply:
+            return None
+        time.sleep(2.0)
+        try:
+            from vision.screen_reader import click_on_text
+
+            found = click_on_text(click_target)
+        except Exception:
+            found = False
+        if found:
+            return f"{open_reply} Then I clicked {click_target}."
+        return f"{open_reply} I could not find {click_target} to click."
+
+    find_match = re.match(r"^(?:open|show|go to) (.+ settings|windows update) and find (.+)$", normalized)
+    if find_match:
+        target = find_match.group(1)
+        find_target = find_match.group(2).strip()
+        open_reply = open_windows_settings_page(f"open {target}")
+        if not open_reply:
+            return None
+        time.sleep(2.0)
+        try:
+            from vision.screen_reader import find_text_details
+
+            details = find_text_details(find_target)
+        except Exception:
+            details = None
+        if details:
+            x, y = details["center"]
+            return f"{open_reply} I found {details['text']} near position {x}, {y}."
+        return f"{open_reply} I could not find {find_target} on that page."
 
     return None
 

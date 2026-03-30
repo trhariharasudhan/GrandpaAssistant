@@ -135,6 +135,7 @@ from modules.telegram_module import (
 from modules.windows_voice_control_module import (
     get_active_window_summary,
     handle_desktop_action,
+    handle_settings_page_action,
     handle_voice_access_control,
     open_default_windows_app,
     open_windows_settings_page,
@@ -2825,6 +2826,11 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         "active window",
     ]:
         speak(get_active_window_summary())
+        return
+
+    settings_action_reply = handle_settings_page_action(command)
+    if settings_action_reply:
+        speak(settings_action_reply)
         return
 
     desktop_action_reply = handle_desktop_action(command)
