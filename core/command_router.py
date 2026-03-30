@@ -132,6 +132,14 @@ from modules.telegram_module import (
     send_telegram_message,
     telegram_status,
 )
+from modules.windows_voice_control_module import (
+    get_active_window_summary,
+    handle_desktop_action,
+    handle_voice_access_control,
+    open_default_windows_app,
+    open_windows_settings_page,
+    run_windows_voice_macro,
+)
 from modules.window_context_module import (
     editor_run_current_file,
     editor_save_current_file,
@@ -2798,6 +2806,40 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             speak("Grandpa Assistant restored from the system tray.")
         else:
             speak("Tray mode is not active right now.")
+        return
+
+    windows_macro_reply = run_windows_voice_macro(command)
+    if windows_macro_reply:
+        speak(windows_macro_reply)
+        return
+
+    voice_access_reply = handle_voice_access_control(command)
+    if voice_access_reply:
+        speak(voice_access_reply)
+        return
+
+    if command in [
+        "what app am i in",
+        "what window is active",
+        "current window",
+        "active window",
+    ]:
+        speak(get_active_window_summary())
+        return
+
+    desktop_action_reply = handle_desktop_action(command)
+    if desktop_action_reply:
+        speak(desktop_action_reply)
+        return
+
+    windows_settings_reply = open_windows_settings_page(command)
+    if windows_settings_reply:
+        speak(windows_settings_reply)
+        return
+
+    windows_app_reply = open_default_windows_app(command)
+    if windows_app_reply:
+        speak(windows_app_reply)
         return
 
     intent_result = try_handle_intent(command)
