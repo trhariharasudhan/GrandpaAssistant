@@ -3,6 +3,7 @@ const path = require("path");
 
 const isDev = !app.isPackaged;
 const devUrl = "http://127.0.0.1:4173";
+const iconPath = path.join(__dirname, "..", "assets", "app-icon.png");
 
 function createWindow() {
   const window = new BrowserWindow({
@@ -12,6 +13,7 @@ function createWindow() {
     minHeight: 720,
     backgroundColor: "#fafafb",
     title: "Grandpa Assistant",
+    icon: iconPath,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),

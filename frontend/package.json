@@ -6,13 +6,14 @@
   "author": "Hari Hara Sudhan",
   "type": "module",
   "scripts": {
+    "icons:generate": "node scripts/generate-icons.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "electron": "electron .",
     "electron:dev": "electron .",
-    "desktop:build": "vite build && electron-builder --win portable",
-    "desktop:dir": "vite build && electron-builder --dir"
+    "desktop:build": "npm run icons:generate && vite build && electron-builder --win portable",
+    "desktop:dir": "npm run icons:generate && vite build && electron-builder --dir"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -22,6 +23,8 @@
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^31.7.7",
     "electron-builder": "^24.13.3",
+    "png-to-ico": "^2.1.8",
+    "sharp": "^0.33.5",
     "vite": "^5.4.10"
   },
   "main": "electron/main.cjs",
@@ -37,6 +40,7 @@
       "package.json"
     ],
     "win": {
+      "icon": "assets/app-icon.ico",
       "signAndEditExecutable": false,
       "target": [
         {

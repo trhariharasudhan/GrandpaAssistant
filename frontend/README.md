@@ -77,6 +77,7 @@ Build a portable desktop app:
 
 ```powershell
 npm install
+npm run icons:generate
 npm run desktop:build
 ```
 
@@ -98,3 +99,4 @@ Current direction:
 - local Python backend API
 - Electron wrapper for desktop app feel
 - portable Windows build pipeline
+- generated custom app icon for desktop builds
