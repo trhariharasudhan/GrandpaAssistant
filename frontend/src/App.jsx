@@ -60,6 +60,10 @@ export default function App() {
   const [reminderWhen, setReminderWhen] = useState("tomorrow at 8 pm");
   const [eventText, setEventText] = useState("");
   const [eventWhen, setEventWhen] = useState("tomorrow at 6 pm");
+  const [noteInput, setNoteInput] = useState("");
+  const [noteSearch, setNoteSearch] = useState("");
+  const [taskRenameInput, setTaskRenameInput] = useState("");
+  const [reminderRescheduleInput, setReminderRescheduleInput] = useState("tomorrow at 8 pm");
   const [calendarTitle, setCalendarTitle] = useState("");
   const [calendarWhen, setCalendarWhen] = useState("tomorrow at 6 pm");
   const [wakeWordInput, setWakeWordInput] = useState("");
@@ -340,7 +344,7 @@ export default function App() {
     `Favorite contact: ${uiState.memory.favorite_contact}`,
     `Mode: ${mode === "voice" ? "Voice" : "Text"}`,
   ];
-  const workspaceTabs = ["planner", "calendar", "settings"];
+  const workspaceTabs = ["planner", "calendar", "notes", "settings"];
 
   const formatTime = now.toLocaleTimeString("en-IN", {
     hour: "2-digit",
@@ -379,6 +383,27 @@ export default function App() {
         await runCommand(`add event ${eventText} ${eventWhen}`.trim());
       },
     },
+  ];
+
+  const taskQuickActions = [
+    { label: "Latest Task", command: "latest task" },
+    { label: "Complete Latest", command: "complete latest task" },
+    { label: "Delete Latest", command: "delete latest task" },
+    { label: "Clear Done", command: "delete completed tasks" },
+  ];
+
+  const reminderQuickActions = [
+    { label: "Latest Reminder", command: "latest reminder" },
+    { label: "Delete Latest", command: "delete latest reminder" },
+    { label: "Due Today", command: "what is due today" },
+    { label: "Overdue", command: "show overdue items" },
+  ];
+
+  const eventQuickActions = [
+    { label: "Latest Event", command: "latest event" },
+    { label: "Upcoming", command: "upcoming events" },
+    { label: "Delete Latest", command: "delete latest event" },
+    { label: "Today Events", command: "today events" },
   ];
 
   return (
@@ -580,7 +605,13 @@ export default function App() {
                   className={workspaceTab === tab ? "active" : ""}
                   onClick={() => setWorkspaceTab(tab)}
                 >
-                  {tab === "planner" ? "Planner" : tab === "calendar" ? "Calendar" : "Settings"}
+                  {tab === "planner"
+                    ? "Planner"
+                    : tab === "calendar"
+                      ? "Calendar"
+                      : tab === "notes"
+                        ? "Notes"
+                        : "Settings"}
                 </button>
               ))}
             </div>
@@ -596,6 +627,29 @@ export default function App() {
                       placeholder="Finish resume"
                     />
                     <button onClick={plannerActions[0].action}>Add Task</button>
+                  </div>
+                  <div className="action-grid compact two-col">
+                    {taskQuickActions.map((item) => (
+                      <button key={item.label} className="action-button" onClick={() => runCommand(item.command)}>
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="stack-form compact-gap">
+                    <input
+                      value={taskRenameInput}
+                      onChange={(event) => setTaskRenameInput(event.target.value)}
+                      placeholder="Rename latest task to..."
+                    />
+                    <button
+                      onClick={() =>
+                        taskRenameInput.trim()
+                          ? runCommand(`rename latest task to ${taskRenameInput}`.trim())
+                          : null
+                      }
+                    >
+                      Rename Latest Task
+                    </button>
                   </div>
                 </div>
 
@@ -614,6 +668,29 @@ export default function App() {
                     />
                     <button onClick={plannerActions[1].action}>Add Reminder</button>
                   </div>
+                  <div className="action-grid compact two-col">
+                    {reminderQuickActions.map((item) => (
+                      <button key={item.label} className="action-button" onClick={() => runCommand(item.command)}>
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="stack-form compact-gap">
+                    <input
+                      value={reminderRescheduleInput}
+                      onChange={(event) => setReminderRescheduleInput(event.target.value)}
+                      placeholder="tomorrow at 8 pm"
+                    />
+                    <button
+                      onClick={() =>
+                        reminderRescheduleInput.trim()
+                          ? runCommand(`reschedule latest reminder to ${reminderRescheduleInput}`.trim())
+                          : null
+                      }
+                    >
+                      Reschedule Latest
+                    </button>
+                  </div>
                 </div>
 
                 <div className="workspace-card">
@@ -630,6 +707,13 @@ export default function App() {
                       placeholder="tomorrow at 6 pm"
                     />
                     <button onClick={plannerActions[2].action}>Add Event</button>
+                  </div>
+                  <div className="action-grid compact two-col">
+                    {eventQuickActions.map((item) => (
+                      <button key={item.label} className="action-button" onClick={() => runCommand(item.command)}>
+                        {item.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -682,6 +766,58 @@ export default function App() {
               </div>
             ) : null}
 
+            {workspaceTab === "notes" ? (
+              <div className="workspace-grid">
+                <div className="workspace-card">
+                  <h3>Quick Note</h3>
+                  <div className="stack-form">
+                    <input
+                      value={noteInput}
+                      onChange={(event) => setNoteInput(event.target.value)}
+                      placeholder="Write a quick note..."
+                    />
+                    <button
+                      onClick={() => {
+                        if (!noteInput.trim()) return;
+                        runCommand(`add note ${noteInput}`.trim());
+                        setNoteInput("");
+                      }}
+                    >
+                      Save Note
+                    </button>
+                  </div>
+                </div>
+
+                <div className="workspace-card">
+                  <h3>Notes Actions</h3>
+                  <div className="action-grid compact two-col">
+                    <button className="action-button" onClick={() => runCommand("latest note")}>Latest Note</button>
+                    <button className="action-button" onClick={() => runCommand("list notes")}>List Notes</button>
+                    <button className="action-button" onClick={() => runCommand("summarize notes")}>Summarize</button>
+                    <button className="action-button" onClick={() => runCommand("delete note 1")}>Delete Note 1</button>
+                  </div>
+                </div>
+
+                <div className="workspace-card">
+                  <h3>Search Notes</h3>
+                  <div className="stack-form">
+                    <input
+                      value={noteSearch}
+                      onChange={(event) => setNoteSearch(event.target.value)}
+                      placeholder="Search notes for..."
+                    />
+                    <button
+                      onClick={() =>
+                        noteSearch.trim() ? runCommand(`search notes for ${noteSearch}`.trim()) : null
+                      }
+                    >
+                      Search Notes
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             {workspaceTab === "settings" ? (
               <div className="workspace-grid">
                 <div className="workspace-card">
@@ -701,6 +837,8 @@ export default function App() {
                     <button className="action-button" onClick={() => runCommand("voice status")}>Voice Status</button>
                     <button className="action-button" onClick={() => runCommand("offline mode status")}>Offline Status</button>
                     <button className="action-button" onClick={() => runCommand("developer mode status")}>Developer Status</button>
+                    <button className="action-button" onClick={() => runCommand("assistant startup status")}>Startup Status</button>
+                    <button className="action-button" onClick={() => runCommand("google calendar status")}>Calendar Status</button>
                   </div>
                 </div>
 
@@ -711,6 +849,8 @@ export default function App() {
                     <button className="action-button" onClick={() => runCommand("set preferred language to english")}>English</button>
                     <button className="action-button" onClick={() => runCommand("set preferred tone to friendly")}>Friendly</button>
                     <button className="action-button" onClick={() => runCommand("set preferred tone to professional")}>Professional</button>
+                    <button className="action-button" onClick={() => runCommand("enable assistant startup")}>Enable Startup</button>
+                    <button className="action-button" onClick={() => runCommand("disable assistant startup")}>Disable Startup</button>
                   </div>
                 </div>
               </div>
