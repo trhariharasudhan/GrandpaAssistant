@@ -234,6 +234,21 @@ input {
   line-height: 1.5;
 }
 
+.inline-select {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  line-height: 1.5;
+}
+
+.inline-select:hover {
+  color: var(--bs-primary);
+}
+
 .compact-list {
   gap: 8px;
   margin-bottom: 12px;

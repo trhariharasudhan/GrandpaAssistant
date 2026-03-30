@@ -49,6 +49,10 @@ function MessageBubble({ side, text }) {
   );
 }
 
+function cleanPlannerItem(text) {
+  return String(text || "").split(" - ")[0].trim();
+}
+
 export default function App() {
   const messagesEndRef = useRef(null);
   const [mode, setMode] = useState("text");
@@ -398,6 +402,28 @@ export default function App() {
     },
   ];
 
+  const focusPlannerSection = (section, itemText) => {
+    const cleaned = cleanPlannerItem(itemText);
+    setWorkspaceTab("planner");
+
+    if (section === "task") {
+      setTaskInput(cleaned);
+      setTaskTitleInput(cleaned);
+      return;
+    }
+
+    if (section === "reminder") {
+      setReminderText(cleaned);
+      setReminderTitleInput(cleaned);
+      return;
+    }
+
+    if (section === "event") {
+      setEventText(cleaned);
+      setEventTitleInput(cleaned);
+    }
+  };
+
   const taskQuickActions = [
     { label: "Latest Task", command: "latest task" },
     { label: "Complete Latest", command: "complete latest task" },
@@ -485,7 +511,11 @@ export default function App() {
                 <h4>Tasks</h4>
                 <ul className="mini-list">
                   {(uiState.dashboard.tasks || []).map((item) => (
-                    <li key={`task-${item}`}>{item}</li>
+                    <li key={`task-${item}`}>
+                      <button className="inline-select" onClick={() => focusPlannerSection("task", item)}>
+                        {item}
+                      </button>
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -493,7 +523,11 @@ export default function App() {
                 <h4>Reminders</h4>
                 <ul className="mini-list">
                   {(uiState.dashboard.reminders || []).map((item) => (
-                    <li key={`reminder-${item}`}>{item}</li>
+                    <li key={`reminder-${item}`}>
+                      <button className="inline-select" onClick={() => focusPlannerSection("reminder", item)}>
+                        {item}
+                      </button>
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -501,7 +535,11 @@ export default function App() {
                 <h4>Events</h4>
                 <ul className="mini-list">
                   {(uiState.dashboard.events || []).map((item) => (
-                    <li key={`event-${item}`}>{item}</li>
+                    <li key={`event-${item}`}>
+                      <button className="inline-select" onClick={() => focusPlannerSection("event", item)}>
+                        {item}
+                      </button>
+                    </li>
                   ))}
                 </ul>
               </div>
