@@ -85,6 +85,7 @@ export default function App() {
     next_event: "Loading...",
     latest_note: "Loading...",
     recent_commands: [],
+    notifications: [],
     dashboard: {
       tasks: [],
       reminders: [],
@@ -518,6 +519,20 @@ export default function App() {
               </div>
             ) : (
               <p>No recent commands yet.</p>
+            )}
+          </SectionCard>
+
+          <SectionCard title="Notifications">
+            {uiState.notifications?.length ? (
+              <ul className="notification-list">
+                {uiState.notifications.map((item, index) => (
+                  <li key={`${item.level}-${index}`} className={`notification-item ${item.level || "neutral"}`}>
+                    {item.text}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No active notifications.</p>
             )}
           </SectionCard>
 

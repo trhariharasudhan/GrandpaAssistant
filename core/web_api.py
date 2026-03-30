@@ -232,6 +232,47 @@ def _build_ui_state():
     wake_word = get_setting("wake_word", "hey grandpa")
     voice_profile = get_setting("voice.mode", "normal")
     contacts_preview = _load_contact_preview()
+    notifications = []
+
+    if overdue_count:
+        notifications.append(
+            {
+                "level": "warning",
+                "text": f"You have {overdue_count} overdue reminder(s).",
+            }
+        )
+
+    if pending_tasks:
+        notifications.append(
+            {
+                "level": "info",
+                "text": f"{pending_tasks} pending task(s) need attention.",
+            }
+        )
+
+    if next_event and next_event != "No upcoming events.":
+        notifications.append(
+            {
+                "level": "info",
+                "text": f"Next event: {next_event}",
+            }
+        )
+
+    if _voice_error:
+        notifications.append(
+            {
+                "level": "error",
+                "text": f"Voice issue: {_compact_text(_voice_error)}",
+            }
+        )
+
+    if not get_setting("startup.auto_launch_enabled", False):
+        notifications.append(
+            {
+                "level": "neutral",
+                "text": "Auto-launch is off.",
+            }
+        )
 
     return {
         "overview": {
@@ -244,6 +285,7 @@ def _build_ui_state():
         "next_event": next_event,
         "latest_note": note_summary,
         "recent_commands": recent_commands,
+        "notifications": notifications[:6],
         "dashboard": {
             "tasks": pending_task_titles or ["No pending tasks."],
             "reminders": overdue_reminders or ["No overdue reminders."],
