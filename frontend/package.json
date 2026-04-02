@@ -7,13 +7,14 @@
   "type": "module",
   "scripts": {
     "icons:generate": "node scripts/generate-icons.mjs",
+    "typescript:compat": "node scripts/ensure-typescript-compat.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "electron": "electron .",
     "electron:dev": "electron .",
-    "desktop:build": "npm run icons:generate && vite build && electron-builder --win portable",
-    "desktop:dir": "npm run icons:generate && vite build && electron-builder --dir"
+    "desktop:build": "npm run icons:generate && npm run typescript:compat && vite build && electron-builder --win portable",
+    "desktop:dir": "npm run icons:generate && npm run typescript:compat && vite build && electron-builder --dir"
   },
   "dependencies": {
     "react": "^18.3.1",

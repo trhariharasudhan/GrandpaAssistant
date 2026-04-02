@@ -1,0 +1,157 @@
+import sys
+import threading
+import time
+
+import pyttsx3
+import win32com.client
+from colorama import Fore, Style, init
+
+init(autoreset=True)
+
+_engine = None
+_sapi_voice = None
+_engine_lock = threading.Lock()
+_stream_lock = threading.Lock()
+_response_mode = "hybrid"
+_mirror_voice_replies = True
+_stream_active = False
+
+SVS_FLAGS_ASYNC = 1
+SVS_FPURGE_BEFORE_SPEAK = 2
+
+
+def _get_sapi_voice():
+    global _sapi_voice
+
+    if _sapi_voice is None:
+        try:
+            from brain.memory_engine import get_memory
+            lang = get_memory("personal.assistant.preferred_response_language") or "en-US"
+        except ImportError:
+            lang = "en-US"
+
+        voice = win32com.client.Dispatch("SAPI.SpVoice")
+        lang_base = lang.split("-")[0].lower()
+        
+        sapi_voices = voice.GetVoices()
+        for i in range(sapi_voices.Count):
+            v_desc = sapi_voices.Item(i).GetDescription().lower()
+            if lang.lower() in v_desc or lang_base in v_desc:
+                voice.Voice = sapi_voices.Item(i)
+                break
+                
+        voice.Rate = 1
+        voice.Volume = 100
+        _sapi_voice = voice
+
+    return _sapi_voice
+
+
+def _get_engine():
+    global _engine
+
+    if _engine is None:
+        try:
+            from brain.memory_engine import get_memory
+            lang = get_memory("personal.assistant.preferred_response_language") or "en-US"
+        except ImportError:
+            lang = "en-US"
+
+        engine = pyttsx3.init("sapi5")
+        voices = engine.getProperty("voices")
+        selected_voice = voices[0].id
+        lang_base = lang.split("-")[0].lower()
+
+        for v in voices:
+            if lang.lower() in str(v.languages).lower() or lang_base in v.name.lower():
+                selected_voice = v.id
+                break
+
+        engine.setProperty("voice", selected_voice)
+        engine.setProperty("rate", 170)
+        engine.setProperty("volume", 1.0)
+        _engine = engine
+
+    return _engine
+
+
+def typing_effect(text, delay=0.02):
+    sys.stdout.write(Fore.GREEN + "Grandpa: " + Style.RESET_ALL)
+    for char in text:
+        sys.stdout.write(char)
+        sys.stdout.flush()
+        time.sleep(delay)
+    print()
+
+
+def start_streaming_reply():
+    global _stream_active
+    with _stream_lock:
+        if _stream_active:
+            return
+        _stream_active = True
+        sys.stdout.write(Fore.GREEN + "Grandpa: " + Style.RESET_ALL)
+        sys.stdout.flush()
+
+
+def append_streaming_reply(text):
+    if not text:
+        return
+
+    with _stream_lock:
+        if not _stream_active:
+            sys.stdout.write(Fore.GREEN + "Grandpa: " + Style.RESET_ALL)
+        sys.stdout.write(text)
+        sys.stdout.flush()
+
+
+def end_streaming_reply():
+    global _stream_active
+    with _stream_lock:
+        if _stream_active:
+            print()
+        _stream_active = False
+
+
+def set_response_mode(mode):
+    global _response_mode
+    if mode in {"text", "voice", "hybrid"}:
+        _response_mode = mode
+
+
+def speak(text, already_printed=False):
+    should_print = _response_mode in {"text", "hybrid"} or (
+        _response_mode == "voice" and _mirror_voice_replies
+    )
+
+    if should_print and not already_printed:
+        typing_effect(text)
+
+    if _response_mode in {"voice", "hybrid"}:
+        try:
+            with _engine_lock:
+                try:
+                    voice = _get_sapi_voice()
+                    voice.Speak("", SVS_FLAGS_ASYNC | SVS_FPURGE_BEFORE_SPEAK)
+                    voice.Speak(text)
+                except Exception:
+                    engine = _get_engine()
+                    engine.stop()
+                    engine.say(text)
+                    engine.runAndWait()
+        except Exception as error:
+            print("TTS Error:", error)
+
+
+def stop_speaking():
+    global _engine, _sapi_voice
+
+    try:
+        with _engine_lock:
+            if _sapi_voice is not None:
+                _sapi_voice.Speak("", SVS_FLAGS_ASYNC | SVS_FPURGE_BEFORE_SPEAK)
+
+            if _engine is not None:
+                _engine.stop()
+    except Exception as error:
+        print("TTS Stop Error:", error)

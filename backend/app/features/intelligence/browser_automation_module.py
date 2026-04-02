@@ -1,0 +1,724 @@
+import urllib.parse
+import webbrowser
+import time
+import re
+import json
+import os
+from datetime import datetime
+
+import keyboard
+import pyperclip
+
+from brain.ai_engine import ask_ollama
+from core.followup_memory import set_last_result, set_selected_text
+from productivity.event_module import add_event
+from automation.messaging_automation_module import quick_email_shortcut, quick_whatsapp_message
+from productivity.notes_module import add_note
+from productivity.task_module import add_reminder, add_task
+from utils.config import get_setting
+
+
+RESEARCH_DATA_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+    "data",
+    "research_sessions.json",
+)
+
+
+def _clean_query(text):
+    return " ".join(text.strip().split())
+
+
+def _open_url(url, retries=2, delay_seconds=None):
+    delay_seconds = delay_seconds or get_setting("browser.page_load_delay_seconds", 3)
+
+    for attempt in range(max(1, retries)):
+        try:
+            if webbrowser.open(url, new=2):
+                return True
+        except Exception:
+            pass
+        if attempt < retries - 1:
+            time.sleep(delay_seconds)
+    return False
+
+
+def _with_feedback(success_message, failure_message, delay_seconds=None):
+    delay_seconds = delay_seconds or get_setting("browser.page_load_delay_seconds", 3)
+    return (
+        f"{success_message} Give it about {delay_seconds} seconds to load."
+        if success_message
+        else failure_message
+    )
+
+
+def _get_selected_browser_text():
+    try:
+        previous = pyperclip.paste()
+    except Exception:
+        previous = None
+
+    try:
+        keyboard.send("ctrl+c")
+        time.sleep(0.25)
+        selected = (pyperclip.paste() or "").strip()
+    except Exception:
+        selected = ""
+
+    if previous is not None and selected == previous:
+        selected = ""
+
+    if selected:
+        set_selected_text(selected)
+
+    return selected
+
+
+def _load_research_sessions():
+    if not os.path.exists(RESEARCH_DATA_FILE):
+        return []
+    try:
+        with open(RESEARCH_DATA_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+        if isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    return []
+
+
+def _save_research_sessions(sessions):
+    os.makedirs(os.path.dirname(RESEARCH_DATA_FILE), exist_ok=True)
+    with open(RESEARCH_DATA_FILE, "w", encoding="utf-8") as file:
+        json.dump(sessions[:50], file, indent=4, ensure_ascii=False)
+
+
+def _extract_emails(text):
+    return list(dict.fromkeys(re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text or "")))
+
+
+def _extract_phone_numbers(text):
+    matches = re.findall(r"(?:\+?\d[\d\s\-]{7,}\d)", text or "")
+    cleaned = []
+    for match in matches:
+        normalized = " ".join(match.split())
+        if normalized not in cleaned:
+            cleaned.append(normalized)
+    return cleaned
+
+
+def _extract_date_like_strings(text):
+    patterns = [
+        r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",
+        r"\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{2,4}\b",
+        r"\b(?:today|tomorrow|next week|next month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+    ]
+    found = []
+    lower_text = text.lower() if text else ""
+    for pattern in patterns:
+        for item in re.findall(pattern, lower_text, flags=re.IGNORECASE):
+            if item not in found:
+                found.append(item)
+    return found
+
+
+def open_whatsapp_web():
+    delay_seconds = get_setting("browser.whatsapp_load_delay_seconds", 8)
+    if _open_url("https://web.whatsapp.com/", delay_seconds=delay_seconds):
+        return f"Opening WhatsApp Web. Give it about {delay_seconds} seconds to load."
+    return "I could not open WhatsApp Web right now."
+
+
+def open_youtube():
+    if _open_url("https://www.youtube.com/"):
+        return _with_feedback("Opening YouTube.", None)
+    return "I could not open YouTube right now."
+
+
+def open_gmail():
+    delay_seconds = get_setting("browser.gmail_load_delay_seconds", 8)
+    if _open_url("https://mail.google.com/", delay_seconds=delay_seconds):
+        return f"Opening Gmail. Give it about {delay_seconds} seconds to load."
+    return "I could not open Gmail right now."
+
+
+def search_google(command):
+    query = command
+    prefixes = [
+        "search google for",
+        "google",
+        "search for",
+        "search",
+    ]
+
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            query = command.replace(prefix, "", 1)
+            break
+
+    query = _clean_query(query)
+    if not query:
+        return "Tell me what you want to search on Google."
+
+    url = "https://www.google.com/search?q=" + urllib.parse.quote_plus(query)
+    if _open_url(url):
+        return _with_feedback(f"Searching Google for {query}.", None)
+    return "I could not open Google search right now."
+
+
+def search_youtube(command):
+    query = command
+    prefixes = [
+        "search youtube for",
+        "open youtube and search",
+        "youtube search",
+        "youtube",
+    ]
+
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            query = command.replace(prefix, "", 1)
+            break
+
+    query = _clean_query(query)
+    if not query:
+        return "Tell me what you want to search on YouTube."
+
+    url = "https://www.youtube.com/results?search_query=" + urllib.parse.quote_plus(query)
+    if _open_url(url):
+        return _with_feedback(f"Searching YouTube for {query}.", None)
+    return "I could not open YouTube search right now."
+
+
+def open_maps_search(command):
+    query = command
+    prefixes = [
+        "open maps for",
+        "find place",
+        "search maps for",
+    ]
+
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            query = command.replace(prefix, "", 1)
+            break
+
+    query = _clean_query(query)
+    if not query:
+        return "Tell me which place you want to find."
+
+    url = "https://www.google.com/maps/search/" + urllib.parse.quote_plus(query)
+    if _open_url(url):
+        return _with_feedback(f"Opening maps for {query}.", None)
+    return "I could not open maps right now."
+
+
+def _send_browser_shortcut(shortcut, success_message):
+    try:
+        keyboard.send(shortcut)
+        return success_message
+    except Exception:
+        return "I could not control the current browser right now."
+
+
+def browser_go_back():
+    return _send_browser_shortcut("alt+left", "Going back in the current browser tab.")
+
+
+def browser_go_forward():
+    return _send_browser_shortcut("alt+right", "Going forward in the current browser tab.")
+
+
+def browser_refresh():
+    return _send_browser_shortcut("ctrl+r", "Refreshing the current browser page.")
+
+
+def browser_scroll_down():
+    try:
+        keyboard.send("pagedown")
+        return "Scrolling down the current browser page."
+    except Exception:
+        return "I could not scroll the current browser page."
+
+
+def browser_scroll_up():
+    try:
+        keyboard.send("pageup")
+        return "Scrolling up the current browser page."
+    except Exception:
+        return "I could not scroll the current browser page."
+
+
+def copy_current_page_title(command=None):
+    try:
+        keyboard.send("alt+d")
+        time.sleep(0.15)
+        keyboard.send("ctrl+c")
+        time.sleep(0.15)
+        keyboard.send("esc")
+        return "I copied the current page title or address focus text to the clipboard."
+    except Exception:
+        return "I could not copy the current page title right now."
+
+
+def copy_selected_browser_text(command=None):
+    selected = _get_selected_browser_text()
+
+    if not selected:
+        return "I could not copy selected browser text right now."
+
+    return "Copied selected browser text to the clipboard."
+
+
+def extract_entities_from_selected_text(command):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    lowered = (command or "").lower()
+    if "email" in lowered:
+        emails = _extract_emails(selected)
+        if not emails:
+            return "I could not find any email addresses in the selected text."
+        result = "Emails in selected text: " + " | ".join(emails[:20])
+        set_last_result(result)
+        return result
+
+    if "phone" in lowered or "number" in lowered:
+        phones = _extract_phone_numbers(selected)
+        if not phones:
+            return "I could not find any phone numbers in the selected text."
+        result = "Phone numbers in selected text: " + " | ".join(phones[:20])
+        set_last_result(result)
+        return result
+
+    dates = _extract_date_like_strings(selected)
+    if not dates:
+        return "I could not find any date-like values in the selected text."
+    result = "Dates in selected text: " + " | ".join(dates[:20])
+    set_last_result(result)
+    return result
+
+
+def save_research_session(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    summary = ask_ollama(
+        "Summarize this research snippet in one short practical line.\n\n"
+        f"Text:\n{selected[:3000]}",
+        compact=True,
+    )
+    sessions = _load_research_sessions()
+    sessions.insert(
+        0,
+        {
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "summary": summary,
+            "text": " ".join(selected.split())[:4000],
+        },
+    )
+    _save_research_sessions(sessions)
+    result = f"Research session saved. Summary: {summary}"
+    set_last_result(result)
+    return result
+
+
+def list_research_sessions(command=None):
+    sessions = _load_research_sessions()
+    if not sessions:
+        return "You do not have any saved research sessions yet."
+    lines = []
+    for index, session in enumerate(sessions[:5], start=1):
+        lines.append(f"{index}. {session.get('summary', 'No summary')}")
+    return "Saved research sessions: " + " | ".join(lines)
+
+
+def recap_last_research_session(command=None):
+    sessions = _load_research_sessions()
+    if not sessions:
+        return "You do not have any saved research sessions yet."
+
+    latest = sessions[0]
+    result = (
+        f"Last research session from {latest.get('created_at', 'unknown time')}: "
+        f"{latest.get('summary', 'No summary')} | "
+        f"{latest.get('text', '')[:500]}"
+    )
+    set_last_result(result)
+    return result
+
+
+def search_selected_text_on_google(command=None):
+    selected = _get_selected_browser_text()
+
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    url = "https://www.google.com/search?q=" + urllib.parse.quote_plus(selected)
+    if _open_url(url):
+        return _with_feedback(f"Searching Google for selected text: {selected[:80]}.", None)
+    return "I could not search the selected browser text right now."
+
+
+def search_selected_text_on_youtube(command=None):
+    selected = _get_selected_browser_text()
+
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    url = "https://www.youtube.com/results?search_query=" + urllib.parse.quote_plus(selected)
+    if _open_url(url):
+        return _with_feedback(f"Searching YouTube for selected text: {selected[:80]}.", None)
+    return "I could not search the selected browser text on YouTube right now."
+
+
+def summarize_selected_browser_text_ai(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    prompt = (
+        "Summarize this browser-selected text in a short practical way.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    reply = ask_ollama(prompt, compact=True)
+    result = f"Selected text summary: {reply}"
+    set_last_result(result)
+    return result
+
+
+def explain_selected_browser_text_ai(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    prompt = (
+        "Explain this browser-selected text in simple terms and mention the main point.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    reply = ask_ollama(prompt, compact=True)
+    result = f"Selected text explanation: {reply}"
+    set_last_result(result)
+    return result
+
+
+def ask_selected_browser_text_ai(command):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    question = command
+    prefixes = [
+        "ask selected text",
+        "ask browser selection",
+        "question on selected text",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            question = command.replace(prefix, "", 1).strip(" :,-")
+            break
+
+    if not question:
+        return "Tell me what you want to know about the selected browser text."
+
+    prompt = (
+        "Answer the user's question using only this selected browser text. "
+        "If the answer is not clear, say that briefly.\n\n"
+        f"Question: {question}\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    reply = ask_ollama(prompt, compact=True)
+    result = f"From the selected text: {reply}"
+    set_last_result(result)
+    return result
+
+
+def read_selected_browser_text_aloud(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    cleaned = " ".join(selected.split())
+    if len(cleaned) > 700:
+        cleaned = cleaned[:700].rsplit(" ", 1)[0] + " ..."
+    result = f"Selected text says: {cleaned}"
+    set_last_result(result)
+    return result
+
+
+def save_selected_browser_text_as_note(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    cleaned = " ".join(selected.split())
+    result = add_note(f"add note {cleaned[:1200]}")
+    set_last_result(result)
+    return result
+
+
+def create_reminder_from_selected_browser_text(command):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    suffix = command
+    prefixes = [
+        "remind me about selected text",
+        "create reminder from selected text",
+        "remind me to review selected text",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            suffix = command.replace(prefix, "", 1).strip()
+            break
+
+    selected_summary = " ".join(selected.split())
+    if len(selected_summary) > 140:
+        selected_summary = selected_summary[:140].rsplit(" ", 1)[0] + " ..."
+
+    reminder_command = f"remind me to review {selected_summary}"
+    if suffix:
+        reminder_command = f"{reminder_command} {suffix}"
+
+    result = add_reminder(reminder_command)
+    set_last_result(result)
+    return result
+
+
+def summarize_selected_text_and_save_note(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    prompt = (
+        "Summarize this browser-selected text in short note form with the key point first.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    summary = ask_ollama(prompt, compact=True)
+    note_result = add_note(f"add note {summary}")
+    result = f"Selected text summary: {summary} {note_result}"
+    set_last_result(result)
+    return result
+
+
+def explain_selected_text_and_save_note(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    prompt = (
+        "Explain this selected browser text in simple practical language.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    explanation = ask_ollama(prompt, compact=True)
+    note_result = add_note(f"add note {explanation}")
+    result = f"Selected text explanation: {explanation} {note_result}"
+    set_last_result(result)
+    return result
+
+
+def search_selected_text_and_summarize(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    url = "https://www.google.com/search?q=" + urllib.parse.quote_plus(selected)
+    opened = _open_url(url)
+    prompt = (
+        "Summarize this selected browser text in one or two useful sentences before web search.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    summary = ask_ollama(prompt, compact=True)
+    if opened:
+        result = _with_feedback(
+            f"Searching Google for the selected text. Quick summary: {summary}",
+            None,
+        )
+        set_last_result(result)
+        return result
+    result = f"I could not open Google search right now. Quick summary: {summary}"
+    set_last_result(result)
+    return result
+
+
+def summarize_selected_text_and_read_aloud(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    prompt = (
+        "Summarize this browser-selected text in one or two short spoken sentences.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    summary = ask_ollama(prompt, compact=True)
+    result = f"Selected text summary: {summary}"
+    set_last_result(result)
+    return result
+
+
+def search_selected_text_and_read_summary(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    summary = ask_ollama(
+        "Summarize this browser-selected text in one or two short spoken sentences.\n\n"
+        f"Selected text:\n{selected[:4000]}",
+        compact=True,
+    )
+    url = "https://www.google.com/search?q=" + urllib.parse.quote_plus(selected)
+    opened = _open_url(url)
+    if opened:
+        result = _with_feedback(f"Searching Google for the selected text. Spoken summary: {summary}", None)
+        set_last_result(result)
+        return result
+    result = f"I could not open Google search right now. Spoken summary: {summary}"
+    set_last_result(result)
+    return result
+
+
+def save_selected_text_as_task(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    cleaned = " ".join(selected.split())
+    if len(cleaned) > 180:
+        cleaned = cleaned[:180].rsplit(" ", 1)[0] + " ..."
+    result = add_task(f"add task review {cleaned}")
+    set_last_result(result)
+    return result
+
+
+def create_event_from_selected_text(command):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    suffix = command
+    prefixes = [
+        "create event from selected text",
+        "add event from selected text",
+    ]
+    for prefix in prefixes:
+        if command.startswith(prefix):
+            suffix = command.replace(prefix, "", 1).strip()
+            break
+
+    cleaned = " ".join(selected.split())
+    if len(cleaned) > 120:
+        cleaned = cleaned[:120].rsplit(" ", 1)[0] + " ..."
+    event_command = f"add event review {cleaned}"
+    if suffix:
+        event_command = f"{event_command} {suffix}"
+    result = add_event(event_command)
+    set_last_result(result)
+    return result
+
+
+def send_selected_text_to_whatsapp(command):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    match = None
+    for pattern in [
+        r"^(?:send|message)\s+selected text to\s+(.+)$",
+        r"^(?:whatsapp)\s+selected text to\s+(.+)$",
+    ]:
+        match = re.match(pattern, command)
+        if match:
+            break
+
+    if not match:
+        return "Tell me who should receive the selected text on WhatsApp."
+
+    target = " ".join(match.group(1).split())
+    cleaned = " ".join(selected.split())
+    result = quick_whatsapp_message(f"message {target} saying {cleaned[:900]}")
+    set_last_result(result)
+    return result
+
+
+def send_selected_text_to_email(command):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    match = None
+    for pattern in [
+        r"^(?:mail|email)\s+selected text to\s+(.+)$",
+        r"^(?:send)\s+selected text by email to\s+(.+)$",
+    ]:
+        match = re.match(pattern, command)
+        if match:
+            break
+
+    if not match:
+        return "Tell me who should receive the selected text by email."
+
+    target = " ".join(match.group(1).split())
+    cleaned = " ".join(selected.split())
+    result = quick_email_shortcut(f"mail {target} {cleaned[:900]}")
+    set_last_result(result)
+    return result
+
+
+def translate_selected_browser_text(command):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    target_language = "Tamil"
+    match = re.search(
+        r"(?:translate selected text to|translate browser selection to|translate selected browser text to)\s+(.+)$",
+        command,
+    )
+    if match:
+        target_language = " ".join(match.group(1).split()).strip().title() or "Tamil"
+
+    prompt = (
+        f"Translate this selected browser text into {target_language}. "
+        "Keep names and technical terms sensible.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    reply = ask_ollama(prompt, compact=False)
+    result = f"Selected text translated to {target_language}: {reply}"
+    set_last_result(result)
+    return result
+
+
+def extract_action_items_from_selected_text(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    prompt = (
+        "Extract the action items from this selected browser text. "
+        "Return short actionable bullet-style sentences in plain text.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    reply = ask_ollama(prompt, compact=False)
+    result = f"Action items from selected text: {reply}"
+    set_last_result(result)
+    return result
+
+
+def extract_action_items_and_save_note(command=None):
+    selected = _get_selected_browser_text()
+    if not selected:
+        return "I could not read selected browser text right now."
+
+    prompt = (
+        "Extract the action items from this selected browser text. "
+        "Keep them concise and practical.\n\n"
+        f"Selected text:\n{selected[:4000]}"
+    )
+    reply = ask_ollama(prompt, compact=False)
+    note_result = add_note(f"add note Action items: {reply}")
+    result = f"Action items from selected text: {reply} {note_result}"
+    set_last_result(result)
+    return result

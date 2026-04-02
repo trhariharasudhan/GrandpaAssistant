@@ -21,6 +21,10 @@ It is designed for local usage on a personal Windows machine and uses Ollama for
 - Tray/background mode
 - Configurable sound and voice settings
 
+## Completion Tracker
+
+- Full finish checklist: [`PROJECT_COMPLETION_CHECKLIST.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\PROJECT_COMPLETION_CHECKLIST.md)
+
 ## Feature Set
 
 ### Core Interaction
@@ -121,16 +125,15 @@ It is designed for local usage on a personal Windows machine and uses Ollama for
 
 ## Project Structure
 
-- `main.py` - app entry point
-- `brain/` - AI engine, database, memory engine, question analysis
-- `controls/` - brightness and volume control
-- `core/` - assistant loop, command router, intent router, tray manager
-- `data/` - local runtime data such as memory, settings, tasks, notes, and database
-- `modules/` - feature modules like calendar, dashboard, notes, profile, routines, tasks, weather, and system control
-- `sounds/` - assistant feedback sounds
-- `utils/` - config, sound helpers, misc support
-- `vision/` - OCR and hand mouse utilities
-- `voice/` - speech input and speech output
+- `backend/app/core/` - assistant runtime, routing, tray, overlay, and UI orchestration
+- `backend/app/api/` - local HTTP API used by the frontend
+- `backend/app/shared/` - shared backend infra such as config, database, sound, and common helpers
+- `backend/app/features/` - feature modules like tasks, notes, calendar, vision, voice, and automation
+- `backend/data/` - runtime data and local persistence
+- `backend/assets/` - sound assets and local model files
+- `backend/main.py` - backend entry point
+- `frontend/` - React + Electron UI
+- `main.py` - thin root launcher that forwards to the backend entry point
 
 ## Requirements
 
@@ -172,7 +175,7 @@ Then activate the environment again.
 
 ```powershell
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 ```
 
 ### 4. Install Ollama
@@ -211,13 +214,13 @@ The project supports:
 ### Normal startup
 
 ```powershell
-python main.py
+python backend/main.py
 ```
 
 ### React frontend startup
 
 ```powershell
-start_react_ui.cmd
+scripts\windows\start_react_ui.cmd
 ```
 
 This opens:
@@ -228,7 +231,7 @@ This opens:
 Manual option:
 
 ```powershell
-python main.py
+python backend/main.py
 cd frontend
 npm install
 npm run dev
@@ -237,7 +240,7 @@ npm run dev
 ### React frontend with browser
 
 ```powershell
-start_react_full.cmd
+scripts\windows\start_react_full.cmd
 ```
 
 This opens:
@@ -249,7 +252,7 @@ This opens:
 ### React desktop shell
 
 ```powershell
-start_react_desktop.cmd
+scripts\windows\start_react_desktop.cmd
 ```
 
 This opens:
@@ -263,32 +266,32 @@ This opens:
 If the backend is already running in tray or another window:
 
 ```powershell
-start_react_frontend.cmd
-start_react_electron.cmd
+scripts\windows\start_react_frontend.cmd
+scripts\windows\start_react_electron.cmd
 ```
 
 ### Build portable desktop app
 
 ```powershell
-build_react_desktop.cmd
+scripts\windows\build_react_desktop.cmd
 ```
 
 ### Setup portable app shortcut
 
 ```powershell
-setup_portable_desktop.cmd
+scripts\windows\setup_portable_desktop.cmd
 ```
 
 To enable startup launch for the packaged app:
 
 ```powershell
-setup_portable_desktop.cmd /startup-on
+scripts\windows\setup_portable_desktop.cmd /startup-on
 ```
 
 ### Start directly in tray mode
 
 ```powershell
-python main.py --tray
+python backend/main.py --tray
 ```
 
 At startup choose:
@@ -456,7 +459,7 @@ Supported dictation phrases:
 
 ## Local Data Files
 
-Common runtime files under `data/`:
+Common runtime files under `backend/data/`:
 
 - `memory.json` - personal memory profile
 - `assistant.db` - SQLite database for memory/history
@@ -516,7 +519,7 @@ Keep local runtime files out of source control when needed:
 .venv/
 __pycache__/
 *.pyc
-data/settings.json
+backend/data/settings.json
 ```
 
 ## License

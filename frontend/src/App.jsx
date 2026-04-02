@@ -1,61 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-
-const API_BASE = "http://127.0.0.1:8765";
-
-const initialMessages = [
-  {
-    id: 1,
-    side: "assistant",
-    text: "Grandpa : Hello Grandchild! I am ready.",
-  },
-  {
-    id: 2,
-    side: "assistant",
-    text: "Grandpa : Good morning. You have 1 pending task and 2 overdue reminders.",
-  },
-];
-
-function LogoMark() {
-  return (
-    <div className="logo-mark" aria-hidden="true">
-      <div className="logo-ear left" />
-      <div className="logo-ear right" />
-      <div className="logo-face">
-        <div className="logo-eye left" />
-        <div className="logo-eye right" />
-        <div className="logo-nose" />
-        <div className="logo-beard left" />
-        <div className="logo-beard center" />
-        <div className="logo-beard right" />
-      </div>
-    </div>
-  );
-}
-
-function SectionCard({ title, children }) {
-  return (
-    <section className="sidebar-card">
-      <h3>{title}</h3>
-      {children}
-    </section>
-  );
-}
-
-function MessageBubble({ side, text }) {
-  return (
-    <div className={`message-row ${side}`}>
-      <div className={`message-bubble ${side}`}>{text}</div>
-    </div>
-  );
-}
-
-function cleanPlannerItem(text) {
-  return String(text || "").split(" - ")[0].trim();
-}
+import ChatSurface from "./components/ChatSurface";
+import DashboardSurface from "./components/DashboardSurface";
+import LogoMark from "./components/LogoMark";
+import SidebarPanels from "./components/SidebarPanels";
+import VoiceWave from "./components/VoiceWave";
+import {
+  API_BASE,
+  CHAT_API_BASE,
+  initialChatSessions,
+  initialChatSettings,
+  initialMessages,
+  initialStartupState,
+  initialUiState,
+  initialVoiceStatus,
+} from "./constants/appState";
+import { cleanPlannerItem, matchesCommand, normalizeMessageText } from "./utils/text";
 
 export default function App() {
   const messagesEndRef = useRef(null);
   const [mode, setMode] = useState("text");
+  const [surfaceTab, setSurfaceTab] = useState("chat");
   const [workspaceTab, setWorkspaceTab] = useState("planner");
   const [now, setNow] = useState(new Date());
   const [input, setInput] = useState("");
@@ -74,9 +38,15 @@ export default function App() {
   const [calendarTitle, setCalendarTitle] = useState("");
   const [calendarWhen, setCalendarWhen] = useState("tomorrow at 6 pm");
   const [wakeWordInput, setWakeWordInput] = useState("");
+  const [followUpTimeoutInput, setFollowUpTimeoutInput] = useState("12");
+  const [wakeRetryInput, setWakeRetryInput] = useState("8");
+  const [objectModelInput, setObjectModelInput] = useState("");
+  const [objectPresetNameInput, setObjectPresetNameInput] = useState("");
   const [contactAlias, setContactAlias] = useState("");
   const [contactAliasTarget, setContactAliasTarget] = useState("");
   const [contactSearch, setContactSearch] = useState("");
+  const [chatSearch, setChatSearch] = useState("");
+  const [attachedDocuments, setAttachedDocuments] = useState([]);
   const [selectedContact, setSelectedContact] = useState("");
   const [selectedPlanner, setSelectedPlanner] = useState({
     type: "",
@@ -84,66 +54,26 @@ export default function App() {
   });
   const [messages, setMessages] = useState(initialMessages);
   const [activity, setActivity] = useState("Ready");
-  const [uiState, setUiState] = useState({
-    overview: {
-      tasks: "Loading...",
-      reminders: "Loading...",
-      weather: "Loading...",
-      health: "Loading...",
-    },
-    today: "Loading...",
-    next_event: "Loading...",
-    latest_note: "Loading...",
-    recent_commands: [],
-    notifications: [],
-    dashboard: {
-      tasks: [],
-      reminders: [],
-      events: [],
-    },
-    settings: {
-      wake_word: "Loading...",
-      voice_profile: "Loading...",
-      offline_mode: false,
-      developer_mode: false,
-      emergency_mode: false,
-    },
-    contacts: {
-      favorite_contact: "Loading...",
-      preview: [],
-      aliases_summary: "Loading...",
-      favorites_summary: "Loading...",
-      recent_changes: "Loading...",
-    },
-    emergency: {
-      location: "Loading...",
-      contact: "Loading...",
-      mode_enabled: false,
-      protocol_summary: "Loading...",
-    },
-    memory: {
-      preferred_language: "Loading...",
-      favorite_contact: "Loading...",
-    },
-  });
+  const [uiState, setUiState] = useState(initialUiState);
   const [apiError, setApiError] = useState("");
-  const [voiceStatus, setVoiceStatus] = useState({
-    enabled: false,
-    activity: "Ready",
-    transcript: "",
-    error: "",
-    messages: [],
-  });
-  const [startupState, setStartupState] = useState({
-    auto_launch_enabled: false,
-    tray_mode: false,
-    summary: "Loading...",
-    portable_setup_ready: false,
-    react_ui_on_tray_enabled: false,
-    react_ui_on_tray_mode: "browser",
-    react_frontend_ready: false,
-    react_desktop_ready: false,
-  });
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [pendingConfirmation, setPendingConfirmation] = useState(null);
+  const [chatSessions, setChatSessions] = useState(initialChatSessions);
+  const [currentSessionId, setCurrentSessionId] = useState("");
+  const [chatSettings, setChatSettings] = useState(initialChatSettings);
+  const [chatSettingsDraft, setChatSettingsDraft] = useState(initialChatSettings);
+  const [showChatSettings, setShowChatSettings] = useState(false);
+  const [lastPrompt, setLastPrompt] = useState("");
+  const [voiceStatus, setVoiceStatus] = useState(initialVoiceStatus);
+  const [voiceToast, setVoiceToast] = useState(null);
+  const [startupState, setStartupState] = useState(initialStartupState);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
+  const [pinnedCommands, setPinnedCommands] = useState([
+    "plan my day",
+    "weather",
+    "latest note",
+  ]);
+  const previousVoiceStateRef = useRef(initialVoiceStatus.state_label);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
@@ -155,6 +85,10 @@ export default function App() {
   }, [messages]);
 
   useEffect(() => {
+    setActiveSuggestionIndex(0);
+  }, [input]);
+
+  useEffect(() => {
     setActivity(mode === "voice" ? voiceStatus.activity || "Ready" : "Ready");
   }, [mode, voiceStatus.activity]);
 
@@ -163,6 +97,125 @@ export default function App() {
       setSelectedContact(uiState.contacts.favorite_contact);
     }
   }, [selectedContact, uiState.contacts.favorite_contact]);
+
+  useEffect(() => {
+    if (voiceStatus.follow_up_remaining) {
+      setFollowUpTimeoutInput(String(Math.max(voiceStatus.follow_up_remaining, 12)));
+    }
+  }, [voiceStatus.follow_up_remaining]);
+
+  useEffect(() => {
+    if (mode !== "voice") {
+      previousVoiceStateRef.current = voiceStatus.state_label || "ready";
+      return;
+    }
+
+    const currentState = voiceStatus.state_label || "ready";
+    const previousState = previousVoiceStateRef.current;
+    previousVoiceStateRef.current = currentState;
+
+    if (!currentState || currentState === previousState) {
+      return;
+    }
+
+    const toastMap = {
+      sleeping: {
+        title: "Back To Sleep",
+        text: `Say ${voiceStatus.wake_word || "hey grandpa"} to wake me again.`,
+        tone: 460,
+      },
+      awake: {
+        title: "Wake Word Heard",
+        text: "Assistant is awake and listening now.",
+        tone: 720,
+      },
+      follow_up: {
+        title: "Follow-up Active",
+        text: `You can continue talking${voiceStatus.follow_up_remaining ? ` for ${voiceStatus.follow_up_remaining}s` : ""}.`,
+        tone: 620,
+      },
+      speaking: {
+        title: "Replying",
+        text: "Assistant is speaking now.",
+        tone: 560,
+      },
+      interrupted: {
+        title: "Interrupted",
+        text: "Speech stopped. Listening again.",
+        tone: 390,
+      },
+      error: {
+        title: "Voice Error",
+        text: voiceStatus.error || "Voice mode hit an issue.",
+        tone: 300,
+      },
+    };
+
+    const toast = toastMap[currentState];
+    if (!toast) {
+      return;
+    }
+
+    const toastId = Date.now();
+    setVoiceToast({ ...toast, id: toastId, state: currentState });
+
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) {
+        const audioContext = new AudioContextClass();
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        oscillator.type = currentState === "error" ? "sawtooth" : "sine";
+        oscillator.frequency.value = toast.tone;
+        gain.gain.value = currentState === "error" ? 0.025 : 0.018;
+        oscillator.connect(gain);
+        gain.connect(audioContext.destination);
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.12);
+        oscillator.onended = () => {
+          audioContext.close().catch(() => {});
+        };
+      }
+    } catch (_error) {
+      // Ignore browser audio errors and keep the toast visible.
+    }
+
+    const timer = window.setTimeout(() => {
+      setVoiceToast((current) => (current?.id === toastId ? null : current));
+    }, 2200);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    mode,
+    voiceStatus.state_label,
+    voiceStatus.follow_up_remaining,
+    voiceStatus.error,
+    voiceStatus.wake_word,
+  ]);
+
+  useEffect(() => {
+    setObjectModelInput(uiState.object_detection?.model_name || "");
+  }, [uiState.object_detection?.model_name]);
+
+  const mapHistoryMessages = (items = []) =>
+    items.map((item, index) => ({
+      id: item.id || `history-${index}`,
+      side: item.role === "user" ? "user" : "assistant",
+      text: item.content || "",
+      createdAt: item.created_at ? Date.parse(item.created_at) : Date.now() + index,
+      streaming: false,
+    }));
+
+  const mapSessionDocuments = (items = []) =>
+    (items || []).map((item, index) => ({
+      id: item.id || `doc-${index}`,
+      name: item.name || "Document",
+      kind: item.kind || "file",
+      uploaded_at: item.uploaded_at || "",
+      char_count: item.char_count || 0,
+      chunk_count: item.chunk_count || 0,
+      preview: item.preview || "",
+    }));
 
   useEffect(() => {
     if (mode !== "voice") {
@@ -189,6 +242,7 @@ export default function App() {
                     id: `voice-${Date.now()}-${index}`,
                     side: isUser ? "user" : "assistant",
                     text: cleanedLine,
+                    createdAt: Date.now() + index,
                   };
                 })
                 .filter((item) => !existing.has(`${item.side}:${item.text}`));
@@ -214,6 +268,40 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
 
+    const loadChatHistory = async () => {
+      try {
+        const [historyResponse, sessionsResponse, settingsResponse] = await Promise.all([
+          fetch(`${CHAT_API_BASE}/chat/history`),
+          fetch(`${CHAT_API_BASE}/chat/sessions`),
+          fetch(`${CHAT_API_BASE}/chat/settings`),
+        ]);
+        const historyPayload = await historyResponse.json();
+        const sessionsPayload = await sessionsResponse.json();
+        const settingsPayload = await settingsResponse.json();
+        if (!cancelled && historyPayload?.ok) {
+          setMessages(mapHistoryMessages(historyPayload.messages));
+          if (historyPayload.session?.id) {
+            setCurrentSessionId(historyPayload.session.id);
+          }
+          setAttachedDocuments(mapSessionDocuments(historyPayload.session?.documents));
+        }
+        if (!cancelled && sessionsPayload?.ok) {
+          setChatSessions(sessionsPayload.sessions || []);
+        }
+        if (!cancelled && settingsPayload?.ok && settingsPayload.settings) {
+          setChatSettings(settingsPayload.settings);
+          setChatSettingsDraft(settingsPayload.settings);
+          if (!settingsPayload.settings?.llm_status?.ready) {
+            setApiError("OpenAI key not configured. Create a .env file in the project root and set OPENAI_API_KEY.");
+          }
+        }
+      } catch (_error) {
+        if (!cancelled) {
+          setApiError("Chat history could not be loaded.");
+        }
+      }
+    };
+
     const loadState = async () => {
       try {
         const response = await fetch(`${API_BASE}/api/ui-state`);
@@ -232,6 +320,7 @@ export default function App() {
       }
     };
 
+    loadChatHistory();
     loadState();
     const timer = window.setInterval(loadState, 5000);
     return () => {
@@ -243,7 +332,7 @@ export default function App() {
   const runCommand = async (rawCommand) => {
     const value = (rawCommand || "").trim();
     if (!value) return;
-    const userMessage = { id: Date.now(), side: "user", text: value };
+    const userMessage = { id: Date.now(), side: "user", text: value, createdAt: Date.now() };
     setMessages((current) => [...current, userMessage]);
     setInput("");
     setActivity("Thinking");
@@ -262,10 +351,18 @@ export default function App() {
         throw new Error(payload?.error || "Command failed.");
       }
 
+      if (payload.requires_confirmation && payload.confirmation_id) {
+        setPendingConfirmation({
+          confirmationId: payload.confirmation_id,
+          command: payload.command || value,
+        });
+      }
+
       const replies = (payload.messages || []).map((text, index) => ({
         id: `${Date.now()}-${index}`,
         side: "assistant",
         text: `Grandpa : ${text}`,
+        createdAt: Date.now() + index + 1,
       }));
       setMessages((current) => [...current, ...replies]);
       if (payload.state) {
@@ -279,6 +376,7 @@ export default function App() {
           id: `${Date.now()}-error`,
           side: "assistant",
           text: `Grandpa : ${error.message || "Assistant API unavailable."}`,
+          createdAt: Date.now(),
         },
       ]);
       setApiError("Python assistant API is not reachable yet.");
@@ -287,8 +385,179 @@ export default function App() {
     }
   };
 
-  const handleSend = async () => {
-    await runCommand(input);
+  const promptForObjectModel = async () => {
+    const currentModel = uiState.object_detection?.model_name || "yolov8n.pt";
+    const modelPath = window.prompt("Enter YOLO model file name or full path", currentModel);
+    if (!modelPath) return;
+    await runCommand(`use object model ${modelPath}`);
+  };
+
+  const promptToSaveObjectPreset = async () => {
+    const modelPath = uiState.object_detection?.model_name || "";
+    const presetName = window.prompt("Enter a preset name for the current object model");
+    if (!presetName) return;
+    await runCommand(`save object model preset ${modelPath} as ${presetName}`);
+  };
+
+  const promptToUseObjectPreset = async () => {
+    const presetName = window.prompt("Enter the saved object preset name to use");
+    if (!presetName) return;
+    await runCommand(`use object preset ${presetName}`);
+  };
+
+  const applyObjectModelInput = async () => {
+    const value = (objectModelInput || "").trim();
+    if (!value) return;
+    await runCommand(`use object model ${value}`);
+  };
+
+  const saveObjectPresetFromInputs = async () => {
+    const modelValue = (objectModelInput || "").trim();
+    const presetValue = (objectPresetNameInput || "").trim();
+    if (!modelValue || !presetValue) return;
+    await runCommand(`save object model preset ${modelValue} as ${presetValue}`);
+    setObjectPresetNameInput("");
+  };
+
+  const prepareKeyDetection = async () => {
+    await runCommand("prepare key detection");
+  };
+
+  const useObjectPresetByName = async (presetName) => {
+    await runCommand(`use object preset ${presetName}`);
+  };
+
+  const deleteObjectPresetByName = async (presetName) => {
+    await runCommand(`delete object preset ${presetName}`);
+  };
+
+  const handleSend = async (rawInput = input) => {
+    const value = (rawInput || "").trim();
+    if (!value || isChatLoading) return;
+
+    const userMessage = { id: `user-${Date.now()}`, side: "user", text: value, createdAt: Date.now() };
+    const assistantId = `assistant-${Date.now()}`;
+
+    setMessages((current) => [
+      ...current,
+      userMessage,
+      { id: assistantId, side: "assistant", text: "", createdAt: Date.now() + 1, streaming: true },
+    ]);
+    setInput("");
+    setActivity("Thinking");
+    setApiError("");
+    setIsChatLoading(true);
+    setSurfaceTab("chat");
+    setLastPrompt(value);
+
+    try {
+      const response = await fetch(`${CHAT_API_BASE}/chat/stream`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: value, session_id: currentSessionId || undefined }),
+      });
+
+      if (!response.ok || !response.body) {
+        let errorMessage = "Assistant API unavailable.";
+        try {
+          const payload = await response.json();
+          errorMessage = payload?.detail || payload?.error || errorMessage;
+        } catch (_error) {
+          // Ignore JSON parsing failures for non-JSON error responses.
+        }
+        throw new Error(errorMessage);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value: chunk, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(chunk, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() || "";
+
+        for (const eventBlock of events) {
+          const line = eventBlock
+            .split("\n")
+            .find((entry) => entry.startsWith("data: "));
+          if (!line) continue;
+
+          const payload = JSON.parse(line.slice(6));
+          if (payload.type === "chunk") {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId
+                  ? { ...message, text: `${message.text}${payload.content}`, streaming: true }
+                  : message,
+              ),
+            );
+            continue;
+          }
+
+          if (payload.type === "done") {
+            if (payload.message?.confirmation_id) {
+              setPendingConfirmation({
+                confirmationId: payload.message.confirmation_id,
+                command: payload.message?.tool?.command || payload.message?.text || "",
+              });
+            }
+            if (payload.session?.id) {
+              setCurrentSessionId(payload.session.id);
+              setChatSessions((current) => {
+                const title = payload.session.title || value.slice(0, 48);
+                const next = current.filter((item) => item.id !== payload.session.id);
+                return [{ id: payload.session.id, title, message_count: 0 }, ...next];
+              });
+            }
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId
+                  ? {
+                      ...message,
+                      text: payload.message?.content || message.text,
+                      createdAt: payload.message?.created_at
+                        ? Date.parse(payload.message.created_at)
+                        : message.createdAt,
+                      streaming: false,
+                    }
+                  : message,
+              ),
+            );
+            continue;
+          }
+
+          if (payload.type === "error") {
+            throw new Error(payload.error || "Streaming failed.");
+          }
+          if (payload.type === "cancelled") {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId ? { ...message, text: "Response cancelled.", streaming: false } : message,
+              ),
+            );
+          }
+        }
+      }
+    } catch (error) {
+      const messageText = error.message || "Assistant API unavailable.";
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantId
+            ? { ...message, text: messageText, streaming: false }
+            : message,
+        ),
+      );
+      setApiError(messageText);
+    } finally {
+      setIsChatLoading(false);
+      setActivity(mode === "voice" ? "Listening" : "Ready");
+    }
   };
 
   const handleModeChange = async (nextMode) => {
@@ -347,12 +616,13 @@ export default function App() {
       if (payload.message) {
         setMessages((current) => [
           ...current,
-          {
-            id: `startup-${Date.now()}`,
-            side: "assistant",
-            text: `Grandpa : ${payload.message}`,
-          },
-        ]);
+        {
+          id: `startup-${Date.now()}`,
+          side: "assistant",
+          text: `Grandpa : ${payload.message}`,
+          createdAt: Date.now(),
+        },
+      ]);
       }
       setApiError("");
     } catch (error) {
@@ -382,6 +652,7 @@ export default function App() {
           id: `portable-${Date.now()}`,
           side: "assistant",
           text: `Grandpa : ${payload.message}`,
+          createdAt: Date.now(),
         },
       ]);
       setApiError("");
@@ -392,15 +663,50 @@ export default function App() {
 
   const statusItems = useMemo(
     () => [
-      { label: "Tasks", value: uiState.overview.tasks },
-      { label: "Reminders", value: uiState.overview.reminders },
       { label: "Weather", value: uiState.overview.weather },
       { label: "Health", value: uiState.overview.health },
+      { label: "Vision", value: uiState.overview.object_detection },
     ],
     [uiState],
   );
 
   const recentCommands = uiState.recent_commands || [];
+  const quickSuggestions = useMemo(
+    () => [
+      "plan my day",
+      "weather",
+      "latest note",
+      "today events",
+      "voice status",
+      "what objects do you see",
+      "detect objects on screen",
+      ...(recentCommands.slice(0, 2) || []),
+    ].filter((item, index, array) => item && array.indexOf(item) === index).slice(0, 6),
+    [recentCommands],
+  );
+  const liveSuggestions = useMemo(() => {
+    const commandPool = [
+      ...quickSuggestions,
+      "open chrome",
+      "plan my day",
+      "add note ",
+      "add task ",
+      "latest note",
+      "today events",
+      "weather",
+      "voice status",
+      "show settings",
+    ];
+    return commandPool
+      .filter((item, index, array) => item && array.indexOf(item) === index)
+      .filter((item) => matchesCommand(item, input))
+      .slice(0, 5);
+  }, [input, quickSuggestions]);
+  const filteredMessages = useMemo(() => {
+    const query = chatSearch.trim().toLowerCase();
+    if (!query) return messages;
+    return messages.filter((message) => normalizeMessageText(message.text).toLowerCase().includes(query));
+  }, [chatSearch, messages]);
   const filteredContacts = useMemo(() => {
     const preview = uiState.contacts.preview || [];
     const query = contactSearch.trim().toLowerCase();
@@ -415,6 +721,16 @@ export default function App() {
     `Mode: ${mode === "voice" ? "Voice" : "Text"}`,
   ];
   const workspaceTabs = ["planner", "calendar", "notes", "settings"];
+  const navItems = [
+    { id: "planner", label: "Planner", hint: "tasks and reminders" },
+    { id: "calendar", label: "Calendar", hint: "events and sync" },
+    { id: "notes", label: "Notes", hint: "capture and search" },
+    { id: "settings", label: "Settings", hint: "voice and startup" },
+  ];
+  const surfaceTabs = [
+    { id: "chat", label: "Chat" },
+    { id: "dashboard", label: "Dashboard" },
+  ];
 
   const formatTime = now.toLocaleTimeString("en-IN", {
     hour: "2-digit",
@@ -503,9 +819,340 @@ export default function App() {
     { label: "Delete Latest", command: "delete latest event" },
     { label: "Today Events", command: "today events" },
   ];
+  const showAutocomplete = mode === "text" && input.trim().length > 0 && liveSuggestions.length > 0;
+
+  const applySuggestion = (value) => {
+    setInput(value);
+    setActiveSuggestionIndex(0);
+  };
+
+  const pinCommand = (value) => {
+    const cleaned = String(value || "").trim();
+    if (!cleaned) return;
+    setPinnedCommands((current) => [cleaned, ...current.filter((item) => item !== cleaned)].slice(0, 6));
+  };
+
+  const clearConversation = () => {
+    setMessages([]);
+    setAttachedDocuments([]);
+    setApiError("");
+    fetch(`${CHAT_API_BASE}/chat/reset${currentSessionId ? `?session_id=${encodeURIComponent(currentSessionId)}` : ""}`, {
+      method: "POST",
+    }).catch(() => {});
+  };
+
+  const uploadChatDocument = async (file) => {
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    if (currentSessionId) {
+      formData.append("session_id", currentSessionId);
+    }
+
+    try {
+      setApiError("");
+      const response = await fetch(`${CHAT_API_BASE}/chat/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || "Could not upload document.");
+      }
+      if (payload.session?.id) {
+        setCurrentSessionId(payload.session.id);
+      }
+      setChatSessions(payload.sessions || []);
+      setAttachedDocuments(mapSessionDocuments(payload.documents));
+      setMessages((current) => [
+        ...current,
+        {
+          id: `upload-${Date.now()}`,
+          side: "assistant",
+          text: `Grandpa : Uploaded ${payload.document?.name || file.name}. I can answer questions from it now.`,
+          createdAt: Date.now(),
+        },
+      ]);
+    } catch (error) {
+      setApiError(error.message || "Could not upload document.");
+    }
+  };
+
+  const removeChatDocument = async (filename) => {
+    if (!currentSessionId || !filename) return;
+    try {
+      setApiError("");
+      const response = await fetch(`${CHAT_API_BASE}/chat/upload/remove`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: currentSessionId, filename }),
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || "Could not remove document.");
+      }
+      setAttachedDocuments(mapSessionDocuments(payload.documents));
+      setMessages((current) => [
+        ...current,
+        {
+          id: `remove-${Date.now()}`,
+          side: "assistant",
+          text: `Grandpa : Removed document ${filename}.`,
+          createdAt: Date.now(),
+        },
+      ]);
+    } catch (error) {
+      setApiError(error.message || "Could not remove document.");
+    }
+  };
+
+  const reloadWorkspace = async () => {
+    try {
+      const [uiResponse, historyResponse, sessionsResponse, settingsResponse] = await Promise.all([
+        fetch(`${API_BASE}/api/ui-state`),
+        fetch(`${CHAT_API_BASE}/chat/history${currentSessionId ? `?session_id=${encodeURIComponent(currentSessionId)}` : ""}`),
+        fetch(`${CHAT_API_BASE}/chat/sessions`),
+        fetch(`${CHAT_API_BASE}/chat/settings`),
+      ]);
+      const uiPayload = await uiResponse.json();
+      const historyPayload = await historyResponse.json();
+      const sessionsPayload = await sessionsResponse.json();
+      const settingsPayload = await settingsResponse.json();
+      if (uiPayload?.ok && uiPayload.state) {
+        setUiState(uiPayload.state);
+        if (uiPayload.state.startup) {
+          setStartupState(uiPayload.state.startup);
+        }
+      }
+      if (historyPayload?.ok) {
+        setMessages(mapHistoryMessages(historyPayload.messages));
+        if (historyPayload.session?.id) {
+          setCurrentSessionId(historyPayload.session.id);
+        }
+        setAttachedDocuments(mapSessionDocuments(historyPayload.session?.documents));
+      }
+      if (sessionsPayload?.ok) {
+        setChatSessions(sessionsPayload.sessions || []);
+      }
+      if (settingsPayload?.ok && settingsPayload.settings) {
+        setChatSettings(settingsPayload.settings);
+        setChatSettingsDraft(settingsPayload.settings);
+      }
+      setApiError("");
+    } catch (_error) {
+      setApiError("Python assistant API is not reachable yet.");
+    }
+  };
+
+  const createSession = async () => {
+    try {
+      const response = await fetch(`${CHAT_API_BASE}/chat/sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "New chat" }),
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || "Could not create chat.");
+      }
+      setCurrentSessionId(payload.session.id);
+      setChatSessions(payload.sessions || []);
+      setLastPrompt("");
+      setMessages([]);
+      setAttachedDocuments([]);
+      setApiError("");
+      setSurfaceTab("chat");
+    } catch (error) {
+      setApiError(error.message || "Could not create chat.");
+    }
+  };
+
+  const switchSession = async (sessionId) => {
+    try {
+      const response = await fetch(`${CHAT_API_BASE}/chat/history?session_id=${encodeURIComponent(sessionId)}`);
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || "Could not switch chat.");
+      }
+      setCurrentSessionId(sessionId);
+      setLastPrompt("");
+      setMessages(mapHistoryMessages(payload.messages));
+      setAttachedDocuments(mapSessionDocuments(payload.session?.documents));
+      setApiError("");
+      setSurfaceTab("chat");
+    } catch (error) {
+      setApiError(error.message || "Could not switch chat.");
+    }
+  };
+
+  const saveChatSettings = async () => {
+    try {
+      const response = await fetch(`${CHAT_API_BASE}/chat/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(chatSettingsDraft),
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || "Could not save chat settings.");
+      }
+      setChatSettings(payload.settings);
+      setChatSettingsDraft(payload.settings);
+      setApiError("");
+      setShowChatSettings(false);
+    } catch (error) {
+      setApiError(error.message || "Could not save chat settings.");
+    }
+  };
+
+  const regenerateReply = async () => {
+    if (!currentSessionId || isChatLoading) return;
+    try {
+      setIsChatLoading(true);
+      const response = await fetch(`${CHAT_API_BASE}/chat/regenerate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: currentSessionId }),
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || "Could not regenerate reply.");
+      }
+      setMessages(mapHistoryMessages(payload.session?.messages || []));
+      setApiError("");
+    } catch (error) {
+      setApiError(error.message || "Could not regenerate reply.");
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  const cancelStreaming = async () => {
+    if (!currentSessionId || !isChatLoading) return;
+    try {
+      await fetch(`${CHAT_API_BASE}/chat/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: currentSessionId }),
+      });
+    } catch (_error) {
+      setApiError("Could not cancel the current response.");
+    }
+  };
+
+  const retryLastPrompt = async () => {
+    if (!lastPrompt || isChatLoading) return;
+    await handleSend(lastPrompt);
+  };
+
+  const confirmPendingAction = async () => {
+    if (!pendingConfirmation?.confirmationId) return;
+    const confirmation = pendingConfirmation;
+    setPendingConfirmation(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/command`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          command: confirmation.command,
+          confirmation_id: confirmation.confirmationId,
+        }),
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || payload?.error || "Confirmation failed.");
+      }
+      const replies = (payload.messages || []).map((text, index) => ({
+        id: `confirm-${Date.now()}-${index}`,
+        side: "assistant",
+        text,
+        createdAt: Date.now() + index,
+      }));
+      setMessages((current) => [...current, ...replies]);
+      if (payload.state) {
+        setUiState(payload.state);
+      }
+      setApiError("");
+    } catch (error) {
+      setApiError(error.message || "Could not confirm action.");
+    }
+  };
+
+  const renameSession = async (session) => {
+    const nextTitle = window.prompt("Rename chat", session?.title || "New chat");
+    if (!nextTitle || !nextTitle.trim()) return;
+    try {
+      const response = await fetch(`${CHAT_API_BASE}/chat/sessions/rename`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: session.id, title: nextTitle.trim() }),
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || "Could not rename chat.");
+      }
+      setChatSessions(payload.sessions || []);
+      setApiError("");
+    } catch (error) {
+      setApiError(error.message || "Could not rename chat.");
+    }
+  };
+
+  const deleteSession = async (sessionId) => {
+    const confirmed = window.confirm("Delete this chat?");
+    if (!confirmed) return;
+    try {
+      const response = await fetch(`${CHAT_API_BASE}/chat/sessions/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || "Could not delete chat.");
+      }
+      setChatSessions(payload.sessions || []);
+      setCurrentSessionId(payload.current_session_id || "");
+      if (payload.current_session_id) {
+        await switchSession(payload.current_session_id);
+      } else {
+        setMessages([]);
+      }
+      setApiError("");
+    } catch (error) {
+      setApiError(error.message || "Could not delete chat.");
+    }
+  };
+
+  const exportSession = async () => {
+    if (!currentSessionId) return;
+    try {
+      const response = await fetch(`${CHAT_API_BASE}/chat/export?session_id=${encodeURIComponent(currentSessionId)}`);
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || "Could not export chat.");
+      }
+      const blob = new Blob([payload.content || ""], { type: "text/markdown;charset=utf-8" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = payload.filename || "chat.md";
+      link.click();
+      window.URL.revokeObjectURL(url);
+      setApiError("");
+    } catch (error) {
+      setApiError(error.message || "Could not export chat.");
+    }
+  };
 
   return (
     <div className="app-shell">
+      {voiceToast ? (
+        <div className={`voice-toast ${voiceToast.state || "neutral"}`}>
+          <strong>{voiceToast.title}</strong>
+          <span>{voiceToast.text}</span>
+        </div>
+      ) : null}
       <header className="top-bar">
         <div className="brand-wrap">
           <LogoMark />
@@ -543,7 +1190,46 @@ export default function App() {
       </header>
 
       <main className="layout-grid">
-        <aside className="sidebar">
+        <SidebarPanels
+          navItems={navItems}
+          workspaceTab={workspaceTab}
+          setWorkspaceTab={setWorkspaceTab}
+          statusItems={statusItems}
+          quickSuggestions={quickSuggestions}
+          pinnedCommands={pinnedCommands}
+          runCommand={runCommand}
+          uiState={uiState}
+          focusPlannerSection={focusPlannerSection}
+          memoryItems={memoryItems}
+          contactSearch={contactSearch}
+          setContactSearch={setContactSearch}
+          filteredContacts={filteredContacts}
+          selectedContact={selectedContact}
+          selectContact={selectContact}
+          activeContact={activeContact}
+          contactAlias={contactAlias}
+          setContactAlias={setContactAlias}
+          contactAliasTarget={contactAliasTarget}
+          setContactAliasTarget={setContactAliasTarget}
+          startupState={startupState}
+          updateStartupSettings={updateStartupSettings}
+        />
+{/*
+          <SectionCard title="Workspace">
+            <div className="nav-stack">
+              {navItems.map((item) => (
+                <button
+                  key={item.id}
+                  className={workspaceTab === item.id ? "nav-card active" : "nav-card"}
+                  onClick={() => setWorkspaceTab(item.id)}
+                >
+                  <strong>{item.label}</strong>
+                  <span>{item.hint}</span>
+                </button>
+              ))}
+            </div>
+          </SectionCard>
+
           <SectionCard title="Overview">
             <ul className="status-list">
               {statusItems.map((item) => (
@@ -553,6 +1239,26 @@ export default function App() {
                 </li>
               ))}
             </ul>
+          </SectionCard>
+
+          <SectionCard title="Quick Actions">
+            <div className="command-chips">
+              {quickSuggestions.map((item) => (
+                <button key={item} className="chip-button" onClick={() => runCommand(item)}>
+                  {item}
+                </button>
+              ))}
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Pinned">
+            <div className="command-chips">
+              {pinnedCommands.map((item) => (
+                <button key={`pinned-${item}`} className="chip-button" onClick={() => runCommand(item)}>
+                  {item}
+                </button>
+              ))}
+            </div>
           </SectionCard>
 
           <SectionCard title="Today">
@@ -606,20 +1312,6 @@ export default function App() {
                 </ul>
               </div>
             </div>
-          </SectionCard>
-
-          <SectionCard title="Recent Commands">
-            {recentCommands.length ? (
-              <div className="command-chips">
-                {recentCommands.map((item) => (
-                  <button key={item} className="chip-button" onClick={() => runCommand(item)}>
-                    {item}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p>No recent commands yet.</p>
-            )}
           </SectionCard>
 
           <SectionCard title="Notifications">
@@ -820,35 +1512,70 @@ export default function App() {
             </div>
           </SectionCard>
         </aside>
+*/}
 
         <section className="chat-panel">
           <div className="chat-panel-head">
-            <h2>Conversation</h2>
-            <p>{mode === "voice" ? "Speak naturally. Voice replies stay active." : "Type a command and press Run."}</p>
+            <div className="chat-panel-heading">
+              <div>
+                <h2>Conversation</h2>
+                <p>{mode === "voice" ? "Speak naturally. Voice replies stay active." : "Type a command and press Run."}</p>
+              </div>
+              <div className="panel-tools">
+                <div className="surface-tabs" role="tablist" aria-label="Surface">
+                  {surfaceTabs.map((item) => (
+                    <button
+                      key={item.id}
+                      className={surfaceTab === item.id ? "active" : ""}
+                      onClick={() => setSurfaceTab(item.id)}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+                <button className="ghost-button" onClick={reloadWorkspace}>Reload</button>
+                <button className="ghost-button danger" onClick={clearConversation}>Clear Chat</button>
+              </div>
+            </div>
             {apiError ? <span className="api-warning">{apiError}</span> : null}
           </div>
 
-          <div className="workspace-panel">
-            <div className="workspace-tabs">
-              {workspaceTabs.map((tab) => (
-                <button
-                  key={tab}
-                  className={workspaceTab === tab ? "active" : ""}
-                  onClick={() => setWorkspaceTab(tab)}
-                >
-                  {tab === "planner"
-                    ? "Planner"
-                    : tab === "calendar"
-                      ? "Calendar"
-                      : tab === "notes"
-                        ? "Notes"
-                        : "Settings"}
-                </button>
-              ))}
-            </div>
+          {surfaceTab === "dashboard" ? (
+            <DashboardSurface
+              uiState={uiState}
+              quickSuggestions={quickSuggestions}
+              runCommand={runCommand}
+              setSurfaceTab={setSurfaceTab}
+              setWorkspaceTab={setWorkspaceTab}
+              focusPlannerSection={focusPlannerSection}
+              mode={mode}
+              voiceStatus={voiceStatus}
+              activity={activity}
+              handleModeChange={handleModeChange}
+            />
+          ) : (
+            <>
+              <div className="workspace-panel">
+                <div className="workspace-tabs">
+                  {workspaceTabs.map((tab) => (
+                    <button
+                      key={tab}
+                      className={workspaceTab === tab ? "active" : ""}
+                      onClick={() => setWorkspaceTab(tab)}
+                    >
+                      {tab === "planner"
+                        ? "Planner"
+                        : tab === "calendar"
+                          ? "Calendar"
+                          : tab === "notes"
+                            ? "Notes"
+                            : "Settings"}
+                    </button>
+                  ))}
+                </div>
 
-            {workspaceTab === "planner" ? (
-              <div className="workspace-grid">
+                {workspaceTab === "planner" ? (
+                  <div className="workspace-grid">
                 <div className="workspace-card planner-focus-card">
                   <h3>Selected Item</h3>
                   <p>{selectedPlannerLabel}</p>
@@ -1067,11 +1794,11 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-              </div>
-            ) : null}
+                  </div>
+                ) : null}
 
-            {workspaceTab === "calendar" ? (
-              <div className="workspace-grid">
+                {workspaceTab === "calendar" ? (
+                  <div className="workspace-grid">
                 <div className="workspace-card">
                   <h3>Google Calendar</h3>
                   <div className="action-grid compact">
@@ -1157,11 +1884,11 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-              </div>
-            ) : null}
+                  </div>
+                ) : null}
 
-            {workspaceTab === "notes" ? (
-              <div className="workspace-grid">
+                {workspaceTab === "notes" ? (
+                  <div className="workspace-grid">
                 <div className="workspace-card">
                   <h3>Quick Note</h3>
                   <div className="stack-form">
@@ -1209,16 +1936,19 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-              </div>
-            ) : null}
+                  </div>
+                ) : null}
 
-            {workspaceTab === "settings" ? (
-              <div className="workspace-grid">
+                {workspaceTab === "settings" ? (
+                  <div className="workspace-grid">
                 <div className="workspace-card">
                   <h3>Runtime</h3>
                   <ul className="mini-list compact-list">
                     <li>{`Wake word: ${uiState.settings.wake_word}`}</li>
                     <li>{`Voice profile: ${uiState.settings.voice_profile}`}</li>
+                    <li>{`Voice state: ${voiceStatus.state_label || "ready"}`}</li>
+                    <li>{`Wake listener: ${voiceStatus.wake_word || uiState.settings.wake_word}`}</li>
+                    <li>{`Follow-up window: ${voiceStatus.follow_up_active ? `${voiceStatus.follow_up_remaining}s left` : "inactive"}`}</li>
                     <li>{`Offline mode: ${uiState.settings.offline_mode ? "On" : "Off"}`}</li>
                     <li>{`Developer mode: ${uiState.settings.developer_mode ? "On" : "Off"}`}</li>
                     <li>{`Emergency mode: ${uiState.settings.emergency_mode ? "On" : "Off"}`}</li>
@@ -1233,9 +1963,34 @@ export default function App() {
                       Set Wake Word
                     </button>
                   </div>
+                  <div className="stack-form compact-gap">
+                    <input
+                      value={followUpTimeoutInput}
+                      onChange={(event) => setFollowUpTimeoutInput(event.target.value)}
+                      placeholder="Follow-up timeout seconds"
+                    />
+                    <button onClick={() => followUpTimeoutInput.trim() ? runCommand(`set follow up timeout to ${followUpTimeoutInput}`) : null}>
+                      Set Follow-up Timeout
+                    </button>
+                  </div>
+                  <div className="stack-form compact-gap">
+                    <input
+                      value={wakeRetryInput}
+                      onChange={(event) => setWakeRetryInput(event.target.value)}
+                      placeholder="Wake retry seconds"
+                    />
+                    <button onClick={() => wakeRetryInput.trim() ? runCommand(`set wake retry window to ${wakeRetryInput}`) : null}>
+                      Set Wake Retry
+                    </button>
+                  </div>
                   <div className="action-grid compact">
                     <button className="action-button" onClick={() => runCommand("show settings")}>Refresh Settings</button>
                     <button className="action-button" onClick={() => runCommand("voice status")}>Voice Status</button>
+                    <button className="action-button" onClick={() => runCommand("enable wake direct fallback")}>Fallback On</button>
+                    <button className="action-button" onClick={() => runCommand("disable wake direct fallback")}>Fallback Off</button>
+                    <button className="action-button" onClick={() => runCommand("set wake retry window to 8 seconds")}>Wake Retry 8s</button>
+                    <button className="action-button" onClick={() => runCommand("set follow up timeout to 12 seconds")}>Follow-up 12s</button>
+                    <button className="action-button" onClick={() => runCommand("set post wake pause to 0.4 seconds")}>Wake Pause 0.4s</button>
                     <button className="action-button" onClick={() => runCommand("offline mode status")}>Offline Status</button>
                     <button className="action-button" onClick={() => runCommand("developer mode status")}>Developer Status</button>
                     <button className="action-button" onClick={() => runCommand(uiState.settings.emergency_mode ? "disable emergency mode" : "enable emergency mode")}>
@@ -1243,6 +1998,8 @@ export default function App() {
                     </button>
                     <button className="action-button" onClick={() => runCommand("set voice mode to sensitive")}>Sensitive Voice</button>
                     <button className="action-button" onClick={() => runCommand("set voice mode to normal")}>Normal Voice</button>
+                    <button className="action-button" onClick={() => runCommand("set voice mode to ultra sensitive")}>Ultra Sensitive</button>
+                    <button className="action-button" onClick={() => runCommand("set voice mode to noise cancel")}>Noise Cancel</button>
                     <button className="action-button" onClick={() => runCommand("enable compact voice replies")}>Compact Replies</button>
                     <button className="action-button" onClick={() => runCommand("disable compact voice replies")}>Full Replies</button>
                     <button className="action-button" onClick={() => runCommand(uiState.settings.offline_mode ? "disable offline mode" : "enable offline mode")}>
@@ -1301,68 +2058,198 @@ export default function App() {
                   <div className="action-grid compact">
                     <button className="action-button" onClick={() => runCommand("google calendar status")}>Calendar Status</button>
                     <button className="action-button" onClick={() => runCommand("sync google calendar")}>Sync Calendar</button>
-                    <button className="action-button" onClick={() => runCommand("telegram status")}>Telegram Status</button>
-                    <button className="action-button" onClick={() => runCommand("telegram remote status")}>Telegram Remote</button>
-                    <button className="action-button" onClick={() => runCommand("enable telegram")}>Telegram On</button>
-                    <button className="action-button" onClick={() => runCommand("disable telegram")}>Telegram Off</button>
-                    <button className="action-button" onClick={() => runCommand("enable telegram alerts")}>Alerts On</button>
-                    <button className="action-button" onClick={() => runCommand("disable telegram alerts")}>Alerts Off</button>
                     <button className="action-button" onClick={() => runCommand("github summary")}>GitHub Summary</button>
                     <button className="action-button" onClick={() => runCommand("offline ai status")}>Offline AI Status</button>
                   </div>
                 </div>
-              </div>
-            ) : null}
-          </div>
 
-          <div className="messages">
-            {messages.map((message) => (
-              <MessageBubble key={message.id} side={message.side} text={message.text} />
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {mode === "text" && recentCommands.length ? (
-            <div className="quick-strip">
-              <span>Quick run</span>
-              <div className="command-chips">
-                {recentCommands.slice(0, 3).map((item) => (
-                  <button
-                    key={`quick-${item}`}
-                    className="chip-button small"
-                    onClick={() => runCommand(item)}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <footer className="composer">
-            {mode === "text" ? (
-              <>
-                <input
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") handleSend();
-                  }}
-                  placeholder="Type your command..."
-                />
-                <button onClick={handleSend}>Run</button>
-              </>
-            ) : (
-              <div className="voice-banner">
-                <span className={`orb ${(voiceStatus.activity || "listening").toLowerCase()}`} />
-                <div className="voice-banner-copy">
-                  <strong>Voice mode active</strong>
-                  <span>{voiceStatus.transcript || "Listening... Speak now."}</span>
-                  {voiceStatus.last_reply ? <small>{`Last reply: ${voiceStatus.last_reply}`}</small> : null}
+                <div className="workspace-card">
+                  <h3>Key Detection Quick Start</h3>
+                  <div className="quick-start-list">
+                    <div className="quick-start-step"><span>1</span><p>Apply your custom key model path.</p></div>
+                    <div className="quick-start-step"><span>2</span><p>Enable small object mode and watch target key.</p></div>
+                    <div className="quick-start-step"><span>3</span><p>Start camera detection and hold the key near center.</p></div>
+                  </div>
+                  <div className="action-grid compact two-col">
+                    <button className="action-button" onClick={prepareKeyDetection}>Prepare Key Detection</button>
+                    <button className="action-button" onClick={() => runCommand("key detection status")}>Key Status</button>
+                    <button className="action-button" onClick={() => runCommand("watch for key")}>Watch Key</button>
+                    <button className="action-button" onClick={() => runCommand("start object detection")}>Start Key Scan</button>
+                  </div>
                 </div>
+
+                <div className="workspace-card">
+                  <h3>Object Detection</h3>
+                  <ul className="mini-list compact-list">
+                    <li>{uiState.overview.object_detection}</li>
+                    <li>{uiState.object_watch.summary}</li>
+                    <li>{`Model: ${uiState.object_detection?.model_name || "yolov8n.pt"}`}</li>
+                    <li>{`Small mode: ${uiState.object_detection?.small_object_mode ? "On" : "Off"}`}</li>
+                    <li>Camera: live YOLO detection</li>
+                    <li>Screen: screenshot object scan</li>
+                  </ul>
+                  <div className="stack-form compact-gap">
+                    <input
+                      type="text"
+                      value={objectModelInput}
+                      onChange={(event) => setObjectModelInput(event.target.value)}
+                      placeholder="Custom model path or file name"
+                    />
+                    <div className="action-grid compact two-col">
+                      <button className="action-button" onClick={applyObjectModelInput}>Apply Model Path</button>
+                      <button className="action-button" onClick={() => runCommand("use default object model")}>Use Default Model</button>
+                    </div>
+                    <input
+                      type="text"
+                      value={objectPresetNameInput}
+                      onChange={(event) => setObjectPresetNameInput(event.target.value)}
+                      placeholder="Preset name"
+                    />
+                    <div className="action-grid compact two-col">
+                      <button className="action-button" onClick={saveObjectPresetFromInputs}>Save Preset</button>
+                      <button className="action-button" onClick={() => runCommand("list object model presets")}>Refresh Presets</button>
+                    </div>
+                  </div>
+                  <div className="action-grid compact">
+                    <button className="action-button" onClick={() => runCommand("start object detection")}>Start Camera Detection</button>
+                    <button className="action-button" onClick={() => runCommand("stop object detection")}>Stop Camera Detection</button>
+                    <button className="action-button" onClick={() => runCommand("what objects do you see")}>What Objects Do You See</button>
+                    <button className="action-button" onClick={() => runCommand("detect objects on screen")}>Detect Objects On Screen</button>
+                    <button className="action-button" onClick={() => runCommand("is key visible on camera")}>Is Key Visible</button>
+                    <button className="action-button" onClick={() => runCommand("count key on camera")}>Count Key</button>
+                    <button className="action-button" onClick={() => runCommand("count person on camera")}>Count Person On Camera</button>
+                    <button className="action-button" onClick={() => runCommand("is phone visible on screen")}>Is Phone Visible On Screen</button>
+                    <button className="action-button" onClick={() => runCommand("watch for person")}>Watch Person</button>
+                    <button className="action-button" onClick={() => runCommand("watch for phone")}>Watch Phone</button>
+                    <button className="action-button" onClick={() => runCommand("watch for key")}>Watch Key</button>
+                    <button className="action-button" onClick={() => runCommand("object watch status")}>Watch Status</button>
+                    <button className="action-button" onClick={() => runCommand("stop object watch")}>Stop Watch</button>
+                    <button className="action-button" onClick={() => runCommand("enable small object mode")}>Small Mode On</button>
+                    <button className="action-button" onClick={() => runCommand("disable small object mode")}>Small Mode Off</button>
+                    <button className="action-button" onClick={() => runCommand("supported objects")}>Supported Objects</button>
+                    <button className="action-button" onClick={() => runCommand("current object model")}>Current Model</button>
+                    <button className="action-button" onClick={() => runCommand("use default object model")}>Default Model</button>
+                    <button className="action-button" onClick={promptForObjectModel}>Set Custom Model</button>
+                    <button className="action-button" onClick={promptToSaveObjectPreset}>Save Model Preset</button>
+                    <button className="action-button" onClick={promptToUseObjectPreset}>Use Saved Preset</button>
+                    <button className="action-button" onClick={() => runCommand("list object model presets")}>List Presets</button>
+                    <button className="action-button" onClick={() => runCommand("object detection history")}>Detection History</button>
+                    <button className="action-button" onClick={() => runCommand("object alert history")}>Alert History</button>
+                    <button className="action-button" onClick={() => runCommand("clear object history")}>Clear History</button>
+                  </div>
+                </div>
+
+                <div className="workspace-card">
+                  <h3>Object Model Presets</h3>
+                  {(uiState.object_detection?.presets || []).length ? (
+                    <div className="preset-list">
+                      {uiState.object_detection.presets.slice(0, 8).map((preset, index) => (
+                        <div className="preset-item" key={`object-preset-${index}`}>
+                          <div className="preset-copy">
+                            <strong>{preset.name}</strong>
+                            <span>{preset.model}</span>
+                          </div>
+                          <div className="preset-actions">
+                            <button className="ghost-button" onClick={() => useObjectPresetByName(preset.name)}>Use</button>
+                            <button className="ghost-button" onClick={() => deleteObjectPresetByName(preset.name)}>Delete</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>No object model presets saved yet.</p>
+                  )}
+                </div>
+
+                <div className="workspace-card">
+                  <h3>Recent Detections</h3>
+                  {(uiState.object_history || []).length ? (
+                    <ul className="mini-list compact-list">
+                      {uiState.object_history.slice(0, 6).map((item, index) => (
+                        <li key={`vision-history-${index}`}>{item.summary}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No object detection history yet.</p>
+                  )}
+                </div>
+
+                <div className="workspace-card">
+                  <h3>Watch Alert Log</h3>
+                  {(uiState.object_watch_history || []).length ? (
+                    <ul className="mini-list compact-list">
+                      {uiState.object_watch_history.slice(0, 6).map((item, index) => (
+                        <li key={`watch-log-${index}`}>{item.summary}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No watch alerts yet.</p>
+                  )}
+                </div>
+                  </div>
+                ) : null}
               </div>
-            )}
-          </footer>
+
+              {mode === "text" ? (
+                <ChatSurface
+                  messages={messages}
+                  filteredMessages={filteredMessages.map((message) => ({
+                    ...message,
+                    text: normalizeMessageText(message.text),
+                  }))}
+                  chatSearch={chatSearch}
+                  setChatSearch={setChatSearch}
+                  quickSuggestions={quickSuggestions}
+                  liveSuggestions={liveSuggestions}
+                  input={input}
+                  setInput={setInput}
+                  showAutocomplete={showAutocomplete}
+                  activeSuggestionIndex={activeSuggestionIndex}
+                  setActiveSuggestionIndex={setActiveSuggestionIndex}
+                  applySuggestion={applySuggestion}
+                  pinCommand={pinCommand}
+                  handleSend={handleSend}
+                  isChatLoading={isChatLoading}
+                  clearConversation={clearConversation}
+                  reloadWorkspace={reloadWorkspace}
+                  apiError={apiError}
+                  messagesEndRef={messagesEndRef}
+                  chatSessions={chatSessions}
+                  currentSessionId={currentSessionId}
+                  createSession={createSession}
+                  switchSession={switchSession}
+                  regenerateReply={regenerateReply}
+                  cancelStreaming={cancelStreaming}
+                  retryLastPrompt={retryLastPrompt}
+                  lastPrompt={lastPrompt}
+                  showChatSettings={showChatSettings}
+                  setShowChatSettings={setShowChatSettings}
+                  chatSettingsDraft={chatSettingsDraft}
+                  setChatSettingsDraft={setChatSettingsDraft}
+                  saveChatSettings={saveChatSettings}
+                  renameSession={renameSession}
+                  deleteSession={deleteSession}
+                  exportSession={exportSession}
+                  pendingConfirmation={pendingConfirmation}
+                  confirmPendingAction={confirmPendingAction}
+                  attachedDocuments={attachedDocuments}
+                  uploadChatDocument={uploadChatDocument}
+                  removeChatDocument={removeChatDocument}
+                />
+              ) : (
+                <div className="voice-banner">
+                  <span className={`orb ${(voiceStatus.activity || "listening").toLowerCase()}`} />
+                  <VoiceWave />
+                  <div className="voice-banner-copy">
+                    <strong>Voice mode active</strong>
+                    <span>{voiceStatus.transcript || "Listening... Speak now."}</span>
+                    <small>{`Wake: ${voiceStatus.wake_word || "hey grandpa"} | State: ${voiceStatus.state_label || "ready"}${voiceStatus.follow_up_active ? ` | Follow-up ${voiceStatus.follow_up_remaining}s` : ""}`}</small>
+                    {voiceStatus.last_reply ? <small>{`Last reply: ${voiceStatus.last_reply}`}</small> : null}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </section>
       </main>
     </div>
