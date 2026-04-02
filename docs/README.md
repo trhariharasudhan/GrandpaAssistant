@@ -5,5 +5,6 @@
 - [V1 Smoke Checklist](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\V1_SMOKE_CHECKLIST.md)
 - [Release Candidate Notes](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\RELEASE_CANDIDATE_NOTES.md)
 - [Release Notes v1.1.0](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\RELEASE_NOTES_v1.1.0.md)
+- [v1.2 Backlog](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\V1_2_BACKLOG.md)
 - [V1 Scope Freeze](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\V1_SCOPE.md)
 - [Future Feature Roadmap](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\FUTURE_FEATURE_ROADMAP.md)
