@@ -154,7 +154,7 @@ Acceptance:
 
 ## Immediate Next Actions
 
-1. Prepare release candidate notes and changelog summary.
-2. Commit/stage finalized V1 docs + smoke scripts.
-3. Push branch and open release PR.
-4. Run one final manual sanity run before tagging.
+1. Open/confirm release PR from `codex/stabilize-refactor-build` into `main`.
+2. Run one final manual sanity run (`python main.py` and `scripts\windows\start_react_desktop.cmd`).
+3. Merge PR and create release tag after review sign-off.
+4. Archive final summary using [`docs/RELEASE_CANDIDATE_NOTES.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\RELEASE_CANDIDATE_NOTES.md).
