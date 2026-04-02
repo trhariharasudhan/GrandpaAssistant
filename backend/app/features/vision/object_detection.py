@@ -78,6 +78,8 @@ def _object_settings():
         "camera_index": int(get_setting("vision.object_detection_camera_index", 0) or 0),
         "announce_seconds": float(get_setting("vision.object_detection_announce_seconds", 5.0) or 5.0),
         "show_overlay": bool(get_setting("vision.object_detection_show_overlay", True)),
+        "watch_alert_cooldown_seconds": float(get_setting("vision.watch_alert_cooldown_seconds", 8.0) or 8.0),
+        "alert_profile": str(get_setting("vision.object_detection_alert_profile", "balanced") or "balanced"),
     }
 
 
@@ -111,6 +113,41 @@ def set_small_object_mode(enabled):
 
 def is_small_object_mode_enabled():
     return bool(get_setting("vision.small_object_mode_enabled", False))
+
+
+def get_watch_alert_cooldown_seconds():
+    return float(get_setting("vision.watch_alert_cooldown_seconds", 8.0) or 8.0)
+
+
+def set_watch_alert_cooldown_seconds(seconds):
+    value = max(1.0, float(seconds))
+    update_setting("vision.watch_alert_cooldown_seconds", value)
+    return value
+
+
+def get_object_detection_alert_profile():
+    return str(get_setting("vision.object_detection_alert_profile", "balanced") or "balanced")
+
+
+def apply_object_detection_alert_profile(profile_name):
+    profile = str(profile_name or "").strip().lower()
+    presets = {
+        "fast": {"announce_seconds": 2.5, "cooldown_seconds": 3.0},
+        "balanced": {"announce_seconds": 5.0, "cooldown_seconds": 8.0},
+        "quiet": {"announce_seconds": 9.0, "cooldown_seconds": 14.0},
+    }
+    if profile not in presets:
+        raise ValueError("Use object alert profile fast, balanced, or quiet.")
+
+    selected = presets[profile]
+    update_setting("vision.object_detection_alert_profile", profile)
+    update_setting("vision.object_detection_announce_seconds", float(selected["announce_seconds"]))
+    update_setting("vision.watch_alert_cooldown_seconds", float(selected["cooldown_seconds"]))
+    return {
+        "profile": profile,
+        "announce_seconds": float(selected["announce_seconds"]),
+        "cooldown_seconds": float(selected["cooldown_seconds"]),
+    }
 
 
 def reset_object_detection_model():
@@ -299,10 +336,12 @@ def get_watch_status():
         last_seen_at = _WATCH_LAST_SEEN_AT
         last_alert_at = _WATCH_LAST_ALERT_AT
         labels = list(_LATEST_LABELS)
+    cooldown_seconds = get_watch_alert_cooldown_seconds()
     if not target:
         return {
             "active": False,
             "target": "",
+            "cooldown_seconds": cooldown_seconds,
             "summary": "No object watch is active.",
         }
     visible = any(label.lower() == target for label in labels)
@@ -318,6 +357,7 @@ def get_watch_status():
         "visible": visible,
         "last_seen_at": last_seen_at,
         "last_alert_at": last_alert_at,
+        "cooldown_seconds": cooldown_seconds,
         "summary": summary,
     }
 
@@ -342,8 +382,13 @@ def clear_detection_history():
         _WATCH_EVENT_HISTORY.clear()
 
 
-def consume_watch_alert(cooldown_seconds=8.0):
+def consume_watch_alert(cooldown_seconds=None):
     global _WATCH_LAST_ALERT_AT
+    cooldown_seconds = (
+        get_watch_alert_cooldown_seconds()
+        if cooldown_seconds is None
+        else max(1.0, float(cooldown_seconds))
+    )
     with _STATE_LOCK:
         target = _WATCH_TARGET
         labels = list(_LATEST_LABELS)

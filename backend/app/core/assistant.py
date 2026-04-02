@@ -45,7 +45,7 @@ from utils.config import get_setting
 from utils.sound import play_sound
 from vision.hand_mouse_control import run_hand_mouse
 from vision.screen_reader import register_region_hotkey, unregister_region_hotkey
-from voice.listen import listen
+from voice.listen import listen, sanitize_follow_up_command
 from voice.speak import set_response_mode, speak, stop_speaking
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -739,7 +739,7 @@ def voice_mode():
                     time.sleep(1)
 
             def listen_command():
-                command_container["cmd"] = listen()
+                command_container["cmd"] = listen(for_follow_up=True)
                 stop_flag["stop"] = True
 
             timer_thread = threading.Thread(target=countdown_timer, daemon=True)
@@ -764,7 +764,10 @@ def voice_mode():
                 time.sleep(EMPTY_LISTEN_BACKOFF)
                 continue
 
-            command = command.lower().strip()
+            command = sanitize_follow_up_command(command)
+            if not command:
+                time.sleep(EMPTY_LISTEN_BACKOFF)
+                continue
             last_active_time = time.time()
 
             result = _process_voice_command(command, current_timeout)

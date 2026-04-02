@@ -86,6 +86,34 @@ from modules.web_module import wikipedia_search
 from modules.notes_module import add_note
 from modules.profile_module import remember_emotion_signal
 from modules.task_module import add_reminder
+from modules.nextgen_module import (
+    add_goal_milestone,
+    add_habit,
+    capture_meeting_note,
+    check_in_habit,
+    complete_goal_milestone,
+    create_automation_rule,
+    create_goal,
+    generate_ai_day_plan,
+    goal_board_summary,
+    habit_dashboard_summary,
+    language_mode_status,
+    list_automation_rules,
+    meeting_mode_summary,
+    mobile_companion_status,
+    move_document_to_folder,
+    nextgen_status_snapshot,
+    preview_language_response,
+    rag_library_summary,
+    send_mobile_update,
+    set_automation_enabled,
+    set_language_mode,
+    setup_mobile_companion,
+    smart_reminder_priority_summary,
+    tag_document,
+    voice_trainer_status,
+    apply_voice_trainer,
+)
 from modules.google_contacts_module import (
     add_favorite_contact,
     ensure_google_contacts_fresh,
@@ -155,12 +183,19 @@ from features.productivity.proactive_suggestion_engine import (
     generate_proactive_suggestions,
     get_latest_proactive_suggestions,
 )
-from features.productivity.task_module import due_today_summary, latest_reminder, latest_task, overdue_items
+from features.productivity.task_module import (
+    due_today_summary,
+    get_planner_focus_snapshot,
+    latest_reminder,
+    latest_task,
+    overdue_items,
+)
 from features.security.emergency_dispatch import trigger_dual_emergency_protocol
 from features.security.face_verification import enroll_user_face, verify_user_face, is_face_enrolled
 from features.integrations.iot_module import dispatch_iot_command
 from vision.hand_mouse_control import run_hand_mouse
 from vision.object_detection import (
+    apply_object_detection_alert_profile,
     clear_watch_target,
     delete_object_detection_preset,
     clear_detection_history,
@@ -171,8 +206,10 @@ from vision.object_detection import (
     get_detection_history,
     get_latest_detection_summary,
     get_object_detection_model_name,
+    get_object_detection_alert_profile,
     get_object_detection_presets,
     get_supported_object_labels,
+    get_watch_alert_cooldown_seconds,
     get_watch_event_history,
     get_watch_status,
     is_small_object_mode_enabled,
@@ -183,6 +220,7 @@ from vision.object_detection import (
     run_object_detection,
     save_object_detection_preset,
     set_object_detection_model_name,
+    set_watch_alert_cooldown_seconds,
     set_small_object_mode,
     set_watch_target,
     use_object_detection_preset,
@@ -484,6 +522,8 @@ def _voice_diagnostics_summary():
     wake_threshold = get_setting("voice.wake_match_threshold", 0.68)
     wake_retry = get_setting("voice.wake_retry_window_seconds", 6)
     follow_up_timeout = get_setting("voice.follow_up_timeout_seconds", 12)
+    follow_up_listen_timeout = get_setting("voice.follow_up_listen_timeout", 3)
+    interrupt_follow_up_seconds = get_setting("voice.interrupt_follow_up_seconds", 5)
     fallback_enabled = get_setting("voice.wake_direct_fallback_enabled", True)
     popup_enabled = get_setting("voice.desktop_popup_enabled", True)
     chime_enabled = get_setting("voice.desktop_chime_enabled", True)
@@ -498,6 +538,8 @@ def _voice_diagnostics_summary():
         f"Wake match threshold is {wake_threshold}. "
         f"Wake retry window is {wake_retry} seconds. "
         f"Follow up timeout is {follow_up_timeout} seconds. "
+        f"Follow up listen timeout is {follow_up_listen_timeout} seconds. "
+        f"Interrupt follow up hold is {interrupt_follow_up_seconds} seconds. "
         f"Direct fallback is {'on' if fallback_enabled else 'off'}. "
         f"Desktop voice popup is {'on' if popup_enabled else 'off'}. "
         f"Desktop voice chime is {'on' if chime_enabled else 'off'}. "
@@ -703,6 +745,10 @@ def _apply_contact_context(command):
 def _split_multi_action_command(command):
     text = " ".join((command or "").strip().split())
     if not text:
+        return []
+
+    # Keep automation rule creation intact; it uses "when ... then ..." in one command.
+    if re.match(r"^create\s+automation\s+.+\s+when\s+.+\s+then\s+.+$", text, flags=re.IGNORECASE):
         return []
 
     parts = [text]
@@ -1468,6 +1514,33 @@ def _handle_config_command(command):
         update_setting("voice.follow_up_timeout_seconds", timeout_value)
         return f"Follow up timeout updated to {timeout_value} seconds."
 
+    follow_up_listen_timeout_match = re.match(
+        r"^(?:set|change|update)\s+follow up listen timeout\s+to\s+(\d+(?:\.\d+)?)(?:\s+(?:second|seconds|sec|secs|s))?$",
+        command,
+    )
+    if follow_up_listen_timeout_match:
+        timeout_value = max(1.0, float(follow_up_listen_timeout_match.group(1)))
+        update_setting("voice.follow_up_listen_timeout", timeout_value)
+        return f"Follow up listen timeout updated to {timeout_value} seconds."
+
+    follow_up_phrase_limit_match = re.match(
+        r"^(?:set|change|update)\s+follow up phrase(?:\s+time)?\s+limit\s+to\s+(\d+(?:\.\d+)?)(?:\s+(?:second|seconds|sec|secs|s))?$",
+        command,
+    )
+    if follow_up_phrase_limit_match:
+        phrase_value = max(1.0, float(follow_up_phrase_limit_match.group(1)))
+        update_setting("voice.follow_up_phrase_time_limit", phrase_value)
+        return f"Follow up phrase time limit updated to {phrase_value} seconds."
+
+    interrupt_follow_up_match = re.match(
+        r"^(?:set|change|update)\s+interrupt follow up(?:\s+window)?\s+to\s+(\d+(?:\.\d+)?)(?:\s+(?:second|seconds|sec|secs|s))?$",
+        command,
+    )
+    if interrupt_follow_up_match:
+        seconds_value = max(2.0, float(interrupt_follow_up_match.group(1)))
+        update_setting("voice.interrupt_follow_up_seconds", seconds_value)
+        return f"Interrupt follow up window updated to {seconds_value} seconds."
+
     if command in [
         "enable wake direct fallback",
         "turn on wake direct fallback",
@@ -1706,8 +1779,11 @@ def _handle_config_command(command):
         empty_backoff = get_setting("voice.empty_listen_backoff_seconds", 0.2)
         wake_listen_timeout = get_setting("voice.wake_listen_timeout", 5)
         wake_phrase_limit = get_setting("voice.wake_phrase_time_limit", 4)
+        follow_up_listen_timeout = get_setting("voice.follow_up_listen_timeout", 3)
+        follow_up_phrase_limit = get_setting("voice.follow_up_phrase_time_limit", 5)
         wake_match_threshold = get_setting("voice.wake_match_threshold", 0.68)
         wake_retry_window = get_setting("voice.wake_retry_window_seconds", 6)
+        interrupt_follow_up = get_setting("voice.interrupt_follow_up_seconds", 5)
         voice_popup_enabled = get_setting("voice.desktop_popup_enabled", True)
         voice_chime_enabled = get_setting("voice.desktop_chime_enabled", True)
         browser_delay = get_setting("browser.page_load_delay_seconds", 3)
@@ -1767,8 +1843,11 @@ def _handle_config_command(command):
             f"Empty listen backoff is {empty_backoff} seconds. "
             f"Wake listen timeout is {wake_listen_timeout} seconds. "
             f"Wake phrase time limit is {wake_phrase_limit} seconds. "
+            f"Follow up listen timeout is {follow_up_listen_timeout} seconds. "
+            f"Follow up phrase time limit is {follow_up_phrase_limit} seconds. "
             f"Wake match threshold is {wake_match_threshold}. "
             f"Wake retry window is {wake_retry_window} seconds. "
+            f"Interrupt follow up window is {interrupt_follow_up} seconds. "
             f"Voice desktop popup is {'on' if voice_popup_enabled else 'off'}. "
             f"Voice desktop chime is {'on' if voice_chime_enabled else 'off'}. "
             f"Browser load delay is {browser_delay} seconds. "
@@ -2343,6 +2422,286 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         enabled = get_setting("assistant.focus_mode_enabled", False)
         status = "enabled" if enabled else "disabled"
         speak(f"Focus mode is currently {status}.")
+        return
+
+    if command in [
+        "planner focus",
+        "planner focus summary",
+        "today focus suggestions",
+        "focus suggestions",
+        "what should i focus on today",
+    ]:
+        snapshot = get_planner_focus_snapshot(limit=4)
+        summary = snapshot.get("summary") or "Planner summary unavailable."
+        suggestion_lines = [
+            item.get("label")
+            for item in snapshot.get("focus_suggestions", [])
+            if isinstance(item, dict) and item.get("label")
+        ]
+        if suggestion_lines:
+            speak(summary + " Suggestions: " + " | ".join(suggestion_lines[:4]))
+        else:
+            speak(summary)
+        return
+
+    if command in [
+        "reminder timeline",
+        "today reminder timeline",
+        "upcoming reminder timeline",
+    ]:
+        snapshot = get_planner_focus_snapshot(limit=4)
+        timeline = snapshot.get("reminder_timeline", {})
+        overdue = timeline.get("overdue") or []
+        due_today = timeline.get("today") or []
+        upcoming = timeline.get("upcoming") or []
+        parts = []
+        if overdue:
+            parts.append("Overdue: " + " | ".join(overdue[:3]))
+        if due_today:
+            parts.append("Today: " + " | ".join(due_today[:3]))
+        if upcoming:
+            parts.append("Upcoming: " + " | ".join(upcoming[:3]))
+        if not parts:
+            speak("Your reminder timeline is clear right now.")
+        else:
+            speak("Reminder timeline: " + " || ".join(parts))
+        return
+
+    if command in [
+        "ai day plan",
+        "generate ai day plan",
+        "day plan with ai",
+        "smart day planner",
+    ]:
+        plan = generate_ai_day_plan()
+        summary = plan.get("summary") or "AI day plan generated."
+        blocks = []
+        for item in plan.get("blocks", [])[:4]:
+            title = str(item.get("title") or "Task").strip()
+            start = str(item.get("start") or "").strip()
+            end = str(item.get("end") or "").strip()
+            if start and end:
+                blocks.append(f"{start}-{end} {title}")
+            elif start:
+                blocks.append(f"{start} {title}")
+            else:
+                blocks.append(title)
+        if blocks:
+            speak(summary + " Blocks: " + " | ".join(blocks))
+        else:
+            speak(summary)
+        return
+
+    add_habit_match = re.match(r"^(?:add|create)\s+habit\s+(.+)$", command)
+    if add_habit_match:
+        speak(add_habit(add_habit_match.group(1).strip()))
+        return
+
+    habit_check_in_match = re.match(
+        r"^(?:check\s*in|checkin|mark|complete)\s+habit\s+(.+?)(?:\s+done)?$",
+        command,
+    )
+    if habit_check_in_match:
+        speak(check_in_habit(habit_check_in_match.group(1).strip()))
+        return
+
+    if command in [
+        "habit dashboard",
+        "habit summary",
+        "show habit dashboard",
+        "habit status",
+    ]:
+        speak(habit_dashboard_summary())
+        return
+
+    add_goal_match = re.match(r"^(?:add|create)\s+goal\s+(.+)$", command)
+    if add_goal_match:
+        speak(create_goal(add_goal_match.group(1).strip()))
+        return
+
+    add_goal_milestone_match = re.match(
+        r"^(?:add|create)\s+milestone\s+(.+?)\s+to\s+goal\s+(.+)$",
+        command,
+    )
+    if add_goal_milestone_match:
+        milestone_title = add_goal_milestone_match.group(1).strip()
+        goal_title = add_goal_milestone_match.group(2).strip()
+        speak(add_goal_milestone(goal_title, milestone_title))
+        return
+
+    complete_goal_milestone_match = re.match(
+        r"^(?:complete|finish|mark)\s+milestone\s+(.+?)\s+(?:in|for)\s+goal\s+(.+?)(?:\s+done)?$",
+        command,
+    )
+    if complete_goal_milestone_match:
+        milestone_title = complete_goal_milestone_match.group(1).strip()
+        goal_title = complete_goal_milestone_match.group(2).strip()
+        speak(complete_goal_milestone(goal_title, milestone_title))
+        return
+
+    if command in [
+        "goal board",
+        "goal board summary",
+        "goal summary",
+        "show goals",
+    ]:
+        speak(goal_board_summary())
+        return
+
+    if command in [
+        "smart reminder priority",
+        "smart reminders",
+        "prioritize reminders",
+        "reminder priority",
+    ]:
+        speak(smart_reminder_priority_summary())
+        return
+
+    if command in [
+        "voice trainer status",
+        "voice trainer",
+    ]:
+        speak(voice_trainer_status())
+        return
+
+    voice_trainer_match = re.match(
+        r"^(?:set|apply|use|switch\s+to)\s+voice\s+trainer\s+(quiet|normal|noisy)$",
+        command,
+    )
+    if not voice_trainer_match:
+        voice_trainer_match = re.match(r"^voice\s+trainer\s+(quiet|normal|noisy)$", command)
+    if voice_trainer_match:
+        speak(apply_voice_trainer(voice_trainer_match.group(1).strip()))
+        return
+
+    set_language_mode_match = re.match(
+        r"^(?:set|change|use|switch\s+to)\s+language\s+mode\s+(auto|english|tamil)$",
+        command,
+    )
+    if set_language_mode_match:
+        speak(set_language_mode(set_language_mode_match.group(1).strip()))
+        return
+
+    if command in [
+        "language mode status",
+        "current language mode",
+        "language mode",
+    ]:
+        speak(language_mode_status())
+        return
+
+    preview_language_match = re.match(
+        r"^(?:preview|test)\s+language\s+(?:switch|mode)\s+(.+)$",
+        command,
+    )
+    if preview_language_match:
+        speak(preview_language_response(preview_language_match.group(1).strip()))
+        return
+
+    if command in [
+        "meeting summary",
+        "meeting mode summary",
+        "show meeting summary",
+    ]:
+        speak(meeting_mode_summary())
+        return
+
+    capture_meeting_match = re.match(r"^(?:capture|save)\s+meeting(?:\s+note)?\s+(.+)$", command)
+    if capture_meeting_match:
+        payload = capture_meeting_match.group(1).strip()
+        title = None
+        notes = payload
+        if ":" in payload:
+            possible_title, possible_body = payload.split(":", 1)
+            if possible_title.strip() and possible_body.strip():
+                title = possible_title.strip()
+                notes = possible_body.strip()
+        speak(capture_meeting_note(notes, title=title))
+        return
+
+    tag_document_match = re.match(r"^tag\s+document\s+(.+?)\s+as\s+(.+)$", command)
+    if tag_document_match:
+        filename = tag_document_match.group(1).strip()
+        tags_text = tag_document_match.group(2).strip()
+        speak(tag_document(filename, tags_text))
+        return
+
+    move_document_match = re.match(
+        r"^(?:move|send)\s+document\s+(.+?)\s+to\s+folder\s+(.+)$",
+        command,
+    )
+    if move_document_match:
+        filename = move_document_match.group(1).strip()
+        folder = move_document_match.group(2).strip()
+        speak(move_document_to_folder(filename, folder))
+        return
+
+    if command in [
+        "rag library",
+        "rag library summary",
+        "show rag library",
+    ]:
+        speak(rag_library_summary())
+        return
+
+    create_automation_match = re.match(
+        r"^create\s+automation\s+(.+?)\s+when\s+(.+?)\s+then\s+(.+)$",
+        command,
+    )
+    if create_automation_match:
+        name = create_automation_match.group(1).strip()
+        trigger = create_automation_match.group(2).strip()
+        action = create_automation_match.group(3).strip()
+        speak(create_automation_rule(name, trigger, action))
+        return
+
+    if command in [
+        "list automations",
+        "automation rules",
+        "show automation rules",
+    ]:
+        speak(list_automation_rules())
+        return
+
+    automation_toggle_match = re.match(r"^(enable|disable)\s+automation\s+(.+)$", command)
+    if automation_toggle_match:
+        enabled = automation_toggle_match.group(1) == "enable"
+        name = automation_toggle_match.group(2).strip()
+        speak(set_automation_enabled(name, enabled))
+        return
+
+    setup_mobile_companion_match = re.match(
+        r"^(?:setup|set\s+up|connect)\s+mobile\s+companion\s+(.+)$",
+        command,
+    )
+    if setup_mobile_companion_match:
+        speak(setup_mobile_companion(setup_mobile_companion_match.group(1).strip()))
+        return
+
+    if command in [
+        "mobile companion status",
+        "mobile status",
+        "show mobile companion status",
+    ]:
+        speak(mobile_companion_status())
+        return
+
+    send_mobile_update_match = re.match(r"^send\s+mobile\s+update\s+(.+)$", command)
+    if send_mobile_update_match:
+        speak(send_mobile_update(send_mobile_update_match.group(1).strip()))
+        return
+
+    if command in [
+        "nextgen status",
+        "new feature status",
+        "feature pack status",
+    ]:
+        snapshot = nextgen_status_snapshot()
+        highlights = snapshot.get("highlights") or []
+        if highlights:
+            speak("Nextgen feature status: " + " | ".join(highlights[:6]))
+        else:
+            speak("Nextgen features are ready.")
         return
 
     if command in [
@@ -3125,9 +3484,107 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     ]:
         small_mode_text = "on" if is_small_object_mode_enabled() else "off"
         watch_summary = get_watch_status().get("summary") or "No watch status."
+        alert_profile = get_object_detection_alert_profile()
+        cooldown = int(get_watch_alert_cooldown_seconds())
         speak(
             f"Key detection status: model {get_object_detection_model_name()}, "
-            f"small object mode {small_mode_text}. {watch_summary}"
+            f"small object mode {small_mode_text}, alert profile {alert_profile}, "
+            f"cooldown {cooldown} seconds. {watch_summary}"
+        )
+        return
+
+    if command in [
+        "object quick actions",
+        "vision quick actions",
+        "object detection quick actions",
+    ]:
+        speak(
+            "Quick actions: start object detection, stop object detection, detect objects on screen, "
+            "prepare key detection, set object alert mode to fast, set object alert mode to balanced, "
+            "set object alert mode to quiet."
+        )
+        return
+
+    if command in [
+        "object quick scan",
+        "vision quick scan",
+        "scan camera and screen objects",
+    ]:
+        if not is_object_detection_available():
+            speak(object_detection_import_error() or "Object detection is not available right now.")
+            return
+        camera_result = detect_objects_once()
+        if not camera_result.get("ok"):
+            speak(camera_result.get("error") or "I could not run quick object scan right now.")
+            return
+        try:
+            screen_result = detect_objects_on_screen()
+        except Exception:
+            screen_result = {"summary": "Screen scan was skipped."}
+        speak(
+            "Quick scan done. Camera: "
+            + (camera_result.get("summary") or "No camera summary.")
+            + " Screen: "
+            + (screen_result.get("summary") or "No screen summary.")
+        )
+        return
+
+    if command in [
+        "set object alert mode to fast",
+        "object alert mode fast",
+        "fast object alerts",
+    ]:
+        profile = apply_object_detection_alert_profile("fast")
+        speak(
+            f"Object alert mode set to fast. Announce every {profile['announce_seconds']} seconds, "
+            f"watch cooldown {int(profile['cooldown_seconds'])} seconds."
+        )
+        return
+
+    if command in [
+        "set object alert mode to balanced",
+        "object alert mode balanced",
+        "balanced object alerts",
+    ]:
+        profile = apply_object_detection_alert_profile("balanced")
+        speak(
+            f"Object alert mode set to balanced. Announce every {profile['announce_seconds']} seconds, "
+            f"watch cooldown {int(profile['cooldown_seconds'])} seconds."
+        )
+        return
+
+    if command in [
+        "set object alert mode to quiet",
+        "object alert mode quiet",
+        "quiet object alerts",
+    ]:
+        profile = apply_object_detection_alert_profile("quiet")
+        speak(
+            f"Object alert mode set to quiet. Announce every {profile['announce_seconds']} seconds, "
+            f"watch cooldown {int(profile['cooldown_seconds'])} seconds."
+        )
+        return
+
+    object_cooldown_match = re.match(
+        r"^(?:set|change|update)\s+object\s+alert\s+cooldown\s+to\s+(\d+(?:\.\d+)?)\s*(?:second|seconds|sec|secs|s)?$",
+        command,
+    )
+    if object_cooldown_match:
+        value = float(object_cooldown_match.group(1))
+        cooldown = set_watch_alert_cooldown_seconds(value)
+        speak(f"Object alert cooldown updated to {cooldown:.1f} seconds.")
+        return
+
+    if command in [
+        "object alert status",
+        "vision alert status",
+        "object detection alert status",
+    ]:
+        profile = get_object_detection_alert_profile()
+        cooldown = get_watch_alert_cooldown_seconds()
+        watch_summary = get_watch_status().get("summary") or "No watch status."
+        speak(
+            f"Object alert profile is {profile}. Cooldown is {cooldown:.1f} seconds. {watch_summary}"
         )
         return
 

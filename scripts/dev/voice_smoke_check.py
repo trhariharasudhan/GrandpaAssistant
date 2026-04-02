@@ -40,7 +40,7 @@ def _run_with_fake_listen(sequence, test_name):
     original_speak = web_api.voice_speak_module.speak
     original_capture = web_api._capture_command_reply
 
-    def fake_listen(for_wake_word=False):
+    def fake_listen(for_wake_word=False, for_follow_up=False):
         with queue_lock:
             if not queue:
                 time.sleep(0.04)
@@ -52,7 +52,7 @@ def _run_with_fake_listen(sequence, test_name):
                 queue.insert(0, (expected_mode, value, delay))
             time.sleep(0.04)
             return None
-        if expected_mode == "follow" and for_wake_word:
+        if expected_mode == "follow" and (for_wake_word or not for_follow_up):
             with queue_lock:
                 queue.insert(0, (expected_mode, value, delay))
             time.sleep(0.04)
@@ -121,6 +121,9 @@ def run_command_parser_checks():
         "set wake threshold to 0.72",
         "set wake retry window to 8 seconds",
         "set follow up timeout to 12 seconds",
+        "set follow up listen timeout to 3 seconds",
+        "set follow up phrase limit to 5 seconds",
+        "set interrupt follow up window to 6 seconds",
         "set post wake pause to 0.4 seconds",
         "disable wake fallback",
         "enable wake fallback",
@@ -138,6 +141,9 @@ def run_command_parser_checks():
         "wake_match_threshold": float(get_setting("voice.wake_match_threshold", 0)),
         "wake_retry_window_seconds": float(get_setting("voice.wake_retry_window_seconds", 0)),
         "follow_up_timeout_seconds": float(get_setting("voice.follow_up_timeout_seconds", 0)),
+        "follow_up_listen_timeout": float(get_setting("voice.follow_up_listen_timeout", 0)),
+        "follow_up_phrase_time_limit": float(get_setting("voice.follow_up_phrase_time_limit", 0)),
+        "interrupt_follow_up_seconds": float(get_setting("voice.interrupt_follow_up_seconds", 0)),
         "post_wake_pause_seconds": float(get_setting("voice.post_wake_pause_seconds", 0)),
         "wake_direct_fallback_enabled": bool(get_setting("voice.wake_direct_fallback_enabled", False)),
         "desktop_popup_enabled": bool(get_setting("voice.desktop_popup_enabled", False)),
@@ -147,6 +153,9 @@ def run_command_parser_checks():
         abs(checks["wake_match_threshold"] - 0.72) < 0.0001
         and abs(checks["wake_retry_window_seconds"] - 8.0) < 0.0001
         and abs(checks["follow_up_timeout_seconds"] - 12.0) < 0.0001
+        and abs(checks["follow_up_listen_timeout"] - 3.0) < 0.0001
+        and abs(checks["follow_up_phrase_time_limit"] - 5.0) < 0.0001
+        and abs(checks["interrupt_follow_up_seconds"] - 6.0) < 0.0001
         and abs(checks["post_wake_pause_seconds"] - 0.4) < 0.0001
         and checks["wake_direct_fallback_enabled"]
         and checks["desktop_popup_enabled"]

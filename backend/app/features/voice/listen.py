@@ -79,12 +79,48 @@ OFFLINE_DIRECT_ALIASES = {
 INTERRUPT_PHRASES = {
     "stop",
     "stop speaking",
+    "stop now",
+    "stop it",
     "wait",
+    "wait a second",
+    "hold on",
+    "hold",
     "cancel",
+    "cancel it",
     "quiet",
     "be quiet",
     "pause",
+    "pause now",
+    "enough",
     "listen",
+}
+
+_WAKE_ALIASES = (
+    "hi grandpa",
+    "hello grandpa",
+    "hey grand pa",
+    "hay grandpa",
+    "a grandpa",
+    "hey grampa",
+    "hi grampa",
+    "ok grandpa",
+    "okay grandpa",
+)
+
+_FOLLOW_UP_FILLER_WORDS = {
+    "hmm",
+    "hmmm",
+    "huh",
+    "um",
+    "uh",
+    "mmm",
+    "ah",
+    "okay",
+    "ok",
+    "ya",
+    "yeah",
+    "yep",
+    "grandpa",
 }
 
 
@@ -100,6 +136,8 @@ def _postprocess_command(command):
 
     cleaned = re.sub(r"^(?:please|could you|can you)\s+", "", cleaned)
     cleaned = " ".join(cleaned.split())
+    if cleaned in _FOLLOW_UP_FILLER_WORDS:
+        return None
     if get_setting("assistant.offline_mode_enabled", False):
         cleaned = OFFLINE_DIRECT_ALIASES.get(cleaned, cleaned)
     return cleaned or None
@@ -113,16 +151,7 @@ def wake_word_detected(command, wake_word=None):
     normalized_command = normalize_phrase(command)
     normalized_wake_word = normalize_phrase(wake_word or get_setting("wake_word", "hey grandpa"))
     wake_threshold = get_setting("voice.wake_match_threshold", 0.68)
-    wake_aliases = {
-        normalized_wake_word,
-        "hi grandpa",
-        "hello grandpa",
-        "hey grand pa",
-        "hay grandpa",
-        "a grandpa",
-        "hey grampa",
-        "hi grampa",
-    }
+    wake_aliases = {normalized_wake_word, *(_WAKE_ALIASES)}
 
     if not normalized_command or not normalized_wake_word:
         return False
@@ -157,15 +186,7 @@ def wake_word_detected(command, wake_word=None):
 def strip_wake_word(command, wake_word=None):
     normalized_command = normalize_phrase(command)
     normalized_wake_word = normalize_phrase(wake_word or get_setting("wake_word", "hey grandpa"))
-    aliases = [
-        normalized_wake_word,
-        "hi grandpa",
-        "hello grandpa",
-        "hey grand pa",
-        "hay grandpa",
-        "hey grampa",
-        "hi grampa",
-    ]
+    aliases = [normalized_wake_word, *(_WAKE_ALIASES)]
 
     if not normalized_command or not normalized_wake_word:
         return ""
@@ -218,6 +239,14 @@ def is_interrupt_phrase(command):
     return normalize_phrase(command) in INTERRUPT_PHRASES
 
 
+def sanitize_follow_up_command(command):
+    cleaned = normalize_phrase(command)
+    if not cleaned:
+        return ""
+    parts = [word for word in cleaned.split() if word not in _FOLLOW_UP_FILLER_WORDS]
+    return " ".join(parts).strip()
+
+
 def _active_voice_settings():
     mode = get_setting("voice.mode", "normal")
     base = dict(VOICE_PROFILES.get(mode, VOICE_PROFILES["normal"]))
@@ -226,7 +255,9 @@ def _active_voice_settings():
         "mode": mode,
         "ambient_duration": get_setting("voice.ambient_duration", base["ambient_duration"]),
         "listen_timeout": get_setting("voice.listen_timeout", base["listen_timeout"]),
+        "follow_up_listen_timeout": get_setting("voice.follow_up_listen_timeout", 3),
         "phrase_time_limit": get_setting("voice.phrase_time_limit", base["phrase_time_limit"]),
+        "follow_up_phrase_time_limit": get_setting("voice.follow_up_phrase_time_limit", 5),
         "pause_threshold": get_setting("voice.pause_threshold", base["pause_threshold"]),
         "non_speaking_duration": get_setting(
             "voice.non_speaking_duration", base["non_speaking_duration"]
@@ -251,6 +282,7 @@ def _active_voice_settings():
         "wake_retry_window_seconds": get_setting("voice.wake_retry_window_seconds", 6),
         "follow_up_timeout_seconds": get_setting("voice.follow_up_timeout_seconds", 12),
         "wake_direct_fallback_enabled": get_setting("voice.wake_direct_fallback_enabled", True),
+        "interrupt_follow_up_seconds": get_setting("voice.interrupt_follow_up_seconds", 5),
         "desktop_popup_enabled": get_setting("voice.desktop_popup_enabled", True),
         "desktop_chime_enabled": get_setting("voice.desktop_chime_enabled", True),
     }
@@ -278,7 +310,9 @@ def voice_status_summary():
     return (
         f"Voice profile is {settings['mode']}. "
         f"Listen timeout is {settings['listen_timeout']} seconds. "
+        f"Follow-up listen timeout is {settings['follow_up_listen_timeout']} seconds. "
         f"Phrase limit is {settings['phrase_time_limit']} seconds. "
+        f"Follow-up phrase limit is {settings['follow_up_phrase_time_limit']} seconds. "
         f"Wake threshold is {settings['wake_match_threshold']}. "
         f"Follow up window is {settings['follow_up_timeout_seconds']} seconds. "
         f"Offline mode is {'on' if offline_mode else 'off'}."
@@ -306,7 +340,7 @@ def _mark_calibrated(settings):
     _last_calibration_at = time.time()
 
 
-def listen(for_wake_word=False):
+def listen(for_wake_word=False, for_follow_up=False):
     settings = _active_voice_settings()
 
     recognizer.dynamic_energy_threshold = settings["dynamic_energy_threshold"]
@@ -327,18 +361,25 @@ def listen(for_wake_word=False):
                 )
                 _mark_calibrated(settings)
 
+            listen_timeout = (
+                settings["wake_listen_timeout"]
+                if for_wake_word
+                else (settings["follow_up_listen_timeout"] if for_follow_up else settings["listen_timeout"])
+            )
+            phrase_limit = (
+                settings["wake_phrase_time_limit"]
+                if for_wake_word
+                else (
+                    settings["follow_up_phrase_time_limit"]
+                    if for_follow_up
+                    else settings["phrase_time_limit"]
+                )
+            )
+
             audio = recognizer.listen(
                 source,
-                timeout=(
-                    settings["wake_listen_timeout"]
-                    if for_wake_word
-                    else settings["listen_timeout"]
-                ),
-                phrase_time_limit=(
-                    settings["wake_phrase_time_limit"]
-                    if for_wake_word
-                    else settings["phrase_time_limit"]
-                ),
+                timeout=listen_timeout,
+                phrase_time_limit=phrase_limit,
             )
 
             preferred_language = get_memory("personal.assistant.preferred_response_language") or "en-US"
