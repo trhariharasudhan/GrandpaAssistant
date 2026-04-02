@@ -1,5 +1,6 @@
 import contextlib
 import datetime
+import importlib.util
 import io
 import json
 import os
@@ -59,7 +60,11 @@ from vision.object_detection import (
     get_watch_status,
     is_small_object_mode_enabled,
 )
-from features.productivity.proactive_suggestion_engine import get_latest_proactive_suggestions
+from features.productivity.profile_module import build_proactive_nudge
+from features.productivity.proactive_suggestion_engine import (
+    generate_proactive_suggestions,
+    get_latest_proactive_suggestions,
+)
 from voice.listen import (
     _active_voice_settings,
     current_voice_mode,
@@ -99,6 +104,25 @@ _voice_messages = []
 _voice_last_reply = ""
 _voice_follow_up_until = 0.0
 _voice_state_label = "sleeping"
+_voice_diagnostics = {
+    "wake_detection_count": 0,
+    "wake_only_count": 0,
+    "command_count": 0,
+    "follow_up_command_count": 0,
+    "retry_window_command_count": 0,
+    "direct_fallback_count": 0,
+    "interrupt_count": 0,
+    "error_count": 0,
+    "last_heard_phrase": "",
+    "last_heard_at": "",
+    "last_processed_command": "",
+    "last_command_at": "",
+    "last_wake_at": "",
+    "last_interrupt_at": "",
+    "last_error_at": "",
+    "last_error_message": "",
+    "wake_retry_until": 0.0,
+}
 _cancelled_streams = set()
 _pending_confirmations = {}
 
@@ -254,6 +278,195 @@ def _safe_call(callback, fallback):
     except Exception:
         return fallback
     return fallback if value is None else value
+
+
+def _local_now_label():
+    return datetime.datetime.now().isoformat(timespec="seconds")
+
+
+def _reset_voice_diagnostics():
+    global _voice_diagnostics
+    _voice_diagnostics = {
+        "wake_detection_count": 0,
+        "wake_only_count": 0,
+        "command_count": 0,
+        "follow_up_command_count": 0,
+        "retry_window_command_count": 0,
+        "direct_fallback_count": 0,
+        "interrupt_count": 0,
+        "error_count": 0,
+        "last_heard_phrase": "",
+        "last_heard_at": "",
+        "last_processed_command": "",
+        "last_command_at": "",
+        "last_wake_at": "",
+        "last_interrupt_at": "",
+        "last_error_at": "",
+        "last_error_message": "",
+        "wake_retry_until": 0.0,
+    }
+
+
+def _mark_voice_heard(heard):
+    global _voice_diagnostics
+    _voice_diagnostics["last_heard_phrase"] = _compact_text(heard)
+    _voice_diagnostics["last_heard_at"] = _local_now_label()
+
+
+def _mark_voice_wake(retry_until):
+    global _voice_diagnostics
+    _voice_diagnostics["wake_detection_count"] += 1
+    _voice_diagnostics["last_wake_at"] = _local_now_label()
+    _voice_diagnostics["wake_retry_until"] = max(0.0, float(retry_until or 0.0))
+
+
+def _mark_voice_command(heard, source):
+    global _voice_diagnostics
+    source = _compact_text(source) or "direct"
+    _voice_diagnostics["command_count"] += 1
+    _voice_diagnostics["last_processed_command"] = _compact_text(heard)
+    _voice_diagnostics["last_command_at"] = _local_now_label()
+    if source == "follow_up":
+        _voice_diagnostics["follow_up_command_count"] += 1
+    elif source == "retry_window":
+        _voice_diagnostics["retry_window_command_count"] += 1
+    elif source == "direct_fallback":
+        _voice_diagnostics["direct_fallback_count"] += 1
+
+
+def _mark_voice_interrupt():
+    global _voice_diagnostics
+    _voice_diagnostics["interrupt_count"] += 1
+    _voice_diagnostics["last_interrupt_at"] = _local_now_label()
+
+
+def _mark_voice_error(message):
+    global _voice_diagnostics
+    _voice_diagnostics["error_count"] += 1
+    _voice_diagnostics["last_error_at"] = _local_now_label()
+    _voice_diagnostics["last_error_message"] = _compact_text(message)
+
+
+def _voice_diagnostics_payload():
+    payload = dict(_voice_diagnostics)
+    retry_until = float(payload.get("wake_retry_until") or 0.0)
+    payload["wake_retry_window_active"] = retry_until > datetime.datetime.now().timestamp()
+    payload["wake_retry_remaining"] = max(0, int(retry_until - datetime.datetime.now().timestamp()))
+    return payload
+
+
+def _load_local_json(path):
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except Exception:
+        return None
+
+
+def _smart_home_status_payload():
+    credentials_path = os.path.join(DATA_DIR, "iot_credentials.json")
+    creds = _load_local_json(credentials_path)
+    if not creds:
+        return {
+            "configured": False,
+            "enabled": False,
+            "device_count": 0,
+            "sample_commands": [],
+            "placeholder_count": 0,
+            "summary": "Smart Home is not configured yet.",
+        }
+
+    webhooks = creds.get("webhooks") or {}
+    sample_commands = list(webhooks.keys())[:4]
+    placeholder_count = 0
+    for config in webhooks.values():
+        url = str((config or {}).get("url") or "")
+        if "YOUR_KEY_HERE" in url or "YOUR_HOME_ASSISTANT_WEBHOOK_ID" in url:
+            placeholder_count += 1
+
+    enabled = bool(creds.get("enabled"))
+    summary_parts = [
+        f"Smart Home is {'enabled' if enabled else 'disabled'} with {len(webhooks)} configured command(s)."
+    ]
+    if sample_commands:
+        summary_parts.append("Try " + " | ".join(sample_commands[:3]) + ".")
+    elif enabled:
+        summary_parts.append("Add webhook commands to start controlling devices.")
+    if placeholder_count:
+        summary_parts.append(f"{placeholder_count} command(s) still use placeholder keys.")
+
+    return {
+        "configured": True,
+        "enabled": enabled,
+        "device_count": len(webhooks),
+        "sample_commands": sample_commands,
+        "placeholder_count": placeholder_count,
+        "summary": " ".join(summary_parts),
+    }
+
+
+def _face_security_payload():
+    profile_path = os.path.join(DATA_DIR, "face_profile.json")
+    enrolled = os.path.exists(profile_path)
+    camera_ready = importlib.util.find_spec("cv2") is not None
+    embedding_ready = importlib.util.find_spec("deepface") is not None
+    updated_at = ""
+    if enrolled:
+        with contextlib.suppress(OSError):
+            updated_at = datetime.datetime.fromtimestamp(
+                os.path.getmtime(profile_path)
+            ).isoformat(timespec="seconds")
+
+    if enrolled:
+        summary = "Face security is enrolled locally and ready for verification."
+    else:
+        summary = "Face security is not enrolled yet. Use enroll my face to create a local profile."
+
+    if not camera_ready:
+        summary += " OpenCV is not installed, so camera capture is not ready."
+    elif not embedding_ready:
+        summary += " DeepFace is not installed yet, so face matching is not ready."
+
+    return {
+        "enrolled": enrolled,
+        "camera_ready": camera_ready,
+        "embedding_ready": embedding_ready,
+        "updated_at": updated_at,
+        "summary": summary,
+    }
+
+
+def _proactive_state_payload(focus_mode):
+    suggestions = _safe_call(lambda: get_latest_proactive_suggestions("default", limit=4), [])
+    if not suggestions:
+        suggestions = _safe_call(lambda: generate_proactive_suggestions("default"), [])
+
+    normalized = []
+    for item in suggestions[:4]:
+        text = _compact_text(item.get("text") if isinstance(item, dict) else item)
+        if not text:
+            continue
+        normalized.append(
+            {
+                "text": text,
+                "kind": _compact_text(item.get("kind") if isinstance(item, dict) else "suggestion") or "suggestion",
+                "score": float(item.get("score", 0.0)) if isinstance(item, dict) else 0.0,
+            }
+        )
+
+    summary = _safe_call(build_proactive_nudge, "Stay focused on your next useful step today.")
+    if normalized:
+        summary = f"{summary} Top suggestion: {normalized[0]['text']}"
+    if focus_mode:
+        summary += " Focus mode is on, so proactive popups are muted."
+
+    return {
+        "focus_mode": bool(focus_mode),
+        "summary": summary,
+        "suggestions": normalized,
+    }
 
 
 def _utc_now():
@@ -729,8 +942,9 @@ def _voice_follow_up_remaining():
     return max(0, int(_voice_follow_up_until - datetime.datetime.now().timestamp()))
 
 
-def _handle_voice_command(heard, follow_up_timeout):
+def _handle_voice_command(heard, follow_up_timeout, source="direct"):
     global _voice_state_label
+    _mark_voice_command(heard, source)
     _set_voice_state(activity="Thinking", transcript=f"Heard: {heard}", error="")
     replies = _capture_command_reply(heard)
     preview = _compact_text(replies[0]) if replies else "Done."
@@ -772,24 +986,28 @@ def _voice_loop():
                 break
             if not heard:
                 continue
+            _mark_voice_heard(heard)
 
             if is_interrupt_phrase(heard):
                 voice_speak_module.stop_speaking()
+                _mark_voice_interrupt()
                 _set_voice_follow_up(datetime.datetime.now().timestamp() + 4)
                 _voice_state_label = "interrupted"
                 _set_voice_state(activity="Interrupted", transcript="Stopped speaking. Listening again.", error="")
                 continue
 
             if follow_up_active:
-                _handle_voice_command(heard, follow_up_timeout)
+                _handle_voice_command(heard, follow_up_timeout, source="follow_up")
                 continue
 
             if wake_word_detected(heard, wake_word):
                 trailing_command = strip_wake_word(heard, wake_word)
                 wake_retry_until = datetime.datetime.now().timestamp() + wake_retry_window
+                _mark_voice_wake(wake_retry_until)
                 if trailing_command:
-                    _handle_voice_command(trailing_command, follow_up_timeout)
+                    _handle_voice_command(trailing_command, follow_up_timeout, source="wake_inline")
                 else:
+                    _voice_diagnostics["wake_only_count"] += 1
                     _set_voice_follow_up(datetime.datetime.now().timestamp() + follow_up_timeout)
                     _voice_state_label = "awake"
                     _set_voice_state(activity="Awake", transcript="Wake word heard. Listening now.", error="")
@@ -797,14 +1015,15 @@ def _voice_loop():
                 continue
 
             if wake_retry_until and datetime.datetime.now().timestamp() <= wake_retry_until and looks_like_direct_command(heard):
-                _handle_voice_command(heard, follow_up_timeout)
+                _handle_voice_command(heard, follow_up_timeout, source="retry_window")
                 continue
 
             if wake_direct_fallback and looks_like_direct_command(heard):
-                _handle_voice_command(heard, follow_up_timeout)
+                _handle_voice_command(heard, follow_up_timeout, source="direct_fallback")
                 continue
         except Exception as error:
             _voice_state_label = "error"
+            _mark_voice_error(str(error))
             _set_voice_state(activity="Error", error=str(error))
     _set_voice_follow_up(0.0)
     _voice_state_label = "ready"
@@ -821,6 +1040,7 @@ def _ensure_voice_thread():
 
 def _voice_status_payload():
     wake_word = _compact_text(get_setting("wake_word", "hey grandpa")) or "hey grandpa"
+    settings = _active_voice_settings()
     return {
         "enabled": _voice_enabled,
         "activity": _voice_activity,
@@ -833,16 +1053,20 @@ def _voice_status_payload():
         "error": _voice_error,
         "messages": _voice_messages[-8:],
         "last_reply": _voice_last_reply,
+        "settings": settings,
+        "diagnostics": _voice_diagnostics_payload(),
     }
 
 
 def start_voice_api_mode():
     global _voice_enabled, _voice_state_label
     with _voice_lock:
+        wake_word = _compact_text(get_setting("wake_word", "hey grandpa")) or "hey grandpa"
         _voice_enabled = True
         _voice_state_label = "sleeping"
         _set_voice_follow_up(0.0)
-        _set_voice_state(activity="Sleeping", transcript="Say hey grandpa to wake me.", error="")
+        _reset_voice_diagnostics()
+        _set_voice_state(activity="Sleeping", transcript=f"Say {wake_word} to wake me.", error="")
         _ensure_voice_thread()
     return _voice_status_payload()
 
@@ -940,9 +1164,9 @@ def _build_ui_state():
         notifications.append({"level": "error", "text": f"Voice issue: {_compact_text(_voice_error)}"})
 
     focus_mode = _safe_call(lambda: get_setting("assistant.focus_mode_enabled", False), False)
+    proactive_state = _proactive_state_payload(focus_mode)
     if not focus_mode:
-        suggestions = _safe_call(lambda: get_latest_proactive_suggestions("default", limit=2), [])
-        for item in suggestions:
+        for item in proactive_state.get("suggestions", [])[:2]:
             notifications.append({"level": "suggestion", "text": item["text"]})
 
 
@@ -977,12 +1201,17 @@ def _build_ui_state():
             "emergency_mode": _safe_call(lambda: get_setting("assistant.emergency_mode_enabled", False), False),
             "focus_mode": focus_mode,
         },
+        "proactive": proactive_state,
         "contacts": {
             "favorite_contact": favorite_contact,
             "preview": contacts_preview or ["No synced contacts yet."],
             "aliases_summary": aliases_summary,
             "favorites_summary": favorites_summary,
             "recent_changes": recent_contact_changes,
+        },
+        "integrations": {
+            "smart_home": _smart_home_status_payload(),
+            "face_security": _face_security_payload(),
         },
         "emergency": {
             "location": _safe_call(lambda: get_memory("personal.contact.address"), None)
@@ -1074,6 +1303,20 @@ def api_update_focus_mode(request: FocusModeRequest):
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Focus settings error: {error}") from error
 
+
+
+@app.post("/api/proactive/refresh")
+def api_refresh_proactive():
+    try:
+        suggestions = generate_proactive_suggestions("default")
+        return {
+            "ok": True,
+            "suggestions": suggestions,
+            "state": _build_ui_state(),
+            "message": "Proactive suggestions refreshed.",
+        }
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Proactive refresh error: {error}") from error
 
 
 @app.post("/api/settings/portable-setup")

@@ -24,6 +24,11 @@ export default function SidebarPanels({
   startupState,
   updateStartupSettings,
 }) {
+  const proactive = uiState.proactive || {};
+  const proactiveSuggestions = proactive.suggestions || [];
+  const smartHome = uiState.integrations?.smart_home || {};
+  const faceSecurity = uiState.integrations?.face_security || {};
+
   return (
     <aside className="sidebar">
       <SectionCard title="Workspace">
@@ -167,6 +172,45 @@ export default function SidebarPanels({
           <button className="action-button" onClick={() => runCommand(uiState.settings.focus_mode ? "disable focus mode" : "enable focus mode")}>
             {uiState.settings.focus_mode ? "Disable Focus" : "Enable Focus"}
           </button>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Proactive">
+        <p>{proactive.summary || "No proactive summary yet."}</p>
+        {proactiveSuggestions.length ? (
+          <ul className="mini-list compact-list">
+            {proactiveSuggestions.slice(0, 3).map((item, index) => (
+              <li key={`sidebar-proactive-${index}`}>{item.text}</li>
+            ))}
+          </ul>
+        ) : (
+          <p>No suggestions yet.</p>
+        )}
+        <div className="action-grid">
+          <button className="action-button" onClick={() => runCommand("plan my day")}>Plan My Day</button>
+          <button className="action-button" onClick={() => runCommand("what should i do now")}>What Now</button>
+          <button className="action-button" onClick={() => runCommand("show proactive suggestions")}>Show Suggestions</button>
+          <button className="action-button" onClick={() => runCommand("refresh proactive suggestions")}>Refresh Suggestions</button>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Integrations">
+        <ul className="mini-list compact-list">
+          <li>{smartHome.summary || "Smart Home status unavailable."}</li>
+          <li>{faceSecurity.summary || "Face security status unavailable."}</li>
+        </ul>
+        <div className="command-chips">
+          {(smartHome.sample_commands || []).slice(0, 2).map((item) => (
+            <button key={`sidebar-iot-${item}`} className="chip-button" onClick={() => runCommand(item)}>
+              {item}
+            </button>
+          ))}
+        </div>
+        <div className="action-grid">
+          <button className="action-button" onClick={() => runCommand("smart home status")}>Smart Home</button>
+          <button className="action-button" onClick={() => runCommand("face security status")}>Face Security</button>
+          <button className="action-button" onClick={() => runCommand("enroll my face")}>Enroll Face</button>
+          <button className="action-button" onClick={() => runCommand("verify my face")}>Verify Face</button>
         </div>
       </SectionCard>
 

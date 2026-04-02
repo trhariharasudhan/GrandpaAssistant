@@ -47,6 +47,12 @@ export const initialUiState = {
     offline_mode: false,
     developer_mode: false,
     emergency_mode: false,
+    focus_mode: false,
+  },
+  proactive: {
+    focus_mode: false,
+    summary: "Loading...",
+    suggestions: [],
   },
   contacts: {
     favorite_contact: "Loading...",
@@ -64,6 +70,23 @@ export const initialUiState = {
   memory: {
     preferred_language: "Loading...",
     favorite_contact: "Loading...",
+  },
+  integrations: {
+    smart_home: {
+      configured: false,
+      enabled: false,
+      device_count: 0,
+      sample_commands: [],
+      placeholder_count: 0,
+      summary: "Loading...",
+    },
+    face_security: {
+      enrolled: false,
+      camera_ready: false,
+      embedding_ready: false,
+      updated_at: "",
+      summary: "Loading...",
+    },
   },
   object_watch: {
     active: false,
@@ -91,6 +114,35 @@ export const initialVoiceStatus = {
   error: "",
   messages: [],
   last_reply: "",
+  settings: {
+    mode: "normal",
+    post_wake_pause_seconds: 0.35,
+    wake_listen_timeout: 5,
+    wake_phrase_time_limit: 4,
+    wake_match_threshold: 0.68,
+    wake_retry_window_seconds: 6,
+    follow_up_timeout_seconds: 12,
+    wake_direct_fallback_enabled: true,
+  },
+  diagnostics: {
+    wake_detection_count: 0,
+    wake_only_count: 0,
+    command_count: 0,
+    follow_up_command_count: 0,
+    retry_window_command_count: 0,
+    direct_fallback_count: 0,
+    interrupt_count: 0,
+    error_count: 0,
+    last_heard_phrase: "",
+    last_processed_command: "",
+    last_wake_at: "",
+    last_command_at: "",
+    last_interrupt_at: "",
+    last_error_at: "",
+    last_error_message: "",
+    wake_retry_window_active: false,
+    wake_retry_remaining: 0,
+  },
 };
 
 export const initialStartupState = {

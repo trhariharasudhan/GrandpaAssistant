@@ -10,6 +10,13 @@ export default function DashboardSurface({
   activity,
   handleModeChange,
 }) {
+  const proactive = uiState.proactive || {};
+  const proactiveSuggestions = proactive.suggestions || [];
+  const smartHome = uiState.integrations?.smart_home || {};
+  const faceSecurity = uiState.integrations?.face_security || {};
+  const voiceSettings = voiceStatus.settings || {};
+  const voiceDiagnostics = voiceStatus.diagnostics || {};
+
   return (
     <div className="dashboard-surface">
       <div className="dashboard-surface-grid">
@@ -49,6 +56,10 @@ export default function DashboardSurface({
           <div className="metric-card">
             <span>Wake word</span>
             <strong>{uiState.settings.wake_word}</strong>
+          </div>
+          <div className="metric-card">
+            <span>Focus mode</span>
+            <strong>{uiState.settings.focus_mode ? "On" : "Off"}</strong>
           </div>
           <div className="metric-card">
             <span>Vision</span>
@@ -140,9 +151,40 @@ export default function DashboardSurface({
               <strong>{mode === "voice" ? "Voice mode active" : "Text mode active"}</strong>
               <p>{mode === "voice" ? (voiceStatus.transcript || "Listening... Speak now.") : "Enable voice mode to speak naturally with Grandpa Assistant."}</p>
               {mode === "voice" ? (
-                <small>{`Wake word: ${voiceStatus.wake_word || "hey grandpa"} | State: ${voiceStatus.state_label || "ready"}${voiceStatus.follow_up_active ? ` | Follow-up: ${voiceStatus.follow_up_remaining}s` : ""}`}</small>
+                <>
+                  <small>{`Wake word: ${voiceStatus.wake_word || "hey grandpa"} | State: ${voiceStatus.state_label || "ready"}${voiceStatus.follow_up_active ? ` | Follow-up: ${voiceStatus.follow_up_remaining}s` : ""}`}</small>
+                  <small>{`Threshold: ${voiceSettings.wake_match_threshold ?? 0.68} | Retry: ${voiceSettings.wake_retry_window_seconds ?? 6}s | Fallback: ${voiceSettings.wake_direct_fallback_enabled ? "On" : "Off"}`}</small>
+                  <small>{`Wake hits: ${voiceDiagnostics.wake_detection_count || 0} | Commands: ${voiceDiagnostics.command_count || 0} | Interrupts: ${voiceDiagnostics.interrupt_count || 0}`}</small>
+                </>
               ) : null}
             </div>
+          </div>
+        </section>
+
+        <section className="dashboard-card">
+          <div className="dashboard-card-head">
+            <h3>Proactive Suggestions</h3>
+            <button className="ghost-button" onClick={() => runCommand("refresh proactive suggestions")}>
+              Refresh
+            </button>
+          </div>
+          <p>{proactive.summary || "No proactive summary yet."}</p>
+          {proactiveSuggestions.length ? (
+            <ul className="mini-list compact-list">
+              {proactiveSuggestions.slice(0, 4).map((item, index) => (
+                <li key={`proactive-${index}`}>{item.text}</li>
+              ))}
+            </ul>
+          ) : (
+            <p>No proactive suggestions yet.</p>
+          )}
+          <div className="action-grid compact two-col">
+            <button className="action-button" onClick={() => runCommand("plan my day")}>Plan My Day</button>
+            <button className="action-button" onClick={() => runCommand("what should i do now")}>What Now</button>
+            <button className="action-button" onClick={() => runCommand("show proactive suggestions")}>Show Suggestions</button>
+            <button className="action-button" onClick={() => runCommand(uiState.settings.focus_mode ? "disable focus mode" : "enable focus mode")}>
+              {uiState.settings.focus_mode ? "Disable Focus" : "Enable Focus"}
+            </button>
           </div>
         </section>
 
@@ -186,6 +228,27 @@ export default function DashboardSurface({
           ) : (
             <p>No active notifications.</p>
           )}
+        </section>
+
+        <section className="dashboard-card">
+          <div className="dashboard-card-head">
+            <h3>Integrations</h3>
+          </div>
+          <p>{smartHome.summary || "Smart Home status unavailable."}</p>
+          <p>{faceSecurity.summary || "Face security status unavailable."}</p>
+          <div className="command-chips">
+            {(smartHome.sample_commands || []).slice(0, 3).map((item) => (
+              <button key={`iot-${item}`} className="chip-button" onClick={() => runCommand(item)}>
+                {item}
+              </button>
+            ))}
+          </div>
+          <div className="action-grid compact two-col">
+            <button className="action-button" onClick={() => runCommand("smart home status")}>Smart Home Status</button>
+            <button className="action-button" onClick={() => runCommand("face security status")}>Face Security</button>
+            <button className="action-button" onClick={() => runCommand("enroll my face")}>Enroll Face</button>
+            <button className="action-button" onClick={() => runCommand("verify my face")}>Verify Face</button>
+          </div>
         </section>
 
         <section className="dashboard-card">

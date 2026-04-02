@@ -1,4 +1,6 @@
+import contextlib
 import datetime
+import json
 import os
 import re
 import subprocess
@@ -147,7 +149,16 @@ from controls.brightness_control import handle_brightness
 from controls.volume_control import handle_volume, set_volume_percentage
 from utils.sound import play_sound
 from utils.config import APP_ALIASES, get_setting, update_setting
+from features.productivity.briefing_module import build_brief_details
+from features.productivity.profile_module import build_proactive_nudge
+from features.productivity.proactive_suggestion_engine import (
+    generate_proactive_suggestions,
+    get_latest_proactive_suggestions,
+)
+from features.productivity.task_module import due_today_summary, latest_reminder, latest_task, overdue_items
 from features.security.emergency_dispatch import trigger_dual_emergency_protocol
+from features.security.face_verification import enroll_user_face, verify_user_face, is_face_enrolled
+from features.integrations.iot_module import dispatch_iot_command
 from vision.hand_mouse_control import run_hand_mouse
 from vision.object_detection import (
     clear_watch_target,
@@ -205,6 +216,9 @@ object_detection_stop_event = None
 object_detection_stop_requested_by_command = False
 pending_confirmation = None
 last_contact_context = {"name": "", "action": ""}
+BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+IOT_CREDENTIALS_PATH = os.path.join(BACKEND_DIR, "data", "iot_credentials.json")
+FACE_PROFILE_PATH = os.path.join(BACKEND_DIR, "data", "face_profile.json")
 
 
 def _current_location_text():
@@ -364,6 +378,129 @@ def _git_repo_summary():
     return f"{branch_line} {status_line} {remote_line}"
 
 
+def _load_local_json(path):
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except Exception:
+        return None
+
+
+def _proactive_suggestions_summary(force_refresh=False):
+    suggestions = (
+        generate_proactive_suggestions("default")
+        if force_refresh
+        else get_latest_proactive_suggestions("default", limit=4)
+    )
+    if not suggestions:
+        suggestions = generate_proactive_suggestions("default")
+
+    summary_parts = [build_proactive_nudge()]
+    today_line = due_today_summary()
+    latest_task_line = latest_task()
+    latest_reminder_line = latest_reminder()
+    overdue_line = overdue_items()
+
+    if today_line and today_line != "You have nothing due today.":
+        summary_parts.append(today_line)
+    if latest_task_line and latest_task_line != "You have no pending tasks right now.":
+        summary_parts.append(latest_task_line)
+    if latest_reminder_line and latest_reminder_line != "You have no reminders right now.":
+        summary_parts.append(latest_reminder_line)
+    if overdue_line and overdue_line != "You have no overdue reminders right now.":
+        summary_parts.append(overdue_line)
+
+    if suggestions:
+        top_lines = " | ".join(item.get("text", "") for item in suggestions[:3] if item.get("text"))
+        if top_lines:
+            summary_parts.append(f"Top proactive suggestions: {top_lines}.")
+    else:
+        summary_parts.append(build_brief_details())
+
+    focus_mode = get_setting("assistant.focus_mode_enabled", False)
+    if focus_mode:
+        summary_parts.append("Focus mode is on, so proactive popups stay quiet until you turn it off.")
+
+    return " ".join(part for part in summary_parts if part)
+
+
+def _smart_home_status_summary():
+    creds = _load_local_json(IOT_CREDENTIALS_PATH)
+    if not creds:
+        return (
+            "Smart Home is not configured yet. Add backend data iot_credentials.json "
+            "with your webhook commands to enable device control."
+        )
+
+    enabled = bool(creds.get("enabled"))
+    webhooks = creds.get("webhooks") or {}
+    if not webhooks:
+        return "Smart Home config is loaded, but no device commands are configured yet."
+
+    sample_commands = list(webhooks.keys())[:4]
+    placeholder_count = 0
+    for config in webhooks.values():
+        url = str((config or {}).get("url") or "")
+        if "YOUR_KEY_HERE" in url or "YOUR_HOME_ASSISTANT_WEBHOOK_ID" in url:
+            placeholder_count += 1
+
+    status = "enabled" if enabled else "disabled"
+    summary = [f"Smart Home is {status} with {len(webhooks)} configured command(s)."]
+    if sample_commands:
+        summary.append("Try commands like " + " | ".join(sample_commands) + ".")
+    if placeholder_count:
+        summary.append(f"{placeholder_count} device webhook(s) still need real keys or URLs.")
+    return " ".join(summary)
+
+
+def _face_security_status_summary():
+    enrolled = is_face_enrolled()
+    if not enrolled:
+        return (
+            "Face security is not enrolled yet. Say enroll my face to create a local profile, "
+            "then verify my face to test it."
+        )
+
+    profile_size = 0
+    if os.path.exists(FACE_PROFILE_PATH):
+        with contextlib.suppress(OSError):
+            profile_size = os.path.getsize(FACE_PROFILE_PATH)
+
+    details = ["Face security is enrolled locally and ready for verification."]
+    if profile_size:
+        details.append(f"Saved profile size is {profile_size} bytes.")
+    details.append("Say verify my face whenever you want to confirm identity.")
+    return " ".join(details)
+
+
+def _voice_diagnostics_summary():
+    wake_word = get_setting("wake_word", "hey grandpa")
+    mode = current_voice_mode()
+    post_wake_pause = get_setting("voice.post_wake_pause_seconds", 0.35)
+    wake_timeout = get_setting("voice.wake_listen_timeout", 5)
+    phrase_limit = get_setting("voice.wake_phrase_time_limit", 4)
+    wake_threshold = get_setting("voice.wake_match_threshold", 0.68)
+    wake_retry = get_setting("voice.wake_retry_window_seconds", 6)
+    follow_up_timeout = get_setting("voice.follow_up_timeout_seconds", 12)
+    fallback_enabled = get_setting("voice.wake_direct_fallback_enabled", True)
+    offline_mode = get_setting("assistant.offline_mode_enabled", False)
+
+    return (
+        f"Voice diagnostics: wake word is {wake_word}. "
+        f"Profile is {mode}. "
+        f"Post wake pause is {post_wake_pause} seconds. "
+        f"Wake listen timeout is {wake_timeout} seconds. "
+        f"Wake phrase limit is {phrase_limit} seconds. "
+        f"Wake match threshold is {wake_threshold}. "
+        f"Wake retry window is {wake_retry} seconds. "
+        f"Follow up timeout is {follow_up_timeout} seconds. "
+        f"Direct fallback is {'on' if fallback_enabled else 'off'}. "
+        f"Offline mode is {'on' if offline_mode else 'off'}."
+    )
+
+
 def _build_emergency_alert_message():
     location = _current_location_text()
     if location:
@@ -391,6 +528,11 @@ def _send_safe_alert():
 
 
 def _trigger_emergency_protocol():
+    if is_face_enrolled():
+        success, msg = verify_user_face()
+        if not success:
+            return "Emergency protocol aborted. Unauthorized face detected."
+
     location = _current_location_text()
     success, dispatch_reply = trigger_dual_emergency_protocol(location)
     
@@ -2128,6 +2270,72 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         enabled = get_setting("assistant.focus_mode_enabled", False)
         status = "enabled" if enabled else "disabled"
         speak(f"Focus mode is currently {status}.")
+        return
+
+    if command in [
+        "show proactive suggestions",
+        "proactive suggestions",
+        "assistant suggestions",
+    ]:
+        speak(_proactive_suggestions_summary(force_refresh=False))
+        return
+
+    if command in [
+        "refresh proactive suggestions",
+        "update proactive suggestions",
+        "refresh assistant suggestions",
+    ]:
+        speak(_proactive_suggestions_summary(force_refresh=True))
+        return
+
+    if command in ["smart home status", "iot status", "smart home devices", "list smart home devices"]:
+        speak(_smart_home_status_summary())
+        return
+
+    if command in [
+        "face security status",
+        "face verification status",
+        "face status",
+        "is my face enrolled",
+    ]:
+        speak(_face_security_status_summary())
+        return
+
+    if command in ["voice diagnostics", "voice tuning status", "voice debug"]:
+        speak(_voice_diagnostics_summary())
+        return
+
+    # Phase 4: Smart Home IoT Catch-all
+    # Only triggered if it's explicitly "turn on/off" or "switch on/off" 
+    # and wasn't caught by internal settings (like "turn on focus mode")
+    if command.startswith("turn on ") or command.startswith("turn off ") or \
+       command.startswith("switch on ") or command.startswith("switch off "):
+        success, msg = dispatch_iot_command(command)
+        if success:
+            speak(msg)
+            return
+        elif "I couldn't find a Smart Home device" not in msg:
+            speak(msg)
+            return
+        # If it's just "I couldn't find a Smart Home device", we fall through in case 
+        # it was meant for something else.
+
+    if command in ["enroll my face", "register my face", "save my face"]:
+        speak("Looking for your face. Please look at the camera for a moment.")
+        success, msg = enroll_user_face()
+        if success:
+            speak("Your face has been securely enrolled.")
+        else:
+            speak(f"Failed to enroll face: {msg}")
+        return
+
+    if command in ["verify my face", "recognize my face", "who am i"]:
+        speak("Verifying...")
+        success, msg = verify_user_face()
+        if success:
+            speak("Identity verified! Hello there.")
+        else:
+            speak(f"Verification failed: {msg}")
         return
 
     if command in ["voice status", "voice recognition status", "current voice profile"]:

@@ -27,6 +27,8 @@ backend/data/assistant.db
 backend/data/chat_state.json
 backend/data/tasks.json
 backend/data/emergency_credentials.json
+backend/data/iot_credentials.json
+backend/data/face_profile.json
 /package-lock.json
 temp_*_report*.json
 temp_run_output*.txt

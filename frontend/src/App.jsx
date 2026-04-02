@@ -308,6 +308,9 @@ export default function App() {
         const payload = await response.json();
         if (!cancelled && payload?.ok && payload.state) {
           setUiState(payload.state);
+          if (payload.state.voice) {
+            setVoiceStatus(payload.state.voice);
+          }
           if (payload.state.startup) {
             setStartupState(payload.state.startup);
           }
@@ -367,6 +370,12 @@ export default function App() {
       setMessages((current) => [...current, ...replies]);
       if (payload.state) {
         setUiState(payload.state);
+        if (payload.state.voice) {
+          setVoiceStatus(payload.state.voice);
+        }
+        if (payload.state.startup) {
+          setStartupState(payload.state.startup);
+        }
       }
       setApiError("");
     } catch (error) {
@@ -674,14 +683,18 @@ export default function App() {
   const quickSuggestions = useMemo(
     () => [
       "plan my day",
+      "what should i do now",
       "weather",
       "latest note",
       "today events",
       "voice status",
+      "voice diagnostics",
+      "smart home status",
+      "face security status",
       "what objects do you see",
       "detect objects on screen",
       ...(recentCommands.slice(0, 2) || []),
-    ].filter((item, index, array) => item && array.indexOf(item) === index).slice(0, 6),
+    ].filter((item, index, array) => item && array.indexOf(item) === index).slice(0, 8),
     [recentCommands],
   );
   const liveSuggestions = useMemo(() => {
@@ -689,12 +702,14 @@ export default function App() {
       ...quickSuggestions,
       "open chrome",
       "plan my day",
+      "what should i do now",
       "add note ",
       "add task ",
       "latest note",
       "today events",
       "weather",
       "voice status",
+      "voice diagnostics",
       "show settings",
     ];
     return commandPool
@@ -719,12 +734,14 @@ export default function App() {
     `Preferred language: ${uiState.memory.preferred_language}`,
     `Favorite contact: ${uiState.memory.favorite_contact}`,
     `Mode: ${mode === "voice" ? "Voice" : "Text"}`,
+    `Focus mode: ${uiState.settings.focus_mode ? "On" : "Off"}`,
   ];
-  const workspaceTabs = ["planner", "calendar", "notes", "settings"];
+  const workspaceTabs = ["planner", "calendar", "notes", "assistant", "settings"];
   const navItems = [
     { id: "planner", label: "Planner", hint: "tasks and reminders" },
     { id: "calendar", label: "Calendar", hint: "events and sync" },
     { id: "notes", label: "Notes", hint: "capture and search" },
+    { id: "assistant", label: "Assistant", hint: "voice, proactive, security" },
     { id: "settings", label: "Settings", hint: "voice and startup" },
   ];
   const surfaceTabs = [
@@ -920,6 +937,9 @@ export default function App() {
       const settingsPayload = await settingsResponse.json();
       if (uiPayload?.ok && uiPayload.state) {
         setUiState(uiPayload.state);
+        if (uiPayload.state.voice) {
+          setVoiceStatus(uiPayload.state.voice);
+        }
         if (uiPayload.state.startup) {
           setStartupState(uiPayload.state.startup);
         }
@@ -1939,6 +1959,94 @@ export default function App() {
                   </div>
                 ) : null}
 
+                {workspaceTab === "assistant" ? (
+                  <div className="workspace-grid">
+                    <div className="workspace-card">
+                      <h3>Proactive Planner</h3>
+                      <p>{uiState.proactive?.summary || "No proactive summary yet."}</p>
+                      {(uiState.proactive?.suggestions || []).length ? (
+                        <ul className="mini-list compact-list">
+                          {(uiState.proactive?.suggestions || []).slice(0, 4).map((item, index) => (
+                            <li key={`assistant-proactive-${index}`}>{item.text}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p>No proactive suggestions yet.</p>
+                      )}
+                      <div className="action-grid compact">
+                        <button className="action-button" onClick={() => runCommand("plan my day")}>Plan My Day</button>
+                        <button className="action-button" onClick={() => runCommand("what should i do now")}>What Now</button>
+                        <button className="action-button" onClick={() => runCommand("show proactive suggestions")}>Show Suggestions</button>
+                        <button className="action-button" onClick={() => runCommand("refresh proactive suggestions")}>Refresh Suggestions</button>
+                        <button className="action-button" onClick={() => runCommand(uiState.settings.focus_mode ? "disable focus mode" : "enable focus mode")}>
+                          {uiState.settings.focus_mode ? "Disable Focus" : "Enable Focus"}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="workspace-card">
+                      <h3>Voice Intelligence</h3>
+                      <ul className="mini-list compact-list">
+                        <li>{`Wake word: ${voiceStatus.wake_word || uiState.settings.wake_word}`}</li>
+                        <li>{`Profile: ${voiceStatus.voice_profile || uiState.settings.voice_profile}`}</li>
+                        <li>{`Wake threshold: ${voiceStatus.settings?.wake_match_threshold ?? 0.68}`}</li>
+                        <li>{`Wake retry: ${voiceStatus.settings?.wake_retry_window_seconds ?? 6}s`}</li>
+                        <li>{`Follow-up timeout: ${voiceStatus.settings?.follow_up_timeout_seconds ?? 12}s`}</li>
+                        <li>{`Direct fallback: ${voiceStatus.settings?.wake_direct_fallback_enabled ? "On" : "Off"}`}</li>
+                        <li>{`Wake hits: ${voiceStatus.diagnostics?.wake_detection_count || 0}`}</li>
+                        <li>{`Commands processed: ${voiceStatus.diagnostics?.command_count || 0}`}</li>
+                        <li>{`Last heard: ${voiceStatus.diagnostics?.last_heard_phrase || "Nothing yet"}`}</li>
+                        <li>{`Last command: ${voiceStatus.diagnostics?.last_processed_command || "Nothing yet"}`}</li>
+                      </ul>
+                      <div className="action-grid compact">
+                        <button className="action-button" onClick={() => runCommand("voice status")}>Voice Status</button>
+                        <button className="action-button" onClick={() => runCommand("voice diagnostics")}>Voice Diagnostics</button>
+                        <button className="action-button" onClick={() => runCommand("set voice mode to sensitive")}>Sensitive Voice</button>
+                        <button className="action-button" onClick={() => runCommand("set voice mode to normal")}>Normal Voice</button>
+                        <button className="action-button" onClick={() => runCommand("enable wake direct fallback")}>Fallback On</button>
+                        <button className="action-button" onClick={() => runCommand("disable wake direct fallback")}>Fallback Off</button>
+                      </div>
+                    </div>
+
+                    <div className="workspace-card">
+                      <h3>Smart Home</h3>
+                      <ul className="mini-list compact-list">
+                        <li>{uiState.integrations?.smart_home?.summary || "Smart Home status unavailable."}</li>
+                        <li>{`Configured commands: ${uiState.integrations?.smart_home?.device_count || 0}`}</li>
+                        <li>{`Enabled: ${uiState.integrations?.smart_home?.enabled ? "Yes" : "No"}`}</li>
+                        <li>{`Placeholder webhooks: ${uiState.integrations?.smart_home?.placeholder_count || 0}`}</li>
+                      </ul>
+                      <div className="command-chips">
+                        {(uiState.integrations?.smart_home?.sample_commands || []).slice(0, 4).map((item) => (
+                          <button key={`assistant-iot-${item}`} className="chip-button" onClick={() => runCommand(item)}>
+                            {item}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="action-grid compact">
+                        <button className="action-button" onClick={() => runCommand("smart home status")}>Smart Home Status</button>
+                        <button className="action-button" onClick={() => runCommand("show settings")}>Reload Config</button>
+                      </div>
+                    </div>
+
+                    <div className="workspace-card">
+                      <h3>Face Security</h3>
+                      <ul className="mini-list compact-list">
+                        <li>{uiState.integrations?.face_security?.summary || "Face security status unavailable."}</li>
+                        <li>{`Enrolled: ${uiState.integrations?.face_security?.enrolled ? "Yes" : "No"}`}</li>
+                        <li>{`Camera ready: ${uiState.integrations?.face_security?.camera_ready ? "Yes" : "No"}`}</li>
+                        <li>{`Face matching ready: ${uiState.integrations?.face_security?.embedding_ready ? "Yes" : "No"}`}</li>
+                        <li>{`Updated: ${uiState.integrations?.face_security?.updated_at || "Never"}`}</li>
+                      </ul>
+                      <div className="action-grid compact">
+                        <button className="action-button" onClick={() => runCommand("face security status")}>Face Status</button>
+                        <button className="action-button" onClick={() => runCommand("enroll my face")}>Enroll Face</button>
+                        <button className="action-button" onClick={() => runCommand("verify my face")}>Verify Face</button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 {workspaceTab === "settings" ? (
                   <div className="workspace-grid">
                 <div className="workspace-card">
@@ -1949,9 +2057,13 @@ export default function App() {
                     <li>{`Voice state: ${voiceStatus.state_label || "ready"}`}</li>
                     <li>{`Wake listener: ${voiceStatus.wake_word || uiState.settings.wake_word}`}</li>
                     <li>{`Follow-up window: ${voiceStatus.follow_up_active ? `${voiceStatus.follow_up_remaining}s left` : "inactive"}`}</li>
+                    <li>{`Wake threshold: ${voiceStatus.settings?.wake_match_threshold ?? 0.68}`}</li>
+                    <li>{`Wake retry: ${voiceStatus.settings?.wake_retry_window_seconds ?? 6}s`}</li>
+                    <li>{`Direct fallback: ${voiceStatus.settings?.wake_direct_fallback_enabled ? "On" : "Off"}`}</li>
                     <li>{`Offline mode: ${uiState.settings.offline_mode ? "On" : "Off"}`}</li>
                     <li>{`Developer mode: ${uiState.settings.developer_mode ? "On" : "Off"}`}</li>
                     <li>{`Emergency mode: ${uiState.settings.emergency_mode ? "On" : "Off"}`}</li>
+                    <li>{`Focus mode: ${uiState.settings.focus_mode ? "On" : "Off"}`}</li>
                   </ul>
                   <div className="stack-form">
                     <input
@@ -1986,6 +2098,7 @@ export default function App() {
                   <div className="action-grid compact">
                     <button className="action-button" onClick={() => runCommand("show settings")}>Refresh Settings</button>
                     <button className="action-button" onClick={() => runCommand("voice status")}>Voice Status</button>
+                    <button className="action-button" onClick={() => runCommand("voice diagnostics")}>Voice Diagnostics</button>
                     <button className="action-button" onClick={() => runCommand("enable wake direct fallback")}>Fallback On</button>
                     <button className="action-button" onClick={() => runCommand("disable wake direct fallback")}>Fallback Off</button>
                     <button className="action-button" onClick={() => runCommand("set wake retry window to 8 seconds")}>Wake Retry 8s</button>
@@ -2007,6 +2120,9 @@ export default function App() {
                     </button>
                     <button className="action-button" onClick={() => runCommand(uiState.settings.developer_mode ? "disable developer mode" : "enable developer mode")}>
                       {uiState.settings.developer_mode ? "Disable Dev" : "Enable Dev"}
+                    </button>
+                    <button className="action-button" onClick={() => runCommand(uiState.settings.focus_mode ? "disable focus mode" : "enable focus mode")}>
+                      {uiState.settings.focus_mode ? "Disable Focus" : "Enable Focus"}
                     </button>
                   </div>
                 </div>
