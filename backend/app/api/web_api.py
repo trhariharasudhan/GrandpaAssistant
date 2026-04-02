@@ -44,19 +44,22 @@ from modules.google_contacts_module import (
 )
 from modules.health_module import get_system_status
 from modules.notes_module import latest_note
+from modules.nextgen_module import nextgen_status_snapshot
 from modules.startup_module import (
     disable_startup_auto_launch,
     enable_startup_auto_launch,
     startup_auto_launch_status,
 )
-from modules.task_module import get_task_data
+from modules.task_module import get_planner_focus_snapshot, get_task_data
 from modules.weather_module import get_weather_report
 from utils.config import get_setting, update_setting
 from vision.object_detection import (
     get_detection_history,
     get_latest_detection_summary,
+    get_object_detection_alert_profile,
     get_object_detection_model_name,
     get_object_detection_presets,
+    get_watch_alert_cooldown_seconds,
     get_watch_event_history,
     get_watch_status,
     is_small_object_mode_enabled,
@@ -72,6 +75,7 @@ from voice.listen import (
     is_interrupt_phrase,
     listen,
     looks_like_direct_command,
+    sanitize_follow_up_command,
     strip_wake_word,
     wake_word_detected,
 )
@@ -146,6 +150,9 @@ _RAG_STOPWORDS = {
     "into", "your", "you", "me", "my", "we", "our", "us", "what", "which", "who", "when",
     "where", "why", "how", "tell", "say", "show", "please",
 }
+_RAG_CHUNK_TOKEN_CACHE = {}
+_RAG_CONTEXT_CACHE = {}
+_RAG_CONTEXT_CACHE_LIMIT = 120
 
 
 class StartupSettingsRequest(BaseModel):
@@ -517,6 +524,49 @@ def _tokenize_for_rag(text):
     return words
 
 
+def _chunk_tokens_cached(chunk):
+    cached = _RAG_CHUNK_TOKEN_CACHE.get(chunk)
+    if cached is not None:
+        return cached
+    tokens = set(_tokenize_for_rag(chunk))
+    _RAG_CHUNK_TOKEN_CACHE[chunk] = tokens
+    if len(_RAG_CHUNK_TOKEN_CACHE) > 6000:
+        _RAG_CHUNK_TOKEN_CACHE.clear()
+    return tokens
+
+
+def _rag_context_cache_key(session, query, max_chunks, max_chars):
+    parts = [
+        _compact_text(query).lower(),
+        str(max_chunks),
+        str(max_chars),
+    ]
+    for document in session.get("documents") or []:
+        parts.append(
+            ":".join(
+                [
+                    _compact_text(document.get("id")),
+                    _compact_text(document.get("name")),
+                    _compact_text(document.get("uploaded_at")),
+                    str(int(document.get("chunk_count") or 0)),
+                    str(int(document.get("char_count") or 0)),
+                ]
+            )
+        )
+    return "|".join(parts)
+
+
+def _get_rag_context_from_cache(cache_key):
+    return _RAG_CONTEXT_CACHE.get(cache_key)
+
+
+def _save_rag_context_cache(cache_key, value):
+    _RAG_CONTEXT_CACHE[cache_key] = value
+    if len(_RAG_CONTEXT_CACHE) > _RAG_CONTEXT_CACHE_LIMIT:
+        oldest_key = next(iter(_RAG_CONTEXT_CACHE.keys()))
+        _RAG_CONTEXT_CACHE.pop(oldest_key, None)
+
+
 def _chunk_text(text, chunk_size=900, overlap=150):
     cleaned = " ".join(str(text or "").split())
     if not cleaned:
@@ -594,6 +644,11 @@ def _session_document_context(session, query, max_chunks=4, max_chars=4200):
     if not documents:
         return None
 
+    cache_key = _rag_context_cache_key(session, query, max_chunks, max_chars)
+    cached = _get_rag_context_from_cache(cache_key)
+    if cached is not None:
+        return cached
+
     query_tokens = set(_tokenize_for_rag(query))
     query_text = str(query or "").lower()
     generic_doc_query = any(
@@ -604,40 +659,79 @@ def _session_document_context(session, query, max_chunks=4, max_chars=4200):
         return None
 
     scored_chunks = []
+    per_document_best = []
+    scan_limit_per_doc = 36
     for document in documents:
-        for index, chunk in enumerate(document.get("chunks") or []):
-            chunk_tokens = set(_tokenize_for_rag(chunk))
+        doc_name = document.get("name", "Document")
+        doc_best = None
+        for index, chunk in enumerate((document.get("chunks") or [])[:scan_limit_per_doc]):
+            chunk_tokens = _chunk_tokens_cached(chunk)
             overlap = len(query_tokens & chunk_tokens)
             if not overlap and not generic_doc_query:
                 continue
-            score = overlap / max(1, len(query_tokens)) if query_tokens else 0.05
-            scored_chunks.append((score, document.get("name", "Document"), index, chunk))
+            overlap_score = overlap / max(1, len(query_tokens)) if query_tokens else 0.05
+            contains_query_phrase = 1.0 if query_text and query_text[:42] in chunk.lower() else 0.0
+            score = overlap_score + (0.35 * contains_query_phrase)
+            entry = (score, doc_name, index, chunk)
+            scored_chunks.append(entry)
+            if doc_best is None or entry[0] > doc_best[0]:
+                doc_best = entry
+        if doc_best is not None:
+            per_document_best.append(doc_best)
 
     if not scored_chunks:
+        _save_rag_context_cache(cache_key, None)
         return None
 
     scored_chunks.sort(key=lambda item: item[0], reverse=True)
-    selected = []
-    used_chars = 0
-    for _, name, index, chunk in scored_chunks[: max_chunks * 2]:
-        block = f"[Source: {name} | chunk {index + 1}]\n{chunk}"
-        if used_chars + len(block) > max_chars and selected:
+    per_document_best.sort(key=lambda item: item[0], reverse=True)
+
+    selected_entries = []
+    seen_pairs = set()
+    for item in per_document_best[: min(3, max_chunks)]:
+        pair = (item[1], item[2])
+        if pair in seen_pairs:
+            continue
+        selected_entries.append(item)
+        seen_pairs.add(pair)
+
+    for item in scored_chunks:
+        if len(selected_entries) >= max_chunks:
             break
-        selected.append(block)
+        pair = (item[1], item[2])
+        if pair in seen_pairs:
+            continue
+        selected_entries.append(item)
+        seen_pairs.add(pair)
+
+    selected_blocks = []
+    used_chars = 0
+    source_names = []
+    for _, name, index, chunk in selected_entries:
+        block = f"[Source: {name} | chunk {index + 1}]\n{chunk}"
+        if used_chars + len(block) > max_chars and selected_blocks:
+            break
+        selected_blocks.append(block)
         used_chars += len(block)
-        if len(selected) >= max_chunks:
+        if name not in source_names:
+            source_names.append(name)
+        if len(selected_blocks) >= max_chunks:
             break
 
-    if not selected:
+    if not selected_blocks:
+        _save_rag_context_cache(cache_key, None)
         return None
 
-    return (
+    context = (
         "Use the attached document context below to answer the user's question. "
         "When using information from the documents, you MUST explicitly cite the source document name in your answer. "
         "For example: 'According to [Document Name], ...' or '... (Source: [Document Name])'. "
+        f"Documents selected for this answer: {', '.join(source_names)}. "
         "If the document does not contain the answer, say that briefly.\n\n"
-        + "\n\n".join(selected)
+        + "\n\n".join(selected_blocks)
     )
+    _save_rag_context_cache(cache_key, context)
+    return context
 
 
 def _session_title_from_message(text):
@@ -971,6 +1065,9 @@ def _voice_loop():
             wake_retry_window = float(settings.get("wake_retry_window_seconds", 6) or 6)
             wake_direct_fallback = bool(settings.get("wake_direct_fallback_enabled", True))
             post_wake_pause = max(0.0, min(1.0, float(settings.get("post_wake_pause_seconds", 0.35) or 0.35)))
+            interrupt_follow_up_seconds = max(
+                2.0, min(15.0, float(settings.get("interrupt_follow_up_seconds", 5) or 5))
+            )
             interrupt_hold = max(0.0, min(1.0, float(get_setting("voice.interrupt_state_hold_seconds", 0.35) or 0.35)))
             now_ts = datetime.datetime.now().timestamp()
             follow_up_active = _voice_follow_up_until > now_ts
@@ -982,7 +1079,7 @@ def _voice_loop():
                     transcript=f"Listening for follow-up... {_voice_follow_up_remaining()}s left",
                     error="",
                 )
-                heard = listen(for_wake_word=False)
+                heard = listen(for_wake_word=False, for_follow_up=True)
             else:
                 _voice_state_label = "sleeping"
                 _set_voice_state(activity="Sleeping", transcript=f"Say {wake_word} to wake me.", error="")
@@ -992,12 +1089,16 @@ def _voice_loop():
                 break
             if not heard:
                 continue
+            if follow_up_active:
+                heard = sanitize_follow_up_command(heard)
+                if not heard:
+                    continue
             _mark_voice_heard(heard)
 
             if is_interrupt_phrase(heard):
                 voice_speak_module.stop_speaking()
                 _mark_voice_interrupt()
-                _set_voice_follow_up(datetime.datetime.now().timestamp() + 4)
+                _set_voice_follow_up(datetime.datetime.now().timestamp() + interrupt_follow_up_seconds)
                 _voice_state_label = "interrupted"
                 _set_voice_state(activity="Interrupted", transcript="Stopped speaking. Listening again.", error="")
                 if interrupt_hold > 0:
@@ -1005,6 +1106,15 @@ def _voice_loop():
                 continue
 
             if follow_up_active:
+                if wake_word_detected(heard, wake_word):
+                    trailing_follow_up = strip_wake_word(heard, wake_word)
+                    if trailing_follow_up:
+                        _handle_voice_command(trailing_follow_up, follow_up_timeout, source="follow_up")
+                    else:
+                        _set_voice_follow_up(datetime.datetime.now().timestamp() + follow_up_timeout)
+                        _voice_state_label = "awake"
+                        _set_voice_state(activity="Awake", transcript="Listening for your command.", error="")
+                    continue
                 _handle_voice_command(heard, follow_up_timeout, source="follow_up")
                 continue
 
@@ -1100,7 +1210,10 @@ def _build_ui_state():
     events = event_data.get("events", [])
     pending_tasks = sum(1 for task in tasks if not task.get("completed"))
     overdue_count = 0
+    due_today_count = 0
+    upcoming_count = 0
     now = datetime.datetime.now()
+    reminder_timeline = {"overdue": [], "today": [], "upcoming": []}
 
     for reminder in reminders:
         due_at = reminder.get("due_at")
@@ -1119,8 +1232,20 @@ def _build_ui_state():
                 )
             except ValueError:
                 due_dt = None
-        if due_dt and due_dt < now:
+        if not due_dt:
+            continue
+
+        title = _compact_text(reminder.get("title") or reminder.get("text") or reminder.get("task") or "Reminder")
+        timeline_label = f"{title} - {due_dt.strftime('%d %b %I:%M %p')}"
+        if due_dt < now:
             overdue_count += 1
+            reminder_timeline["overdue"].append(timeline_label)
+        elif due_dt.date() == now.date():
+            due_today_count += 1
+            reminder_timeline["today"].append(timeline_label)
+        elif due_dt.date() <= (now.date() + datetime.timedelta(days=7)):
+            upcoming_count += 1
+            reminder_timeline["upcoming"].append(timeline_label)
 
     upcoming_events = sorted(
         [event for event in events if event.get("date")],
@@ -1132,17 +1257,7 @@ def _build_ui_state():
         for task in tasks
         if not task.get("completed")
     ][:5]
-    overdue_reminders = []
-
-    for reminder in reminders:
-        title = _compact_text(reminder.get("title") or reminder.get("text") or reminder.get("task") or "Reminder")
-        due_label = reminder.get("due_at") or reminder.get("due_date") or ""
-        if title and due_label:
-            overdue_reminders.append(f"{title} - {due_label}")
-        elif title:
-            overdue_reminders.append(title)
-        if len(overdue_reminders) >= 5:
-            break
+    overdue_reminders = reminder_timeline["overdue"][:5]
 
     event_titles = []
     for event in upcoming_events[:5]:
@@ -1162,10 +1277,20 @@ def _build_ui_state():
     aliases_summary = _safe_call(list_contact_aliases, "I do not have any saved contact aliases yet.")
     favorites_summary = _safe_call(list_favorite_contacts, "You do not have any favorite contacts yet.")
     recent_contact_changes = _safe_call(get_recent_contact_change_summary, "No recent Google contact changes.")
+    focus_snapshot = _safe_call(
+        lambda: get_planner_focus_snapshot(limit=5),
+        {
+            "summary": "Planner snapshot unavailable right now.",
+            "focus_suggestions": [],
+            "reminder_timeline": {"overdue": [], "today": [], "upcoming": []},
+        },
+    )
     notifications = []
 
     if overdue_count:
         notifications.append({"level": "warning", "text": f"You have {overdue_count} overdue reminder(s)."})
+    if due_today_count:
+        notifications.append({"level": "warning", "text": f"You have {due_today_count} reminder(s) due today."})
     if pending_tasks:
         notifications.append({"level": "info", "text": f"{pending_tasks} pending task(s) need attention."})
     if next_event and next_event != "No upcoming events.":
@@ -1179,16 +1304,38 @@ def _build_ui_state():
         for item in proactive_state.get("suggestions", [])[:2]:
             notifications.append({"level": "suggestion", "text": item["text"]})
 
+    nextgen_state = _safe_call(
+        nextgen_status_snapshot,
+        {
+            "day_plan_summary": "No AI day plan generated yet.",
+            "habits_count": 0,
+            "goals_count": 0,
+            "milestones_done": 0,
+            "milestones_total": 0,
+            "meetings_count": 0,
+            "rag_docs_count": 0,
+            "automation_total": 0,
+            "automation_enabled": 0,
+            "language_mode": "auto",
+            "voice_mode": "normal",
+            "mobile_enabled": False,
+            "mobile_device": "",
+            "highlights": [],
+        },
+    )
 
     return {
         "overview": {
             "tasks": f"{pending_tasks} pending",
-            "reminders": f"{overdue_count} overdue",
+            "reminders": f"{overdue_count} overdue | {due_today_count} today",
             "weather": _safe_call(get_weather_report, "Weather unavailable right now."),
             "health": _safe_call(get_system_status, "Health unavailable right now."),
             "object_detection": _safe_call(get_latest_detection_summary, "No recent object detection results yet."),
         },
-        "today": f"Pending tasks: {pending_tasks} | Overdue reminders: {overdue_count}",
+        "today": (
+            f"Pending tasks: {pending_tasks} | Overdue reminders: {overdue_count} | "
+            f"Due today: {due_today_count} | Next 7 days: {upcoming_count}"
+        ),
         "next_event": next_event,
         "latest_note": note_summary,
         "recent_commands": recent_commands,
@@ -1198,6 +1345,10 @@ def _build_ui_state():
             "reminders": overdue_reminders or ["No overdue reminders."],
             "events": event_titles or ["No upcoming events."],
             "vision": [_safe_call(get_latest_detection_summary, "No recent object detection results yet.")],
+            "focus_summary": focus_snapshot.get("summary") or "Planner snapshot unavailable.",
+            "focus_suggestions": focus_snapshot.get("focus_suggestions") or [],
+            "reminder_timeline": focus_snapshot.get("reminder_timeline") or reminder_timeline,
+            "nextgen_highlights": nextgen_state.get("highlights") or [],
         },
         "memory": {
             "preferred_language": preferred_language,
@@ -1251,9 +1402,12 @@ def _build_ui_state():
             "model_name": _safe_call(get_object_detection_model_name, "yolov8n.pt"),
             "small_object_mode": _safe_call(is_small_object_mode_enabled, False),
             "presets": _safe_call(get_object_detection_presets, []),
+            "alert_profile": _safe_call(get_object_detection_alert_profile, "balanced"),
+            "watch_alert_cooldown_seconds": _safe_call(get_watch_alert_cooldown_seconds, 8.0),
         },
         "object_history": _safe_call(get_detection_history, []),
         "object_watch_history": _safe_call(get_watch_event_history, []),
+        "nextgen": nextgen_state,
     }
 
 

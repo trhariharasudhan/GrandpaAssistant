@@ -16,6 +16,14 @@ export default function DashboardSurface({
   const faceSecurity = uiState.integrations?.face_security || {};
   const voiceSettings = voiceStatus.settings || {};
   const voiceDiagnostics = voiceStatus.diagnostics || {};
+  const plannerFocusSuggestions = uiState.dashboard?.focus_suggestions || [];
+  const reminderTimeline = uiState.dashboard?.reminder_timeline || {};
+  const objectAlertProfile = uiState.object_detection?.alert_profile || "balanced";
+  const objectAlertCooldown = uiState.object_detection?.watch_alert_cooldown_seconds ?? 8;
+  const nextgen = uiState.nextgen || {};
+  const nextgenHighlights = (uiState.dashboard?.nextgen_highlights || []).length
+    ? uiState.dashboard?.nextgen_highlights || []
+    : nextgen.highlights || [];
 
   return (
     <div className="dashboard-surface">
@@ -157,10 +165,43 @@ export default function DashboardSurface({
                 <>
                   <small>{`Wake word: ${voiceStatus.wake_word || "hey grandpa"} | State: ${voiceStatus.state_label || "ready"}${voiceStatus.follow_up_active ? ` | Follow-up: ${voiceStatus.follow_up_remaining}s` : ""}`}</small>
                   <small>{`Threshold: ${voiceSettings.wake_match_threshold ?? 0.68} | Retry: ${voiceSettings.wake_retry_window_seconds ?? 6}s | Fallback: ${voiceSettings.wake_direct_fallback_enabled ? "On" : "Off"}`}</small>
+                  <small>{`Follow-up listen: ${voiceSettings.follow_up_listen_timeout ?? 3}s | Interrupt hold: ${voiceSettings.interrupt_follow_up_seconds ?? 5}s`}</small>
                   <small>{`Wake hits: ${voiceDiagnostics.wake_detection_count || 0} | Commands: ${voiceDiagnostics.command_count || 0} | Interrupts: ${voiceDiagnostics.interrupt_count || 0}`}</small>
                 </>
               ) : null}
             </div>
+          </div>
+        </section>
+
+        <section className="dashboard-card">
+          <div className="dashboard-card-head">
+            <h3>Planner Focus</h3>
+            <button className="ghost-button" onClick={() => runCommand("planner focus")}>
+              Refresh
+            </button>
+          </div>
+          <p>{uiState.dashboard?.focus_summary || "Planner focus summary unavailable."}</p>
+          {plannerFocusSuggestions.length ? (
+            <ul className="mini-list compact-list">
+              {plannerFocusSuggestions.slice(0, 4).map((item, index) => (
+                <li key={`planner-focus-${index}`}>{item.label || item}</li>
+              ))}
+            </ul>
+          ) : (
+            <p>No focus suggestions right now.</p>
+          )}
+          {(reminderTimeline.overdue || []).length || (reminderTimeline.today || []).length || (reminderTimeline.upcoming || []).length ? (
+            <ul className="mini-list compact-list">
+              {(reminderTimeline.overdue || []).slice(0, 1).map((item, index) => <li key={`timeline-overdue-${index}`}>{`Overdue: ${item}`}</li>)}
+              {(reminderTimeline.today || []).slice(0, 1).map((item, index) => <li key={`timeline-today-${index}`}>{`Today: ${item}`}</li>)}
+              {(reminderTimeline.upcoming || []).slice(0, 1).map((item, index) => <li key={`timeline-upcoming-${index}`}>{`Upcoming: ${item}`}</li>)}
+            </ul>
+          ) : null}
+          <div className="action-grid compact two-col">
+            <button className="action-button" onClick={() => runCommand("what is due today")}>Due Today</button>
+            <button className="action-button" onClick={() => runCommand("show overdue items")}>Overdue</button>
+            <button className="action-button" onClick={() => runCommand("what should i do now")}>What Now</button>
+            <button className="action-button" onClick={() => runCommand("reminder timeline")}>Reminder Timeline</button>
           </div>
         </section>
 
@@ -193,17 +234,52 @@ export default function DashboardSurface({
 
         <section className="dashboard-card">
           <div className="dashboard-card-head">
+            <h3>NextGen Feature Pack</h3>
+            <button className="ghost-button" onClick={() => runCommand("nextgen status")}>
+              Refresh
+            </button>
+          </div>
+          <p>{nextgen.day_plan_summary || "No AI day plan generated yet."}</p>
+          <p>{`Habits: ${nextgen.habits_count ?? 0} | Goals: ${nextgen.goals_count ?? 0} | Milestones: ${nextgen.milestones_done ?? 0}/${nextgen.milestones_total ?? 0}`}</p>
+          <p>{`Meetings: ${nextgen.meetings_count ?? 0} | RAG docs: ${nextgen.rag_docs_count ?? 0}`}</p>
+          <p>{`Automation: ${nextgen.automation_enabled ?? 0}/${nextgen.automation_total ?? 0} on | Language: ${nextgen.language_mode || "auto"} | Voice: ${nextgen.voice_mode || "normal"}`}</p>
+          <p>{`Mobile: ${nextgen.mobile_enabled ? `Connected${nextgen.mobile_device ? ` (${nextgen.mobile_device})` : ""}` : "Not connected"}`}</p>
+          {nextgenHighlights.length ? (
+            <ul className="mini-list compact-list">
+              {nextgenHighlights.slice(0, 5).map((item, index) => (
+                <li key={`nextgen-highlight-${index}`}>{item}</li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="action-grid compact two-col">
+            <button className="action-button" onClick={() => runCommand("generate ai day plan")}>AI Day Plan</button>
+            <button className="action-button" onClick={() => runCommand("habit dashboard")}>Habit Dashboard</button>
+            <button className="action-button" onClick={() => runCommand("goal board")}>Goal Board</button>
+            <button className="action-button" onClick={() => runCommand("smart reminder priority")}>Reminder Priority</button>
+            <button className="action-button" onClick={() => runCommand("voice trainer status")}>Voice Trainer</button>
+            <button className="action-button" onClick={() => runCommand("language mode status")}>Language Mode</button>
+            <button className="action-button" onClick={() => runCommand("meeting summary")}>Meeting Summary</button>
+            <button className="action-button" onClick={() => runCommand("rag library summary")}>RAG Library</button>
+            <button className="action-button" onClick={() => runCommand("automation rules")}>Automations</button>
+            <button className="action-button" onClick={() => runCommand("mobile companion status")}>Mobile Status</button>
+          </div>
+        </section>
+
+        <section className="dashboard-card">
+          <div className="dashboard-card-head">
             <h3>Object Detection</h3>
           </div>
           <p>{(uiState.dashboard.vision || [uiState.overview.object_detection])[0]}</p>
           <p>{uiState.object_watch?.summary}</p>
           <p>{`Model: ${uiState.object_detection?.model_name || "yolov8n.pt"} | Small mode: ${uiState.object_detection?.small_object_mode ? "On" : "Off"}`}</p>
+          <p>{`Alert profile: ${objectAlertProfile} | Cooldown: ${objectAlertCooldown}s`}</p>
           <div className="action-grid compact two-col">
             <button className="action-button" onClick={() => runCommand("prepare key detection")}>Prepare Key</button>
             <button className="action-button" onClick={() => runCommand("key detection status")}>Key Status</button>
             <button className="action-button" onClick={() => runCommand("start object detection")}>Start Camera</button>
             <button className="action-button" onClick={() => runCommand("stop object detection")}>Stop Camera</button>
             <button className="action-button" onClick={() => runCommand("detect objects on screen")}>Scan Screen</button>
+            <button className="action-button" onClick={() => runCommand("object quick scan")}>Quick Scan</button>
             <button
               className="action-button"
               onClick={() =>
@@ -214,6 +290,10 @@ export default function DashboardSurface({
             </button>
             <button className="action-button" onClick={() => runCommand("current object model")}>Current Model</button>
             <button className="action-button" onClick={() => runCommand("list object model presets")}>List Presets</button>
+            <button className="action-button" onClick={() => runCommand("set object alert mode to fast")}>Fast Alerts</button>
+            <button className="action-button" onClick={() => runCommand("set object alert mode to balanced")}>Balanced Alerts</button>
+            <button className="action-button" onClick={() => runCommand("set object alert mode to quiet")}>Quiet Alerts</button>
+            <button className="action-button" onClick={() => runCommand("object alert status")}>Alert Status</button>
           </div>
         </section>
 

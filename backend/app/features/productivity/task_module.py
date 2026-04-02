@@ -613,6 +613,107 @@ def due_today_summary():
     return " | ".join(parts)
 
 
+def _sorted_reminders(reminders):
+    sortable = []
+    for reminder in reminders:
+        due_datetime = _get_reminder_datetime(reminder)
+        if due_datetime is None:
+            continue
+        sortable.append((due_datetime, reminder))
+    sortable.sort(key=lambda item: item[0])
+    return sortable
+
+
+def get_planner_focus_snapshot(limit=5):
+    data = _load_data()
+    now = datetime.datetime.now()
+    today = now.date()
+
+    pending_tasks = [task for task in data["tasks"] if not task.get("completed")]
+    high_priority_tasks = [task for task in pending_tasks if task.get("priority") == "high"]
+    sorted_reminders = _sorted_reminders(data["reminders"])
+
+    overdue = []
+    due_today = []
+    upcoming = []
+    for due_datetime, reminder in sorted_reminders:
+        title = reminder.get("title", "Untitled reminder")
+        label = f"{title} ({due_datetime.strftime('%d %b %I:%M %p')})"
+        if due_datetime < now:
+            overdue.append(label)
+        elif due_datetime.date() == today:
+            due_today.append(label)
+        elif due_datetime.date() <= today + datetime.timedelta(days=7):
+            upcoming.append(label)
+
+    suggestions = []
+    if overdue:
+        suggestions.append(
+            {
+                "label": f"Clear overdue reminders first ({len(overdue)}).",
+                "command": "show overdue items",
+                "kind": "overdue",
+            }
+        )
+    if high_priority_tasks:
+        title = high_priority_tasks[0].get("title", "Untitled task")
+        suggestions.append(
+            {
+                "label": f"High priority next: {title}.",
+                "command": "list high priority tasks",
+                "kind": "priority",
+            }
+        )
+    if due_today:
+        suggestions.append(
+            {
+                "label": f"You have {len(due_today)} reminder(s) due today.",
+                "command": "what is due today",
+                "kind": "today",
+            }
+        )
+    if pending_tasks and len(suggestions) < limit:
+        latest = _latest_pending_task(pending_tasks)
+        if latest:
+            suggestions.append(
+                {
+                    "label": f"Continue latest pending task: {latest.get('title', 'Untitled task')}.",
+                    "command": "latest task",
+                    "kind": "task",
+                }
+            )
+    if not suggestions:
+        suggestions.append(
+            {
+                "label": "No urgent blockers. Plan your day for focused progress.",
+                "command": "plan my day",
+                "kind": "calm",
+            }
+        )
+
+    summary_parts = []
+    if overdue:
+        summary_parts.append(f"{len(overdue)} overdue reminder(s)")
+    if due_today:
+        summary_parts.append(f"{len(due_today)} due today")
+    if pending_tasks:
+        summary_parts.append(f"{len(pending_tasks)} pending task(s)")
+
+    summary = "Planner looks clear right now."
+    if summary_parts:
+        summary = "Focus snapshot: " + ", ".join(summary_parts) + "."
+
+    return {
+        "summary": summary,
+        "focus_suggestions": suggestions[:limit],
+        "reminder_timeline": {
+            "overdue": overdue[:limit],
+            "today": due_today[:limit],
+            "upcoming": upcoming[:limit],
+        },
+    }
+
+
 def overdue_items():
     data = _load_data()
     now = datetime.datetime.now()
