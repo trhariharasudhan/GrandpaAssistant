@@ -97,6 +97,7 @@ export default function DashboardSurface({
                     </button>
                   </li>
                 ))}
+                {(uiState.dashboard.tasks || []).length ? null : <li>No tasks right now.</li>}
               </ul>
             </div>
             <div>
@@ -115,6 +116,7 @@ export default function DashboardSurface({
                     </button>
                   </li>
                 ))}
+                {(uiState.dashboard.reminders || []).length ? null : <li>No reminders right now.</li>}
               </ul>
             </div>
             <div>
@@ -133,6 +135,7 @@ export default function DashboardSurface({
                     </button>
                   </li>
                 ))}
+                {(uiState.dashboard.events || []).length ? null : <li>No events right now.</li>}
               </ul>
             </div>
           </div>
@@ -200,15 +203,16 @@ export default function DashboardSurface({
             <button className="action-button" onClick={() => runCommand("key detection status")}>Key Status</button>
             <button className="action-button" onClick={() => runCommand("start object detection")}>Start Camera</button>
             <button className="action-button" onClick={() => runCommand("stop object detection")}>Stop Camera</button>
-            <button className="action-button" onClick={() => runCommand("what objects do you see")}>Scan Camera</button>
             <button className="action-button" onClick={() => runCommand("detect objects on screen")}>Scan Screen</button>
-            <button className="action-button" onClick={() => runCommand("enable small object mode")}>Small Mode On</button>
-            <button className="action-button" onClick={() => runCommand("disable small object mode")}>Small Mode Off</button>
+            <button
+              className="action-button"
+              onClick={() =>
+                runCommand(uiState.object_detection?.small_object_mode ? "disable small object mode" : "enable small object mode")
+              }
+            >
+              {uiState.object_detection?.small_object_mode ? "Small Mode Off" : "Small Mode On"}
+            </button>
             <button className="action-button" onClick={() => runCommand("current object model")}>Current Model</button>
-            <button className="action-button" onClick={() => runCommand("supported objects")}>Supported Objects</button>
-            <button className="action-button" onClick={() => runCommand("watch for phone")}>Watch Phone</button>
-            <button className="action-button" onClick={() => runCommand("watch for key")}>Watch Key</button>
-            <button className="action-button" onClick={() => runCommand("stop object watch")}>Clear Watch</button>
             <button className="action-button" onClick={() => runCommand("list object model presets")}>List Presets</button>
           </div>
         </section>

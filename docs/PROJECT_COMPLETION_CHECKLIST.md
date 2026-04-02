@@ -27,17 +27,18 @@ Acceptance:
 
 ## Phase 3: Core Feature Freeze
 
-- [ ] Mark V1 must-have features only.
-- [ ] Keep stable:
+- [x] Mark V1 must-have features only.
+- [x] Keep stable:
   - chat
   - voice wake
   - tasks/reminders/notes
   - file upload + RAG
   - planner/dashboard
-- [ ] Move optional features to V2 bucket:
+- [x] Move optional features to V2 bucket:
   - object detection extras
   - advanced automation experiments
   - niche model workflows
+- [x] Publish V1 scope freeze doc: [`docs/V1_SCOPE.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\V1_SCOPE.md).
 
 Acceptance:
 - V1 scope is small, clear, and testable.
@@ -57,48 +58,49 @@ Acceptance:
 
 ## Phase 5: Voice Mode Completion
 
-- [ ] Verify wake word flow end-to-end.
-- [ ] Verify follow-up window.
-- [ ] Verify interrupt commands: `stop`, `wait`, `cancel`, `listen`.
-- [ ] Verify sleeping/awake/follow-up/speaking states in UI.
-- [ ] Add desktop popup/chime settings if still missing.
-- [ ] Add full voice tuning controls:
+- [x] Verify wake word flow end-to-end.
+- [x] Verify follow-up window.
+- [x] Verify interrupt commands: `stop`, `wait`, `cancel`, `listen`.
+- [x] Verify sleeping/awake/follow-up/speaking states in UI.
+- [x] Add desktop popup/chime settings if still missing.
+- [x] Add full voice tuning controls:
   - wake threshold
   - follow-up timeout
   - wake retry
   - fallback toggle
+- [x] Add voice smoke script for repeatable checks: [`scripts/dev/voice_smoke_check.py`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\scripts\dev\voice_smoke_check.py).
 
 Acceptance:
 - Voice mode feels hands-free and predictable.
 
 ## Phase 6: Tasks, Planner, and Daily Use
 
-- [ ] Stabilize task add/list/complete/delete.
-- [ ] Stabilize reminder add/list/delete.
-- [ ] Stabilize notes add/list/search.
-- [ ] Add or finalize `plan my day`.
-- [ ] Add or finalize `what should I do now`.
-- [ ] Add focus mode if it is part of V1.
+- [x] Stabilize task add/list/complete/delete.
+- [x] Stabilize reminder add/list/delete.
+- [x] Stabilize notes add/list/search.
+- [x] Add or finalize `plan my day`.
+- [x] Add or finalize `what should I do now`.
+- [x] Add focus mode if it is part of V1.
 
 Acceptance:
 - Assistant is useful for daily personal productivity.
 
 ## Phase 7: UI and UX Final Polish
 
-- [ ] Clean settings layout.
-- [ ] Improve loading and error states.
-- [ ] Keep composer, upload, and session flow simple.
-- [ ] Make RAG attachments visible and manageable.
-- [ ] Ensure theme consistency across all panels.
-- [ ] Remove low-value clutter from dashboard/settings.
+- [x] Clean settings layout.
+- [x] Improve loading and error states.
+- [x] Keep composer, upload, and session flow simple.
+- [x] Make RAG attachments visible and manageable.
+- [x] Ensure theme consistency across all panels.
+- [x] Remove low-value clutter from dashboard/settings.
 
 Acceptance:
 - UI feels intentional, stable, and easy to use.
 
 ## Phase 8: Testing Pass
 
-- [ ] Create a smoke checklist file.
-- [ ] Run and verify:
+- [x] Create a smoke checklist file: [`docs/V1_SMOKE_CHECKLIST.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\V1_SMOKE_CHECKLIST.md).
+- [x] Run and verify:
   - app startup
   - chat send/reply
   - streaming reply
@@ -108,28 +110,32 @@ Acceptance:
   - voice mode
   - tasks/reminders/notes
   - object detection, only if kept in V1
-- [ ] Fix all user-facing blockers found in smoke pass.
+- [x] Fix all user-facing blockers found in smoke pass.
+  - No user-facing critical blockers found in the final smoke pass.
 
 Acceptance:
 - No known critical blocker in normal daily use flow.
 
 ## Phase 9: Repo Cleanup
 
-- [ ] Remove temporary test files and logs.
-- [ ] Update [`.gitignore`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\.gitignore) for new temp/runtime outputs.
-- [ ] Keep runtime data out of source control where possible.
-- [ ] Remove stale docs and duplicated instructions.
+- [x] Remove temporary test files and logs.
+- [x] Update [`.gitignore`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\.gitignore) for new temp/runtime outputs.
+- [x] Keep runtime data out of source control where possible.
+  - Verified runtime folders are not tracked (`git ls-files backend/data`, `git ls-files backend/logs`).
+- [x] Remove stale docs and duplicated instructions.
+  - Consolidated tracking docs under `docs/` only.
 
 Acceptance:
 - Repo looks clean and maintainable.
 
 ## Phase 10: Release Readiness
 
-- [ ] Update [`README.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\README.md).
-- [ ] Add quick setup instructions.
-- [ ] Add first-run notes for Python, OCR, and API keys.
-- [ ] Verify `scripts/windows` launchers.
-- [ ] Build desktop/package flow once.
+- [x] Update [`README.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\README.md).
+- [x] Add quick setup instructions.
+- [x] Add first-run notes for Python, OCR, and API keys.
+- [x] Verify `scripts/windows` launchers.
+- [x] Build desktop/package flow once.
+  - Verified with `cmd /c npm run desktop:build` in `frontend` (PASS).
 
 Acceptance:
 - Another machine/user can set it up with minimal confusion.
@@ -148,8 +154,7 @@ Acceptance:
 
 ## Immediate Next Actions
 
-1. Fix broken Python installation / `.venv`
-2. Confirm `python main.py` stays alive
-3. Test uploaded PDF/DOCX RAG flow
-4. Add document remove button
-5. Run full smoke checklist
+1. Prepare release candidate notes and changelog summary.
+2. Commit/stage finalized V1 docs + smoke scripts.
+3. Push branch and open release PR.
+4. Run one final manual sanity run before tagging.

@@ -1805,7 +1805,7 @@ COMMAND_REGISTRY = [
     },
     {
         "intent": "tasks.add",
-        "patterns": ["add task"],
+        "patterns": ["add task", "create task"],
         "type": "startswith",
         "handler": add_task,
         "category": "tasks",
@@ -1933,7 +1933,7 @@ COMMAND_REGISTRY = [
     },
     {
         "intent": "reminders.add",
-        "patterns": ["remind me to", "remind me every"],
+        "patterns": ["remind me to", "remind me every", "add reminder", "set reminder", "reminder"],
         "type": "startswith",
         "handler": add_reminder,
         "category": "reminders",

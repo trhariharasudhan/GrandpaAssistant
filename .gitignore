@@ -35,4 +35,11 @@ temp_run_output*.txt
 temp_server_restart.log
 dummy.txt
 test_rag_script.py
+temp_*.log
+temp_*.txt
+*.bak.codex
+scripts/dev/temp_*
+scripts/dev/*.log
+scripts/dev/dummy.txt
+scripts/dev/test_rag_script.py
 yolov8n.pt

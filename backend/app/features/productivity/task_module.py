@@ -483,7 +483,12 @@ def add_task(command):
     recurrence = _extract_recurrence(command)
     priority = _extract_priority(command)
     category = _extract_category(command)
-    task_text = _strip_recurrence_phrases(_clean_text(command.replace("add task", "", 1)))
+    task_text = command
+    for prefix in ["add task", "create task"]:
+        if task_text.startswith(prefix):
+            task_text = task_text.replace(prefix, "", 1)
+            break
+    task_text = _strip_recurrence_phrases(_clean_text(task_text))
     task_text = re.sub(r"\b(high|medium|low)\s+priority\b", " ", task_text, flags=re.IGNORECASE)
     task_text = re.sub(r"\bpriority\s+(high|medium|low)\b", " ", task_text, flags=re.IGNORECASE)
     task_text = re.sub(r"\burgent task\b", " ", task_text, flags=re.IGNORECASE)
@@ -776,7 +781,13 @@ def add_reminder(command):
     due_datetime = _extract_due_datetime(command)
     due_date = due_datetime.date().isoformat() if due_datetime else _extract_due_date(command)
     reminder_text = command
-    for prefix in ["remind me to", "remind me every"]:
+    for prefix in [
+        "remind me to",
+        "remind me every",
+        "add reminder",
+        "set reminder",
+        "reminder",
+    ]:
         if command.startswith(prefix):
             reminder_text = command.replace(prefix, "", 1)
             break

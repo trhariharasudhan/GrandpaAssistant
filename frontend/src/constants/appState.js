@@ -44,6 +44,8 @@ export const initialUiState = {
   settings: {
     wake_word: "Loading...",
     voice_profile: "Loading...",
+    voice_popup_enabled: true,
+    voice_chime_enabled: true,
     offline_mode: false,
     developer_mode: false,
     emergency_mode: false,
@@ -123,6 +125,8 @@ export const initialVoiceStatus = {
     wake_retry_window_seconds: 6,
     follow_up_timeout_seconds: 12,
     wake_direct_fallback_enabled: true,
+    desktop_popup_enabled: true,
+    desktop_chime_enabled: true,
   },
   diagnostics: {
     wake_detection_count: 0,

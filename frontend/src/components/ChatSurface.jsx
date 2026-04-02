@@ -44,6 +44,9 @@ export default function ChatSurface({
   removeChatDocument,
 }) {
   const fileInputRef = useRef(null);
+  const isApiHealthy = !apiError;
+  const activeSession = chatSessions.find((session) => session.id === currentSessionId);
+  const activeSessionLabel = activeSession?.title ? `Chat: ${activeSession.title}` : "Chat: New";
 
   return (
     <div className="chat-surface-grid">
@@ -105,10 +108,19 @@ export default function ChatSurface({
         <div className="conversation-toolbar">
           <div className="surface-tabs">
             <span className="surface-kicker">Conversation</span>
+            <span className="surface-session-label">{activeSessionLabel}</span>
+          </div>
+          <div className="conversation-status-row">
+            <span className={isChatLoading ? "status-pill busy" : "status-pill idle"}>
+              {isChatLoading ? "Assistant thinking" : "Ready"}
+            </span>
+            <span className={isApiHealthy ? "status-pill ok" : "status-pill error"}>
+              {isApiHealthy ? "API connected" : "API issue"}
+            </span>
           </div>
           <div className="conversation-actions">
-            <button className="ghost-button" onClick={reloadWorkspace}>Reload</button>
-            <button className="ghost-button" onClick={regenerateReply}>Regenerate</button>
+            <button className="ghost-button" onClick={reloadWorkspace} disabled={isChatLoading}>Reload</button>
+            <button className="ghost-button" onClick={regenerateReply} disabled={!currentSessionId || isChatLoading}>Regenerate</button>
             <button className="ghost-button" onClick={retryLastPrompt} disabled={!lastPrompt || isChatLoading}>Retry</button>
             <button className="ghost-button danger" onClick={cancelStreaming} disabled={!isChatLoading}>Cancel</button>
           </div>
@@ -197,7 +209,10 @@ export default function ChatSurface({
           </section>
         ) : null}
 
-        {apiError ? <span className="api-warning">{apiError}</span> : null}
+        {isChatLoading ? (
+          <div className="status-banner info">Working on your request. You can cancel if it takes too long.</div>
+        ) : null}
+        {apiError ? <div className="status-banner error">{apiError}</div> : null}
         {pendingConfirmation ? (
           <div className="confirmation-bar">
             <span>{`Confirm action: ${pendingConfirmation.command}`}</span>
@@ -207,23 +222,24 @@ export default function ChatSurface({
 
         {attachedDocuments?.length ? (
           <div className="attachment-strip">
-            <span>Attached Docs</span>
+            <div className="attachment-strip-head">
+              <span>{`Attached docs (${attachedDocuments.length})`}</span>
+              <small>Remove old docs to keep answers focused.</small>
+            </div>
             <div className="attachment-chips">
               {attachedDocuments.map((item) => (
-                <div key={item.id} className="attachment-chip" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div>
+                <div key={item.id} className="attachment-chip">
+                  <div className="attachment-copy">
                     <strong>{item.name}</strong>
-                    <br />
-                    <span>{`${item.kind.toUpperCase()} • ${item.chunk_count || 0} chunks`}</span>
+                    <span>{`${item.kind.toUpperCase()} | ${item.chunk_count || 0} chunks | ${item.char_count || 0} chars`}</span>
                   </div>
-                  <button 
-                    type="button" 
-                    className="ghost-button danger" 
-                    style={{ padding: "4px 8px", marginLeft: "8px", minWidth: "auto" }}
+                  <button
+                    type="button"
+                    className="mini-ghost danger-text"
                     onClick={() => removeChatDocument(item.name)}
                     title="Remove document"
                   >
-                    ✕
+                    Remove
                   </button>
                 </div>
               ))}
@@ -302,7 +318,8 @@ export default function ChatSurface({
               type="button"
               className="composer-plus"
               onClick={() => fileInputRef.current?.click()}
-              title="Upload PDF or DOCX"
+              title="Upload PDF, DOCX, or TXT"
+              disabled={isChatLoading}
             >
               +
             </button>
@@ -355,11 +372,17 @@ export default function ChatSurface({
               ) : null}
             </div>
             <button onClick={() => handleSend()} disabled={isChatLoading}>
-              {isChatLoading ? "Sending" : input.trim() ? "Send" : "Run"}
+              {isChatLoading ? "Working..." : input.trim() ? "Send" : "Run"}
             </button>
+          </div>
+          <div className="composer-hint">
+            {attachedDocuments?.length
+              ? `${attachedDocuments.length} document(s) attached for RAG.`
+              : "No documents attached. Upload PDF, DOCX, or TXT to ask file-based questions."}
           </div>
         </footer>
       </div>
     </div>
   );
 }
+

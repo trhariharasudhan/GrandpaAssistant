@@ -485,6 +485,8 @@ def _voice_diagnostics_summary():
     wake_retry = get_setting("voice.wake_retry_window_seconds", 6)
     follow_up_timeout = get_setting("voice.follow_up_timeout_seconds", 12)
     fallback_enabled = get_setting("voice.wake_direct_fallback_enabled", True)
+    popup_enabled = get_setting("voice.desktop_popup_enabled", True)
+    chime_enabled = get_setting("voice.desktop_chime_enabled", True)
     offline_mode = get_setting("assistant.offline_mode_enabled", False)
 
     return (
@@ -497,6 +499,8 @@ def _voice_diagnostics_summary():
         f"Wake retry window is {wake_retry} seconds. "
         f"Follow up timeout is {follow_up_timeout} seconds. "
         f"Direct fallback is {'on' if fallback_enabled else 'off'}. "
+        f"Desktop voice popup is {'on' if popup_enabled else 'off'}. "
+        f"Desktop voice chime is {'on' if chime_enabled else 'off'}. "
         f"Offline mode is {'on' if offline_mode else 'off'}."
     )
 
@@ -1376,7 +1380,8 @@ def _handle_config_command(command):
         return f"Wake word updated to {new_wake_word}. Restart the assistant to use the new wake word."
 
     initial_timeout_match = re.match(
-        r"^(?:set|change|update)\s+initial timeout\s+to\s+(\d+)$", command
+        r"^(?:set|change|update)\s+initial timeout\s+to\s+(\d+)(?:\s+(?:second|seconds|sec|secs|s))?$",
+        command,
     )
     if initial_timeout_match:
         timeout_value = int(initial_timeout_match.group(1))
@@ -1384,7 +1389,8 @@ def _handle_config_command(command):
         return f"Initial timeout updated to {timeout_value} seconds."
 
     active_timeout_match = re.match(
-        r"^(?:set|change|update)\s+active timeout\s+to\s+(\d+)$", command
+        r"^(?:set|change|update)\s+active timeout\s+to\s+(\d+)(?:\s+(?:second|seconds|sec|secs|s))?$",
+        command,
     )
     if active_timeout_match:
         timeout_value = int(active_timeout_match.group(1))
@@ -1392,7 +1398,8 @@ def _handle_config_command(command):
         return f"Active timeout updated to {timeout_value} seconds."
 
     wake_pause_match = re.match(
-        r"^(?:set|change|update)\s+post wake pause\s+to\s+(\d+(?:\.\d+)?)$", command
+        r"^(?:set|change|update)\s+post wake pause\s+to\s+(\d+(?:\.\d+)?)(?:\s+(?:second|seconds|sec|secs|s))?$",
+        command,
     )
     if wake_pause_match:
         pause_value = max(0.1, float(wake_pause_match.group(1)))
@@ -1400,7 +1407,8 @@ def _handle_config_command(command):
         return f"Post wake pause updated to {pause_value} seconds."
 
     backoff_match = re.match(
-        r"^(?:set|change|update)\s+empty listen backoff\s+to\s+(\d+(?:\.\d+)?)$", command
+        r"^(?:set|change|update)\s+empty listen backoff\s+to\s+(\d+(?:\.\d+)?)(?:\s+(?:second|seconds|sec|secs|s))?$",
+        command,
     )
     if backoff_match:
         backoff_value = max(0.0, float(backoff_match.group(1)))
@@ -1408,7 +1416,8 @@ def _handle_config_command(command):
         return f"Empty listen backoff updated to {backoff_value} seconds."
 
     wake_timeout_match = re.match(
-        r"^(?:set|change|update)\s+wake listen timeout\s+to\s+(\d+(?:\.\d+)?)$", command
+        r"^(?:set|change|update)\s+wake listen timeout\s+to\s+(\d+(?:\.\d+)?)(?:\s+(?:second|seconds|sec|secs|s))?$",
+        command,
     )
     if wake_timeout_match:
         timeout_value = max(1.0, float(wake_timeout_match.group(1)))
@@ -1416,7 +1425,8 @@ def _handle_config_command(command):
         return f"Wake listen timeout updated to {timeout_value} seconds."
 
     wake_phrase_match = re.match(
-        r"^(?:set|change|update)\s+wake phrase time limit\s+to\s+(\d+(?:\.\d+)?)$", command
+        r"^(?:set|change|update)\s+wake phrase time limit\s+to\s+(\d+(?:\.\d+)?)(?:\s+(?:second|seconds|sec|secs|s))?$",
+        command,
     )
     if wake_phrase_match:
         phrase_value = max(1.0, float(wake_phrase_match.group(1)))
@@ -1424,15 +1434,25 @@ def _handle_config_command(command):
         return f"Wake phrase time limit updated to {phrase_value} seconds."
 
     wake_threshold_match = re.match(
-        r"^(?:set|change|update)\s+wake match threshold\s+to\s+(0(?:\.\d+)?|1(?:\.0+)?)$", command
+        r"^(?:set|change|update)\s+wake(?:\s+match)?\s+threshold\s+to\s+(.+)$",
+        command,
     )
     if wake_threshold_match:
-        threshold_value = min(1.0, max(0.4, float(wake_threshold_match.group(1))))
+        raw_value = wake_threshold_match.group(1).strip()
+        is_percent = raw_value.endswith("%")
+        raw_number = raw_value[:-1].strip() if is_percent else raw_value
+        try:
+            parsed_value = float(raw_number)
+        except ValueError:
+            return "Wake threshold should be a number between 0.4 and 1.0."
+        threshold_value = parsed_value / 100.0 if is_percent else parsed_value
+        threshold_value = min(1.0, max(0.4, threshold_value))
         update_setting("voice.wake_match_threshold", threshold_value)
         return f"Wake match threshold updated to {threshold_value}."
 
     wake_retry_match = re.match(
-        r"^(?:set|change|update)\s+wake retry window\s+to\s+(\d+(?:\.\d+)?)$", command
+        r"^(?:set|change|update)\s+wake retry window\s+to\s+(\d+(?:\.\d+)?)(?:\s+(?:second|seconds|sec|secs|s))?$",
+        command,
     )
     if wake_retry_match:
         retry_value = max(1.0, float(wake_retry_match.group(1)))
@@ -1440,7 +1460,8 @@ def _handle_config_command(command):
         return f"Wake retry window updated to {retry_value} seconds."
 
     follow_up_timeout_match = re.match(
-        r"^(?:set|change|update)\s+follow up timeout\s+to\s+(\d+(?:\.\d+)?)$", command
+        r"^(?:set|change|update)\s+follow up timeout\s+to\s+(\d+(?:\.\d+)?)(?:\s+(?:second|seconds|sec|secs|s))?$",
+        command,
     )
     if follow_up_timeout_match:
         timeout_value = max(3.0, float(follow_up_timeout_match.group(1)))
@@ -1450,6 +1471,8 @@ def _handle_config_command(command):
     if command in [
         "enable wake direct fallback",
         "turn on wake direct fallback",
+        "enable wake fallback",
+        "turn on wake fallback",
     ]:
         update_setting("voice.wake_direct_fallback_enabled", True)
         return "Wake direct fallback enabled."
@@ -1457,9 +1480,55 @@ def _handle_config_command(command):
     if command in [
         "disable wake direct fallback",
         "turn off wake direct fallback",
+        "disable wake fallback",
+        "turn off wake fallback",
     ]:
         update_setting("voice.wake_direct_fallback_enabled", False)
         return "Wake direct fallback disabled."
+
+    if command in [
+        "enable voice desktop popup",
+        "turn on voice desktop popup",
+        "enable voice popup",
+        "turn on voice popup",
+        "enable voice wake popup",
+        "turn on voice wake popup",
+    ]:
+        update_setting("voice.desktop_popup_enabled", True)
+        return "Voice desktop popup enabled."
+
+    if command in [
+        "disable voice desktop popup",
+        "turn off voice desktop popup",
+        "disable voice popup",
+        "turn off voice popup",
+        "disable voice wake popup",
+        "turn off voice wake popup",
+    ]:
+        update_setting("voice.desktop_popup_enabled", False)
+        return "Voice desktop popup disabled."
+
+    if command in [
+        "enable voice desktop chime",
+        "turn on voice desktop chime",
+        "enable voice chime",
+        "turn on voice chime",
+        "enable wake chime",
+        "turn on wake chime",
+    ]:
+        update_setting("voice.desktop_chime_enabled", True)
+        return "Voice desktop chime enabled."
+
+    if command in [
+        "disable voice desktop chime",
+        "turn off voice desktop chime",
+        "disable voice chime",
+        "turn off voice chime",
+        "disable wake chime",
+        "turn off wake chime",
+    ]:
+        update_setting("voice.desktop_chime_enabled", False)
+        return "Voice desktop chime disabled."
 
     browser_delay_match = re.match(
         r"^(?:set|change|update)\s+browser load delay\s+to\s+(\d+)$", command
@@ -1639,6 +1708,8 @@ def _handle_config_command(command):
         wake_phrase_limit = get_setting("voice.wake_phrase_time_limit", 4)
         wake_match_threshold = get_setting("voice.wake_match_threshold", 0.68)
         wake_retry_window = get_setting("voice.wake_retry_window_seconds", 6)
+        voice_popup_enabled = get_setting("voice.desktop_popup_enabled", True)
+        voice_chime_enabled = get_setting("voice.desktop_chime_enabled", True)
         browser_delay = get_setting("browser.page_load_delay_seconds", 3)
         whatsapp_delay = get_setting("browser.whatsapp_load_delay_seconds", 8)
         whatsapp_retry_count = get_setting("browser.whatsapp_search_retry_count", 2)
@@ -1698,6 +1769,8 @@ def _handle_config_command(command):
             f"Wake phrase time limit is {wake_phrase_limit} seconds. "
             f"Wake match threshold is {wake_match_threshold}. "
             f"Wake retry window is {wake_retry_window} seconds. "
+            f"Voice desktop popup is {'on' if voice_popup_enabled else 'off'}. "
+            f"Voice desktop chime is {'on' if voice_chime_enabled else 'off'}. "
             f"Browser load delay is {browser_delay} seconds. "
             f"WhatsApp load delay is {whatsapp_delay} seconds. "
             f"WhatsApp retry count is {whatsapp_retry_count}. "

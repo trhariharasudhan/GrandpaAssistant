@@ -7,6 +7,7 @@ from productivity.profile_module import build_focus_suggestion
 from system.system_module import get_battery_info
 from productivity.task_module import get_task_data
 from integrations.weather_module import get_weather_report
+from utils.config import get_setting
 
 
 def _parse_reminder_datetime(reminder):
@@ -36,6 +37,22 @@ def _format_reminder(reminder):
     if due_datetime is None:
         return title
     return f"{title} at {due_datetime.strftime('%I:%M %p')}"
+
+
+def _task_priority_rank(task):
+    order = {"high": 0, "medium": 1, "normal": 2, "low": 3}
+    return order.get(str(task.get("priority", "normal")).lower(), 2)
+
+
+def _sort_pending_tasks(tasks):
+    return sorted(
+        tasks,
+        key=lambda task: (
+            _task_priority_rank(task),
+            str(task.get("created_at") or "9999-12-31T23:59:59"),
+            str(task.get("title") or ""),
+        ),
+    )
 
 
 def _today_event_lines():
@@ -99,39 +116,71 @@ def build_today_agenda():
     now = datetime.datetime.now()
     today = now.date()
 
-    pending_tasks = [task for task in data.get("tasks", []) if not task.get("completed")]
+    pending_tasks = _sort_pending_tasks(
+        [task for task in data.get("tasks", []) if not task.get("completed")]
+    )
     today_reminders = []
+    overdue_reminders = []
+    due_soon_reminders = []
 
     for reminder in data.get("reminders", []):
         due_datetime = _parse_reminder_datetime(reminder)
-        if due_datetime and due_datetime.date() == today:
+        if not due_datetime:
+            continue
+        if due_datetime < now:
+            overdue_reminders.append((due_datetime, reminder))
+        elif due_datetime <= now + datetime.timedelta(hours=2):
+            due_soon_reminders.append((due_datetime, reminder))
+        if due_datetime.date() == today:
             today_reminders.append((due_datetime, reminder))
 
+    overdue_reminders.sort(key=lambda item: item[0])
+    due_soon_reminders.sort(key=lambda item: item[0])
     today_reminders.sort(key=lambda item: item[0])
     event_lines = _today_event_lines()
     google_event_lines = today_google_calendar_summary_lines()
 
-    parts = [f"Today agenda for {today.strftime('%d %B %Y')}:"] 
-
-    if event_lines:
-        parts.append("Events: " + " | ".join(event_lines[:3]) + ".")
-
-    if google_event_lines:
-        parts.append("Google Calendar: " + " | ".join(google_event_lines[:3]) + ".")
-
-    if today_reminders:
-        reminder_lines = [_format_reminder(reminder) for _, reminder in today_reminders[:5]]
-        parts.append("Reminders: " + " | ".join(reminder_lines[:3]) + ".")
-
-    if pending_tasks:
-        task_lines = ", ".join(task.get("title", "Untitled task") for task in pending_tasks[:3])
-        parts.append(f"Focus tasks: {task_lines}.")
-    else:
-        parts.append("No pending tasks right now.")
-
+    parts = [f"Today agenda for {today.strftime('%d %B %Y')}:"]
+    focus_mode_enabled = get_setting("assistant.focus_mode_enabled", False)
     focus_line = build_focus_suggestion()
     if focus_line:
-        parts.append(f"Next best step: {focus_line}")
+        parts.append("Step 1: " + focus_line)
+
+    if event_lines or google_event_lines:
+        calendar_parts = []
+        if event_lines:
+            calendar_parts.append("Local: " + " | ".join(event_lines[:2]))
+        if google_event_lines:
+            calendar_parts.append("Google: " + " | ".join(google_event_lines[:2]))
+        parts.append("Step 2: Calendar timeline - " + " || ".join(calendar_parts) + ".")
+    else:
+        parts.append("Step 2: Calendar timeline - no local or synced events today.")
+
+    if overdue_reminders:
+        reminder_lines = [_format_reminder(reminder) for _, reminder in overdue_reminders[:2]]
+        parts.append("Step 3: Overdue reminders - " + " | ".join(reminder_lines) + ".")
+    elif due_soon_reminders:
+        reminder_lines = [_format_reminder(reminder) for _, reminder in due_soon_reminders[:2]]
+        parts.append("Step 3: Due soon reminders - " + " | ".join(reminder_lines) + ".")
+    elif today_reminders:
+        reminder_lines = [_format_reminder(reminder) for _, reminder in today_reminders[:3]]
+        parts.append("Step 3: Reminders for today - " + " | ".join(reminder_lines) + ".")
+    else:
+        parts.append("Step 3: Reminders - no reminders due today.")
+
+    if pending_tasks:
+        task_lines = [
+            f"{task.get('title', 'Untitled task')} ({str(task.get('priority', 'normal')).lower()})"
+            for task in pending_tasks[:3]
+        ]
+        parts.append("Step 4: Task queue - " + " | ".join(task_lines) + ".")
+    else:
+        parts.append("Step 4: Task queue - no pending tasks right now.")
+
+    if focus_mode_enabled:
+        parts.append("Focus mode is on, so proactive popups stay muted.")
+    else:
+        parts.append("Focus mode is off, so proactive suggestions can appear.")
 
     return " ".join(part.strip() for part in parts if part)
 

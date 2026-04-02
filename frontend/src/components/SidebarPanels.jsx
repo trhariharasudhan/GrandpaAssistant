@@ -77,16 +77,21 @@ export default function SidebarPanels({
         </div>
       </SectionCard>
 
-      <SectionCard title="Today">
-        <p>{uiState.today}</p>
-      </SectionCard>
-
-      <SectionCard title="Next Event">
-        <p>{uiState.next_event}</p>
-      </SectionCard>
-
-      <SectionCard title="Latest Note">
-        <p>{uiState.latest_note}</p>
+      <SectionCard title="Daily Snapshot">
+        <ul className="mini-list compact-list snapshot-list">
+          <li>
+            <strong>Today</strong>
+            <span>{uiState.today}</span>
+          </li>
+          <li>
+            <strong>Next Event</strong>
+            <span>{uiState.next_event}</span>
+          </li>
+          <li>
+            <strong>Latest Note</strong>
+            <span>{uiState.latest_note}</span>
+          </li>
+        </ul>
       </SectionCard>
 
       <SectionCard title="Planner">
@@ -94,37 +99,40 @@ export default function SidebarPanels({
           <div>
             <h4>Tasks</h4>
             <ul className="mini-list">
-              {(uiState.dashboard.tasks || []).map((item) => (
+              {(uiState.dashboard.tasks || []).slice(0, 5).map((item) => (
                 <li key={`task-${item}`}>
                   <button className="inline-select" onClick={() => focusPlannerSection("task", item)}>
                     {item}
                   </button>
                 </li>
               ))}
+              {(uiState.dashboard.tasks || []).length ? null : <li>No tasks.</li>}
             </ul>
           </div>
           <div>
             <h4>Reminders</h4>
             <ul className="mini-list">
-              {(uiState.dashboard.reminders || []).map((item) => (
+              {(uiState.dashboard.reminders || []).slice(0, 5).map((item) => (
                 <li key={`reminder-${item}`}>
                   <button className="inline-select" onClick={() => focusPlannerSection("reminder", item)}>
                     {item}
                   </button>
                 </li>
               ))}
+              {(uiState.dashboard.reminders || []).length ? null : <li>No reminders.</li>}
             </ul>
           </div>
           <div>
             <h4>Events</h4>
             <ul className="mini-list">
-              {(uiState.dashboard.events || []).map((item) => (
+              {(uiState.dashboard.events || []).slice(0, 5).map((item) => (
                 <li key={`event-${item}`}>
                   <button className="inline-select" onClick={() => focusPlannerSection("event", item)}>
                     {item}
                   </button>
                 </li>
               ))}
+              {(uiState.dashboard.events || []).length ? null : <li>No events.</li>}
             </ul>
           </div>
         </div>
@@ -161,7 +169,7 @@ export default function SidebarPanels({
           <li>{`Emergency mode: ${uiState.settings.emergency_mode ? "On" : "Off"}`}</li>
           <li>{`Focus mode: ${uiState.settings.focus_mode ? "On" : "Off"}`}</li>
         </ul>
-        <div className="button-group">
+        <div className="action-grid compact two-col">
           <button className="action-button" onClick={() => runCommand("show settings")}>Show Settings</button>
           <button className="action-button" onClick={() => runCommand(uiState.settings.offline_mode ? "disable offline mode" : "enable offline mode")}>
             {uiState.settings.offline_mode ? "Disable Offline" : "Enable Offline"}

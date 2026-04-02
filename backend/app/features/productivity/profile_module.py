@@ -4,6 +4,7 @@ from brain.database import get_command_frequency
 from brain.memory_engine import load_memory
 from brain.memory_engine import get_memory, set_memory
 from productivity.task_module import get_task_data
+from utils.config import get_setting
 
 
 EMOTION_KEYWORDS = {
@@ -143,7 +144,19 @@ def _classify_command(command_text):
         return "general"
     if text.startswith(("call ", "message ", "mail ", "email ", "send whatsapp")):
         return "communication"
-    if text.startswith(("add task", "complete", "delete task", "remind ", "latest reminder", "what is due")):
+    if text.startswith(
+        (
+            "add task",
+            "create task",
+            "complete",
+            "delete task",
+            "remind ",
+            "add reminder",
+            "set reminder",
+            "latest reminder",
+            "what is due",
+        )
+    ):
         return "productivity"
     if text.startswith(("open ", "search ", "summarize selected", "copy selected", "read selected")):
         return "browser"
@@ -178,47 +191,129 @@ def build_habit_snapshot():
     return f"{category_line} Top repeated commands: {command_line}."
 
 
+def _parse_reminder_datetime(reminder):
+    due_at = reminder.get("due_at")
+    if due_at:
+        try:
+            return datetime.datetime.fromisoformat(due_at)
+        except ValueError:
+            pass
+
+    due_date = reminder.get("due_date")
+    if due_date:
+        try:
+            return datetime.datetime.combine(
+                datetime.date.fromisoformat(due_date),
+                datetime.time(hour=9, minute=0),
+            )
+        except ValueError:
+            return None
+
+    return None
+
+
+def _task_priority_rank(task):
+    order = {"high": 0, "medium": 1, "normal": 2, "low": 3}
+    return order.get(str(task.get("priority", "normal")).lower(), 2)
+
+
+def _sort_pending_tasks(tasks):
+    return sorted(
+        tasks,
+        key=lambda task: (
+            _task_priority_rank(task),
+            str(task.get("created_at") or "9999-12-31T23:59:59"),
+            str(task.get("title") or ""),
+        ),
+    )
+
+
+def _format_reminder_due_label(due_datetime):
+    if due_datetime.date() == datetime.date.today():
+        return due_datetime.strftime("%I:%M %p")
+    return due_datetime.strftime("%d %B %I:%M %p")
+
+
 def build_focus_suggestion():
     memory = load_memory()
     data = get_task_data()
 
     pending_tasks = [task for task in data.get("tasks", []) if not task.get("completed")]
-    reminders = [reminder for reminder in data.get("reminders", []) if reminder.get("due_date")]
+    reminders = data.get("reminders", [])
+    focus_mode_enabled = get_setting("assistant.focus_mode_enabled", False)
 
     current_focus = _safe_get(memory, "professional.learning_path.current_focus", [])
     one_year_goal = _safe_get(memory, "professional.goal_timeline.one_year_goal")
-    strongest_skill = _safe_get(memory, "professional.career_preferences.strongest_skill", [])
-    weakest_skill = _safe_get(memory, "professional.career_preferences.weakest_skill")
-    study_time = _safe_get(memory, "personal.routine.study_time")
+
+    now = datetime.datetime.now()
+    overdue_reminders = []
+    due_soon = []
+    for reminder in reminders:
+        due_dt = _parse_reminder_datetime(reminder)
+        if not due_dt:
+            continue
+        if due_dt < now:
+            overdue_reminders.append((due_dt, reminder))
+        elif due_dt <= now + datetime.timedelta(hours=2):
+            due_soon.append((due_dt, reminder))
+
+    overdue_reminders.sort(key=lambda item: item[0])
+    due_soon.sort(key=lambda item: item[0])
+    sorted_tasks = _sort_pending_tasks(pending_tasks)
 
     parts = []
+    if focus_mode_enabled:
+        parts.append("Focus mode is on.")
 
-    if pending_tasks:
-        task_titles = ", ".join(task.get("title", "Untitled task") for task in pending_tasks[:3])
-        parts.append(f"Your immediate focus should be on pending tasks like {task_titles}.")
+    if overdue_reminders:
+        due_dt, reminder = overdue_reminders[0]
+        title = reminder.get("title", "your reminder")
+        parts.append(
+            f"Now: clear overdue reminder '{title}' ({_format_reminder_due_label(due_dt)})."
+        )
+    elif due_soon:
+        due_dt, reminder = due_soon[0]
+        title = reminder.get("title", "your reminder")
+        parts.append(
+            f"Now: complete reminder '{title}' by {_format_reminder_due_label(due_dt)}."
+        )
+    elif sorted_tasks:
+        top_task = sorted_tasks[0]
+        title = top_task.get("title", "your next task")
+        priority = str(top_task.get("priority", "normal")).lower()
+        if priority == "high":
+            parts.append(f"Now: finish high priority task '{title}'.")
+        else:
+            parts.append(f"Now: start task '{title}'.")
+    else:
+        parts.append("Now: no urgent tasks or reminders are pending.")
 
-    if one_year_goal:
-        parts.append(f"You should stay aligned with your one year goal: {one_year_goal}")
+    if len(sorted_tasks) > 1:
+        parts.append(f"Next: continue with task '{sorted_tasks[1].get('title', 'your next task')}'.")
+    elif reminders and not overdue_reminders and not due_soon:
+        dated_reminders = [
+            (due_dt, reminder)
+            for reminder in reminders
+            for due_dt in [_parse_reminder_datetime(reminder)]
+            if due_dt is not None and due_dt >= now
+        ]
+        if dated_reminders:
+            dated_reminders.sort(key=lambda item: item[0])
+            due_dt, reminder = dated_reminders[0]
+            title = reminder.get("title", "your reminder")
+            parts.append(
+                f"Next: keep '{title}' in view for {_format_reminder_due_label(due_dt)}."
+            )
 
     if current_focus:
-        parts.append(f"A strong next step is to continue improving {_join_values(current_focus[:2])}.")
+        parts.append(f"Stay aligned with: {_join_values(current_focus[:2])}.")
+    elif one_year_goal:
+        parts.append(f"Stay aligned with your one year goal: {one_year_goal}.")
 
-    if strongest_skill:
-        parts.append(f"Use your strengths in {_join_values(strongest_skill[:2])} to move faster.")
+    if focus_mode_enabled:
+        parts.append("Keep distractions low and finish one item before switching.")
 
-    if weakest_skill:
-        parts.append(f"Also keep improving this area: {weakest_skill}")
-
-    if study_time:
-        parts.append(f"You already reserved {study_time} for study, so that is a good slot to focus deeply.")
-
-    if reminders:
-        parts.append("Do not ignore your saved reminders while planning your next steps.")
-
-    if not parts:
-        return "You should focus on your current goals, build consistency, and keep improving your technical skills."
-
-    return " ".join(parts)
+    return " ".join(part for part in parts if part)
 
 
 def build_personal_snapshot():

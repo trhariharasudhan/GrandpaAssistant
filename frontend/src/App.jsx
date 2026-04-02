@@ -38,6 +38,7 @@ export default function App() {
   const [calendarTitle, setCalendarTitle] = useState("");
   const [calendarWhen, setCalendarWhen] = useState("tomorrow at 6 pm");
   const [wakeWordInput, setWakeWordInput] = useState("");
+  const [wakeThresholdInput, setWakeThresholdInput] = useState("0.68");
   const [followUpTimeoutInput, setFollowUpTimeoutInput] = useState("12");
   const [wakeRetryInput, setWakeRetryInput] = useState("8");
   const [objectModelInput, setObjectModelInput] = useState("");
@@ -99,6 +100,13 @@ export default function App() {
   }, [selectedContact, uiState.contacts.favorite_contact]);
 
   useEffect(() => {
+    const configured = voiceStatus.settings?.wake_match_threshold;
+    if (typeof configured === "number" && Number.isFinite(configured)) {
+      setWakeThresholdInput(String(configured));
+    }
+  }, [voiceStatus.settings?.wake_match_threshold]);
+
+  useEffect(() => {
     if (voiceStatus.follow_up_remaining) {
       setFollowUpTimeoutInput(String(Math.max(voiceStatus.follow_up_remaining, 12)));
     }
@@ -113,6 +121,13 @@ export default function App() {
     const currentState = voiceStatus.state_label || "ready";
     const previousState = previousVoiceStateRef.current;
     previousVoiceStateRef.current = currentState;
+    const voicePopupEnabled = voiceStatus.settings?.desktop_popup_enabled ?? uiState.settings.voice_popup_enabled ?? true;
+    const voiceChimeEnabled = voiceStatus.settings?.desktop_chime_enabled ?? uiState.settings.voice_chime_enabled ?? true;
+
+    if (!voicePopupEnabled) {
+      setVoiceToast(null);
+      return;
+    }
 
     if (!currentState || currentState === previousState) {
       return;
@@ -159,25 +174,27 @@ export default function App() {
     const toastId = Date.now();
     setVoiceToast({ ...toast, id: toastId, state: currentState });
 
-    try {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      if (AudioContextClass) {
-        const audioContext = new AudioContextClass();
-        const oscillator = audioContext.createOscillator();
-        const gain = audioContext.createGain();
-        oscillator.type = currentState === "error" ? "sawtooth" : "sine";
-        oscillator.frequency.value = toast.tone;
-        gain.gain.value = currentState === "error" ? 0.025 : 0.018;
-        oscillator.connect(gain);
-        gain.connect(audioContext.destination);
-        oscillator.start();
-        oscillator.stop(audioContext.currentTime + 0.12);
-        oscillator.onended = () => {
-          audioContext.close().catch(() => {});
-        };
+    if (voiceChimeEnabled) {
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+          const audioContext = new AudioContextClass();
+          const oscillator = audioContext.createOscillator();
+          const gain = audioContext.createGain();
+          oscillator.type = currentState === "error" ? "sawtooth" : "sine";
+          oscillator.frequency.value = toast.tone;
+          gain.gain.value = currentState === "error" ? 0.025 : 0.018;
+          oscillator.connect(gain);
+          gain.connect(audioContext.destination);
+          oscillator.start();
+          oscillator.stop(audioContext.currentTime + 0.12);
+          oscillator.onended = () => {
+            audioContext.close().catch(() => {});
+          };
+        }
+      } catch (_error) {
+        // Ignore browser audio errors and keep the toast visible.
       }
-    } catch (_error) {
-      // Ignore browser audio errors and keep the toast visible.
     }
 
     const timer = window.setTimeout(() => {
@@ -191,6 +208,10 @@ export default function App() {
     voiceStatus.follow_up_remaining,
     voiceStatus.error,
     voiceStatus.wake_word,
+    voiceStatus.settings?.desktop_popup_enabled,
+    voiceStatus.settings?.desktop_chime_enabled,
+    uiState.settings.voice_popup_enabled,
+    uiState.settings.voice_chime_enabled,
   ]);
 
   useEffect(() => {
@@ -258,7 +279,7 @@ export default function App() {
     };
 
     loadVoiceStatus();
-    const timer = window.setInterval(loadVoiceStatus, 1500);
+    const timer = window.setInterval(loadVoiceStatus, 400);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -1557,7 +1578,7 @@ export default function App() {
                 <button className="ghost-button danger" onClick={clearConversation}>Clear Chat</button>
               </div>
             </div>
-            {apiError ? <span className="api-warning">{apiError}</span> : null}
+            {apiError ? <div className="panel-alert">{apiError}</div> : null}
           </div>
 
           {surfaceTab === "dashboard" ? (
@@ -1993,6 +2014,8 @@ export default function App() {
                         <li>{`Wake retry: ${voiceStatus.settings?.wake_retry_window_seconds ?? 6}s`}</li>
                         <li>{`Follow-up timeout: ${voiceStatus.settings?.follow_up_timeout_seconds ?? 12}s`}</li>
                         <li>{`Direct fallback: ${voiceStatus.settings?.wake_direct_fallback_enabled ? "On" : "Off"}`}</li>
+                        <li>{`Desktop popup: ${voiceStatus.settings?.desktop_popup_enabled ? "On" : "Off"}`}</li>
+                        <li>{`Desktop chime: ${voiceStatus.settings?.desktop_chime_enabled ? "On" : "Off"}`}</li>
                         <li>{`Wake hits: ${voiceStatus.diagnostics?.wake_detection_count || 0}`}</li>
                         <li>{`Commands processed: ${voiceStatus.diagnostics?.command_count || 0}`}</li>
                         <li>{`Last heard: ${voiceStatus.diagnostics?.last_heard_phrase || "Nothing yet"}`}</li>
@@ -2060,6 +2083,8 @@ export default function App() {
                     <li>{`Wake threshold: ${voiceStatus.settings?.wake_match_threshold ?? 0.68}`}</li>
                     <li>{`Wake retry: ${voiceStatus.settings?.wake_retry_window_seconds ?? 6}s`}</li>
                     <li>{`Direct fallback: ${voiceStatus.settings?.wake_direct_fallback_enabled ? "On" : "Off"}`}</li>
+                    <li>{`Desktop popup: ${voiceStatus.settings?.desktop_popup_enabled ? "On" : "Off"}`}</li>
+                    <li>{`Desktop chime: ${voiceStatus.settings?.desktop_chime_enabled ? "On" : "Off"}`}</li>
                     <li>{`Offline mode: ${uiState.settings.offline_mode ? "On" : "Off"}`}</li>
                     <li>{`Developer mode: ${uiState.settings.developer_mode ? "On" : "Off"}`}</li>
                     <li>{`Emergency mode: ${uiState.settings.emergency_mode ? "On" : "Off"}`}</li>
@@ -2073,6 +2098,16 @@ export default function App() {
                     />
                     <button onClick={() => wakeWordInput.trim() ? runCommand(`set wake word to ${wakeWordInput}`) : null}>
                       Set Wake Word
+                    </button>
+                  </div>
+                  <div className="stack-form compact-gap">
+                    <input
+                      value={wakeThresholdInput}
+                      onChange={(event) => setWakeThresholdInput(event.target.value)}
+                      placeholder="Wake threshold (0.4 - 1.0)"
+                    />
+                    <button onClick={() => wakeThresholdInput.trim() ? runCommand(`set wake threshold to ${wakeThresholdInput}`) : null}>
+                      Set Wake Threshold
                     </button>
                   </div>
                   <div className="stack-form compact-gap">
@@ -2101,8 +2136,21 @@ export default function App() {
                     <button className="action-button" onClick={() => runCommand("voice diagnostics")}>Voice Diagnostics</button>
                     <button className="action-button" onClick={() => runCommand("enable wake direct fallback")}>Fallback On</button>
                     <button className="action-button" onClick={() => runCommand("disable wake direct fallback")}>Fallback Off</button>
+                    <button
+                      className="action-button"
+                      onClick={() => runCommand(voiceStatus.settings?.desktop_popup_enabled ? "disable voice desktop popup" : "enable voice desktop popup")}
+                    >
+                      {voiceStatus.settings?.desktop_popup_enabled ? "Disable Voice Popup" : "Enable Voice Popup"}
+                    </button>
+                    <button
+                      className="action-button"
+                      onClick={() => runCommand(voiceStatus.settings?.desktop_chime_enabled ? "disable voice desktop chime" : "enable voice desktop chime")}
+                    >
+                      {voiceStatus.settings?.desktop_chime_enabled ? "Disable Voice Chime" : "Enable Voice Chime"}
+                    </button>
                     <button className="action-button" onClick={() => runCommand("set wake retry window to 8 seconds")}>Wake Retry 8s</button>
                     <button className="action-button" onClick={() => runCommand("set follow up timeout to 12 seconds")}>Follow-up 12s</button>
+                    <button className="action-button" onClick={() => runCommand("set wake threshold to 0.68")}>Threshold 0.68</button>
                     <button className="action-button" onClick={() => runCommand("set post wake pause to 0.4 seconds")}>Wake Pause 0.4s</button>
                     <button className="action-button" onClick={() => runCommand("offline mode status")}>Offline Status</button>
                     <button className="action-button" onClick={() => runCommand("developer mode status")}>Developer Status</button>

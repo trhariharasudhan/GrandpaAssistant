@@ -30,6 +30,8 @@ DEFAULT_SETTINGS = {
         "wake_retry_window_seconds": 6,
         "follow_up_timeout_seconds": 12,
         "wake_direct_fallback_enabled": True,
+        "desktop_popup_enabled": True,
+        "desktop_chime_enabled": True,
     },
     "sounds": {
         "enabled": True,
@@ -50,6 +52,7 @@ DEFAULT_SETTINGS = {
         "offline_mode_enabled": False,
         "developer_mode_enabled": False,
         "emergency_mode_enabled": False,
+        "focus_mode_enabled": False,
     },
     "browser": {
         "page_load_delay_seconds": 3,

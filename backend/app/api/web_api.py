@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import threading
+import time
 import uuid
 import zipfile
 from xml.etree import ElementTree
@@ -944,12 +945,15 @@ def _voice_follow_up_remaining():
 
 def _handle_voice_command(heard, follow_up_timeout, source="direct"):
     global _voice_state_label
+    speaking_hold = max(0.0, min(1.0, float(get_setting("voice.speaking_state_hold_seconds", 0.3) or 0.3)))
     _mark_voice_command(heard, source)
     _set_voice_state(activity="Thinking", transcript=f"Heard: {heard}", error="")
     replies = _capture_command_reply(heard)
     preview = _compact_text(replies[0]) if replies else "Done."
     _voice_state_label = "speaking"
     _set_voice_state(activity="Speaking", transcript=f"Replying: {preview}", error="")
+    if speaking_hold > 0:
+        time.sleep(speaking_hold)
     _push_voice_messages([f"You : {heard}", *[f"Grandpa : {reply}" for reply in replies]])
     _set_voice_follow_up(datetime.datetime.now().timestamp() + follow_up_timeout)
     _voice_state_label = "follow_up"
@@ -966,6 +970,8 @@ def _voice_loop():
             follow_up_timeout = float(settings.get("follow_up_timeout_seconds", 12) or 12)
             wake_retry_window = float(settings.get("wake_retry_window_seconds", 6) or 6)
             wake_direct_fallback = bool(settings.get("wake_direct_fallback_enabled", True))
+            post_wake_pause = max(0.0, min(1.0, float(settings.get("post_wake_pause_seconds", 0.35) or 0.35)))
+            interrupt_hold = max(0.0, min(1.0, float(get_setting("voice.interrupt_state_hold_seconds", 0.35) or 0.35)))
             now_ts = datetime.datetime.now().timestamp()
             follow_up_active = _voice_follow_up_until > now_ts
 
@@ -994,6 +1000,8 @@ def _voice_loop():
                 _set_voice_follow_up(datetime.datetime.now().timestamp() + 4)
                 _voice_state_label = "interrupted"
                 _set_voice_state(activity="Interrupted", transcript="Stopped speaking. Listening again.", error="")
+                if interrupt_hold > 0:
+                    time.sleep(interrupt_hold)
                 continue
 
             if follow_up_active:
@@ -1012,6 +1020,8 @@ def _voice_loop():
                     _voice_state_label = "awake"
                     _set_voice_state(activity="Awake", transcript="Wake word heard. Listening now.", error="")
                     voice_speak_module.speak("Yes?")
+                    if post_wake_pause > 0:
+                        time.sleep(post_wake_pause)
                 continue
 
             if wake_retry_until and datetime.datetime.now().timestamp() <= wake_retry_until and looks_like_direct_command(heard):
@@ -1196,6 +1206,8 @@ def _build_ui_state():
         "settings": {
             "wake_word": wake_word,
             "voice_profile": voice_profile,
+            "voice_popup_enabled": get_setting("voice.desktop_popup_enabled", True),
+            "voice_chime_enabled": get_setting("voice.desktop_chime_enabled", True),
             "offline_mode": get_setting("assistant.offline_mode_enabled", False),
             "developer_mode": _safe_call(lambda: get_setting("assistant.developer_mode_enabled", False), False),
             "emergency_mode": _safe_call(lambda: get_setting("assistant.emergency_mode_enabled", False), False),
