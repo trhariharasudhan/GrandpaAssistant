@@ -21,6 +21,84 @@ It is designed for local usage on a personal Windows machine and uses Ollama for
 - Tray/background mode
 - Configurable sound and voice settings
 
+## Completion Tracker
+
+- Full finish checklist: [`docs/PROJECT_COMPLETION_CHECKLIST.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\PROJECT_COMPLETION_CHECKLIST.md)
+- V1 scope freeze: [`docs/V1_SCOPE.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\V1_SCOPE.md)
+- Future roadmap: [`docs/FUTURE_FEATURE_ROADMAP.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\FUTURE_FEATURE_ROADMAP.md)
+- Docs index: [`docs/README.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\README.md)
+
+## Quick Setup (V1)
+
+Use this fast path if you want the app running quickly on a new Windows machine.
+
+### 1) Python and dependencies
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r backend/requirements.txt
+cd frontend
+npm install
+cd ..
+```
+
+### 2) LLM runtime (choose one)
+
+- Ollama local mode (default):
+
+```powershell
+ollama pull llama3:8b
+```
+
+- OpenAI mode (optional): create `.env` in repo root:
+
+```env
+LLM_PROVIDER=openai
+OPENAI_API_KEY=your_key_here
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+### 3) OCR requirement
+
+- Install Tesseract OCR (Windows build): [UB Mannheim installer](https://github.com/UB-Mannheim/tesseract/wiki)
+- Keep default install path: `C:\Program Files\Tesseract-OCR\tesseract.exe`
+
+### 4) First run checks
+
+```powershell
+python -V
+python main.py
+```
+
+When the app starts, choose mode:
+- `1` voice
+- `2` text
+- `3` UI
+
+For desktop frontend shell:
+
+```powershell
+scripts\windows\start_react_desktop.cmd
+```
+
+## V1 Scope (Frozen)
+
+V1 is intentionally limited to these stable daily-use flows:
+
+- chat baseline (including sessions and streaming)
+- voice wake baseline
+- tasks, reminders, and notes baseline
+- file upload + RAG baseline
+- planner and dashboard baseline
+
+Moved to V2 for now:
+
+- object detection extras
+- advanced automation experiments
+- niche model workflows
+
 ## Feature Set
 
 ### Core Interaction
@@ -121,16 +199,32 @@ It is designed for local usage on a personal Windows machine and uses Ollama for
 
 ## Project Structure
 
-- `main.py` - app entry point
-- `brain/` - AI engine, database, memory engine, question analysis
-- `controls/` - brightness and volume control
-- `core/` - assistant loop, command router, intent router, tray manager
-- `data/` - local runtime data such as memory, settings, tasks, notes, and database
-- `modules/` - feature modules like calendar, dashboard, notes, profile, routines, tasks, weather, and system control
-- `sounds/` - assistant feedback sounds
-- `utils/` - config, sound helpers, misc support
-- `vision/` - OCR and hand mouse utilities
-- `voice/` - speech input and speech output
+High-level map:
+
+- `main.py` - root launcher
+- `backend/main.py` - backend bootstrap and import-path setup
+- `backend/app/api/` - FastAPI server and chat/voice endpoints
+- `backend/app/core/` - runtime loop, command routing, tray, overlay, UI wiring
+- `backend/app/shared/` - shared infra (config, DB, sound, LLM client, helpers)
+- `backend/app/features/` - domain features split by area:
+  - `productivity/`, `system/`, `automation/`, `intelligence/`, `voice/`, `vision/`, `integrations/`, `security/`
+  - `modules/` is a compatibility alias layer for older imports
+- `backend/assets/` - static assets (sounds/models)
+- `backend/data/` - runtime local data (JSON/SQLite)
+- `frontend/src/` - React application code
+- `frontend/electron/` - Electron shell
+- `scripts/windows/` - Windows startup/build helpers
+- `docs/` - planning and architecture docs
+
+Quick editing guide:
+
+- Add new assistant commands: `backend/app/core/command_router.py`
+- Add API endpoints: `backend/app/api/web_api.py`
+- Add/modify backend features: `backend/app/features/<domain>/`
+- Update UI components: `frontend/src/`
+- Update launch/build scripts: `scripts/windows/`
+
+Detailed map: [`docs/PROJECT_STRUCTURE.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\PROJECT_STRUCTURE.md)
 
 ## Requirements
 
@@ -172,7 +266,7 @@ Then activate the environment again.
 
 ```powershell
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 ```
 
 ### 4. Install Ollama
@@ -217,7 +311,7 @@ python main.py
 ### React frontend startup
 
 ```powershell
-start_react_ui.cmd
+scripts\windows\start_react_ui.cmd
 ```
 
 This opens:
@@ -237,7 +331,7 @@ npm run dev
 ### React frontend with browser
 
 ```powershell
-start_react_full.cmd
+scripts\windows\start_react_full.cmd
 ```
 
 This opens:
@@ -249,7 +343,7 @@ This opens:
 ### React desktop shell
 
 ```powershell
-start_react_desktop.cmd
+scripts\windows\start_react_desktop.cmd
 ```
 
 This opens:
@@ -263,26 +357,26 @@ This opens:
 If the backend is already running in tray or another window:
 
 ```powershell
-start_react_frontend.cmd
-start_react_electron.cmd
+scripts\windows\start_react_frontend.cmd
+scripts\windows\start_react_electron.cmd
 ```
 
 ### Build portable desktop app
 
 ```powershell
-build_react_desktop.cmd
+scripts\windows\build_react_desktop.cmd
 ```
 
 ### Setup portable app shortcut
 
 ```powershell
-setup_portable_desktop.cmd
+scripts\windows\setup_portable_desktop.cmd
 ```
 
 To enable startup launch for the packaged app:
 
 ```powershell
-setup_portable_desktop.cmd /startup-on
+scripts\windows\setup_portable_desktop.cmd /startup-on
 ```
 
 ### Start directly in tray mode
@@ -456,7 +550,7 @@ Supported dictation phrases:
 
 ## Local Data Files
 
-Common runtime files under `data/`:
+Common runtime files under `backend/data/`:
 
 - `memory.json` - personal memory profile
 - `assistant.db` - SQLite database for memory/history
@@ -516,7 +610,7 @@ Keep local runtime files out of source control when needed:
 .venv/
 __pycache__/
 *.pyc
-data/settings.json
+backend/data/settings.json
 ```
 
 ## License

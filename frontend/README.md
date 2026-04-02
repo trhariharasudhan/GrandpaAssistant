@@ -13,7 +13,7 @@ npm run dev
 The Python backend should also be running:
 
 ```powershell
-python main.py
+python backend/main.py
 ```
 
 ## Quick launch
@@ -21,26 +21,26 @@ python main.py
 From the project root you can use:
 
 ```powershell
-start_react_ui.cmd
+scripts\windows\start_react_ui.cmd
 ```
 
 Or to open backend, frontend, and browser together:
 
 ```powershell
-start_react_full.cmd
+scripts\windows\start_react_full.cmd
 ```
 
 Or to open backend, frontend, and Electron desktop shell together:
 
 ```powershell
-start_react_desktop.cmd
+scripts\windows\start_react_desktop.cmd
 ```
 
 If the Python backend is already running, you can launch frontend only:
 
 ```powershell
-start_react_frontend.cmd
-start_react_electron.cmd
+scripts\windows\start_react_frontend.cmd
+scripts\windows\start_react_electron.cmd
 ```
 
 ## Current bridge
@@ -90,13 +90,13 @@ frontend/release/
 Project-root helper:
 
 ```powershell
-build_react_desktop.cmd
+scripts\windows\build_react_desktop.cmd
 ```
 
 Setup shortcut for the built portable app:
 
 ```powershell
-setup_portable_desktop.cmd
+scripts\windows\setup_portable_desktop.cmd
 ```
 
 Current direction:
