@@ -48,9 +48,8 @@ from modules.calendar_module import (
     get_period,
 )
 from modules.app_scan_module import (
-    scan_installed_apps,
-    scan_store_apps,
-    save_apps_to_cache,
+    find_best_app_match,
+    refresh_apps_cache,
 )
 import modules.app_scan_module as app_scan_module
 from modules.briefing_module import build_due_reminder_alert
@@ -65,6 +64,10 @@ from modules.system_module import (
     handle_wifi,
     handle_bluetooth,
     handle_airplane,
+    handle_focus_assist,
+    handle_camera_controls,
+    handle_microphone_controls,
+    handle_quick_settings_controls,
     tell_joke,
     open_explorer,
     close_app,
@@ -81,6 +84,8 @@ from modules.system_module import (
     perform_restart,
     shutdown_system,
     perform_shutdown,
+    is_running_as_admin,
+    relaunch_assistant_as_admin,
 )
 from modules.web_module import wikipedia_search
 from modules.notes_module import add_note
@@ -89,6 +94,7 @@ from modules.task_module import add_reminder
 from modules.nextgen_module import (
     add_goal_milestone,
     add_habit,
+    automation_history_summary,
     capture_meeting_note,
     check_in_habit,
     complete_goal_milestone,
@@ -105,6 +111,7 @@ from modules.nextgen_module import (
     nextgen_status_snapshot,
     preview_language_response,
     rag_library_summary,
+    run_due_automation_rules,
     send_mobile_update,
     set_automation_enabled,
     set_language_mode,
@@ -332,6 +339,81 @@ def _open_local_terminal():
         return "Opened a local terminal in the current project."
     except Exception:
         return "I could not open a local terminal right now."
+
+
+def _normalize_open_target(command):
+    normalized = " ".join((command or "").lower().strip().split())
+    if not normalized:
+        return ""
+    normalized = re.sub(r"^please\s+", "", normalized).strip()
+    normalized = re.sub(r"^(?:open|start|launch)\s+", "", normalized).strip()
+    normalized = re.sub(r"^(?:the|my)\s+", "", normalized).strip()
+    normalized = re.sub(r"\s+(?:app|application)$", "", normalized).strip()
+    filler_tail_words = {"da", "please", "now", "bro", "macha", "sir"}
+    words = normalized.split()
+    while words and words[-1] in filler_tail_words:
+        words.pop()
+    normalized = " ".join(words).strip()
+    return normalized
+
+
+def _is_shell_apps_folder_target(target):
+    value = (target or "").strip()
+    if not value:
+        return False
+    if "!" in value:
+        return True
+    if value.startswith("{"):
+        return True
+    return "\\" in value and not os.path.isabs(value)
+
+
+def _launch_app_target(target):
+    value = (target or "").strip()
+    if not value:
+        return False
+
+    try:
+        if _is_shell_apps_folder_target(value):
+            subprocess.Popen(["explorer", f"shell:AppsFolder\\{value}"], shell=False)
+            return True
+        if os.path.exists(value):
+            os.startfile(value)
+            return True
+        if value.lower().startswith(("ms-", "shell:", "http://", "https://", "mailto:")):
+            os.startfile(value)
+            return True
+        subprocess.Popen(["cmd.exe", "/c", "start", "", value], shell=False)
+        return True
+    except Exception:
+        return False
+
+
+def _open_scanned_or_known_app(command, installed_apps):
+    app_requested = _normalize_open_target(command)
+    if not app_requested:
+        return "Tell me which app you want me to open."
+
+    alias_target = APP_ALIASES.get(app_requested)
+    if alias_target:
+        if _launch_app_target(alias_target):
+            return f"Opening {app_requested}."
+        return f"I could not open {app_requested} right now."
+
+    match = find_best_app_match(app_requested, installed_apps)
+    if not match:
+        refreshed_apps = refresh_apps_cache()
+        installed_apps.clear()
+        installed_apps.update(refreshed_apps)
+        match = find_best_app_match(app_requested, installed_apps)
+
+    if not match:
+        return f"{app_requested.title()} is not installed on this system."
+
+    app_name, launcher_target, _score = match
+    if _launch_app_target(launcher_target):
+        return f"Opening {app_name}."
+    return f"I found {app_name}, but I could not open it right now."
 
 
 def _local_git_status_summary():
@@ -697,6 +779,10 @@ def _normalize_voice_friendly_command(command):
         if normalized.startswith(prefix):
             normalized = replacement + normalized[len(prefix):]
 
+    normalized = re.sub(r"^open\s+open\s+(.+)$", r"open \1", normalized)
+    normalized = re.sub(r"^start\s+start\s+(.+)$", r"start \1", normalized)
+    normalized = re.sub(r"^launch\s+launch\s+(.+)$", r"launch \1", normalized)
+
     normalized = re.sub(r"^what(?:'s| is)\s+the\s+time(?:\s+now)?$", "what is the time now", normalized)
     normalized = re.sub(r"^what(?:'s| is)\s+the\s+date$", "what is the date", normalized)
     normalized = re.sub(r"^what(?:'s| is)\s+my\s+agenda$", "today agenda", normalized)
@@ -749,6 +835,14 @@ def _split_multi_action_command(command):
 
     # Keep automation rule creation intact; it uses "when ... then ..." in one command.
     if re.match(r"^create\s+automation\s+.+\s+when\s+.+\s+then\s+.+$", text, flags=re.IGNORECASE):
+        return []
+
+    # Keep settings navigation actions intact (open/go to ... and search/click/find ...).
+    if re.match(
+        r"^(?:open|show|go to)\s+.+\s+and\s+(?:search|find|click)\s+.+$",
+        text,
+        flags=re.IGNORECASE,
+    ):
         return []
 
     parts = [text]
@@ -1764,9 +1858,49 @@ def _handle_config_command(command):
             "Restart the assistant to use the new hotkey."
         )
 
+    if command in [
+        "enable full control mode",
+        "enable full settings access",
+        "full settings access",
+        "full control mode",
+        "run as administrator",
+        "start admin mode",
+        "admin mode on",
+    ]:
+        return relaunch_assistant_as_admin()
+
+    if re.search(
+        r"\b(?:enable|start|turn on|switch on|give|take|get)\b.*\b(?:full\s+)?(?:settings|system)\s+(?:access|acces|control|mode)\b",
+        command,
+    ):
+        return relaunch_assistant_as_admin()
+
+    if re.search(
+        r"\b(?:enable|start|turn on|switch on)\b.*\b(?:admin|administrator)\b.*\b(?:mode|access|control)\b",
+        command,
+    ):
+        return relaunch_assistant_as_admin()
+
+    if re.search(r"\bfull\s+(?:settings|system)\s+(?:access|acces|control|mode)\b", command):
+        return relaunch_assistant_as_admin()
+
+    if command in [
+        "admin status",
+        "administrator status",
+        "full control status",
+        "settings access status",
+    ] or (("admin" in command or "administrator" in command) and "status" in command):
+        return (
+            "Administrator mode is enabled. Full settings controls should work."
+            if is_running_as_admin()
+            else "Administrator mode is not enabled. Say enable full control mode."
+        )
+
     if command in ["show settings", "show config", "settings"]:
         wake_word = get_setting("wake_word", "hey grandpa")
         tray_mode = get_setting("startup.tray_mode", False)
+        interface_mode = str(get_setting("startup.interface_mode", "terminal") or "terminal").lower()
+        terminal_input_mode = str(get_setting("startup.terminal_input_mode", "text") or "text").lower()
         voice_mode = current_voice_mode()
         persona_mode = get_setting("assistant.persona", "friendly")
         sounds_enabled = get_setting("sounds.enabled", True)
@@ -1833,6 +1967,7 @@ def _handle_config_command(command):
         recap_popup_interval = get_setting("notifications.recap_popup_interval_minutes", 180)
         popup_timeout = get_setting("notifications.popup_timeout_seconds", 10)
         popup_cooldown = get_setting("notifications.popup_cooldown_seconds", 180)
+        chatgpt_mode_full = get_setting("assistant.chatgpt_mode_full", False)
         return (
             f"Current settings: wake word is {wake_word}. "
             f"Voice mode is {voice_mode}. "
@@ -1864,6 +1999,8 @@ def _handle_config_command(command):
             f"Quick overlay hotkey is {overlay_hotkey}. "
             f"Quick overlay is {'on' if overlay_hotkey_enabled else 'off'}. "
             f"Tray startup is {'on' if tray_mode else 'off'}. "
+            f"Interface mode is {interface_mode}. "
+            f"Terminal input mode is {terminal_input_mode}. "
             f"Reminder monitor is {'on' if reminder_monitor else 'off'}. "
             f"Reminder interval is {reminder_interval} minutes. "
             f"Event monitor is {'on' if event_monitor else 'off'}. "
@@ -1887,6 +2024,7 @@ def _handle_config_command(command):
             f"Night summary time is {night_summary_time}. "
             f"Weekday only automations are {'on' if weekdays_only else 'off'}. "
             f"Weekend automations are {'on' if weekend_automation else 'off'}. "
+            f"ChatGPT mode full is {'on' if chatgpt_mode_full else 'off'}. "
             f"Compact voice replies are {'on' if compact_voice_replies else 'off'}. "
             f"Agenda popup is {'on' if agenda_popup_enabled else 'off'}. "
             f"Agenda popup on startup is {'on' if agenda_popup_on_startup else 'off'}. "
@@ -1943,6 +2081,54 @@ def _handle_config_command(command):
         update_setting("startup.tray_mode", False)
         refresh_startup_auto_launch()
         return "Tray startup disabled."
+
+    if command in [
+        "enable terminal mode",
+        "use terminal mode",
+        "terminal mode on",
+        "disable ui mode",
+        "ui off",
+        "no ui mode",
+    ]:
+        update_setting("startup.interface_mode", "terminal")
+        return "Terminal mode enabled. Restart assistant to run without UI."
+
+    if command in [
+        "enable ui mode",
+        "use ui mode",
+        "ui mode on",
+        "terminal mode off",
+    ]:
+        update_setting("startup.interface_mode", "ui")
+        return "UI mode enabled. Restart assistant to open UI on startup."
+
+    if command in [
+        "set terminal input mode to text",
+        "terminal input text",
+        "text terminal mode",
+    ]:
+        update_setting("startup.terminal_input_mode", "text")
+        return "Terminal input mode set to text."
+
+    if command in [
+        "set terminal input mode to voice",
+        "terminal input voice",
+        "voice terminal mode",
+    ]:
+        update_setting("startup.terminal_input_mode", "voice")
+        return "Terminal input mode set to voice."
+
+    if command in [
+        "interface mode status",
+        "startup interface status",
+        "terminal mode status",
+    ]:
+        interface_mode = str(get_setting("startup.interface_mode", "terminal") or "terminal").lower()
+        terminal_input_mode = str(get_setting("startup.terminal_input_mode", "text") or "text").lower()
+        return (
+            f"Interface mode is {interface_mode}. "
+            f"Terminal input mode is {terminal_input_mode}."
+        )
 
     if command in [
         "enable assistant startup",
@@ -2128,6 +2314,35 @@ def _handle_config_command(command):
         update_setting("assistant.compact_voice_replies", False)
         return "Compact voice replies disabled."
 
+    if command in [
+        "chatgpt mode full",
+        "enable chatgpt mode",
+        "enable chatgpt mode full",
+        "turn on chatgpt mode",
+        "turn on chatgpt mode full",
+        "full chatgpt mode",
+    ]:
+        update_setting("assistant.chatgpt_mode_full", True)
+        update_setting("assistant.persona", "casual")
+        return "ChatGPT mode full is enabled."
+
+    if command in [
+        "disable chatgpt mode",
+        "disable chatgpt mode full",
+        "turn off chatgpt mode",
+        "turn off chatgpt mode full",
+    ]:
+        update_setting("assistant.chatgpt_mode_full", False)
+        return "ChatGPT mode full is disabled."
+
+    if command in [
+        "chatgpt mode status",
+        "chatgpt full mode status",
+        "is chatgpt mode on",
+    ]:
+        enabled = bool(get_setting("assistant.chatgpt_mode_full", False))
+        return f"ChatGPT mode full is {'on' if enabled else 'off'}."
+
     if command in ["enable agenda popup", "turn on agenda popup"]:
         update_setting("notifications.agenda_popup_enabled", True)
         return "Agenda popup monitor enabled."
@@ -2199,6 +2414,15 @@ def _handle_config_command(command):
     if command in ["friendly mode", "set persona to friendly", "change persona to friendly"]:
         update_setting("assistant.persona", "friendly")
         return "Persona mode changed to Friendly."
+
+    if command in [
+        "casual mode",
+        "set persona to casual",
+        "change persona to casual",
+        "friendly casual mode",
+    ]:
+        update_setting("assistant.persona", "casual")
+        return "Persona mode changed to Casual."
 
     if command in ["professional mode", "set persona to professional", "change persona to professional"]:
         update_setting("assistant.persona", "professional")
@@ -2656,11 +2880,45 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
 
     if command in [
+        "run automations now",
+        "run automation rules now",
+        "execute automation rules",
+        "test automation rules",
+    ]:
+        result = run_due_automation_rules(force=True)
+        executed = result.get("executed") or []
+        failed = result.get("failed") or []
+        if executed:
+            lines = [
+                f"{item.get('rule', 'automation')}: {item.get('message', '')}"
+                for item in executed[:3]
+            ]
+            speak("Automation run complete. " + " | ".join(lines))
+            return
+        if failed:
+            lines = [
+                f"{item.get('rule', 'automation')}: {item.get('message', '')}"
+                for item in failed[:3]
+            ]
+            speak("Automation run failed. " + " | ".join(lines))
+            return
+        speak("No enabled automation rules were available to run.")
+        return
+
+    if command in [
         "list automations",
         "automation rules",
         "show automation rules",
     ]:
         speak(list_automation_rules())
+        return
+
+    if command in [
+        "automation history",
+        "automation run history",
+        "show automation history",
+    ]:
+        speak(automation_history_summary())
         return
 
     automation_toggle_match = re.match(r"^(enable|disable)\s+automation\s+(.+)$", command)
@@ -2740,8 +2998,55 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     # Phase 4: Smart Home IoT Catch-all
     # Only triggered if it's explicitly "turn on/off" or "switch on/off" 
     # and wasn't caught by internal settings (like "turn on focus mode")
-    if command.startswith("turn on ") or command.startswith("turn off ") or \
-       command.startswith("switch on ") or command.startswith("switch off "):
+    network_like_command = any(
+        token in command
+        for token in [
+            "wifi",
+            "wi-fi",
+            "wireless",
+            "bluetooth",
+            "blue tooth",
+            "blutooth",
+            "airplane mode",
+            "flight mode",
+            "energy saver",
+            "battery saver",
+            "power saver",
+            "night light",
+            "night mode",
+            "blue light",
+            "mobile hotspot",
+            "wifi hotspot",
+            "hotspot",
+            "nearby sharing",
+            "nearby share",
+            "live captions",
+            "live caption",
+            "accessibility",
+            "cast screen",
+            "screen cast",
+            "project screen",
+            "second screen",
+            "projection mode",
+            "focus assist",
+            "do not disturb",
+            "quiet hours",
+            "dnd",
+            "camera",
+            "microphone",
+            "mic",
+            "display mode",
+            "duplicate screen",
+            "extend screen",
+            "pc screen only",
+            "second screen only",
+            "volume",
+            "brightness",
+        ]
+    )
+
+    if (command.startswith("turn on ") or command.startswith("turn off ") or \
+       command.startswith("switch on ") or command.startswith("switch off ")) and not network_like_command:
         success, msg = dispatch_iot_command(command)
         if success:
             speak(msg)
@@ -3375,7 +3680,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
                 return
             print("\nObject detection stopped.")
             if input_mode == "text":
-                print("You: ", end="", flush=True)
+                print("User: ", end="", flush=True)
 
         def announce_detected_objects(summary):
             alert = consume_watch_alert()
@@ -3862,7 +4167,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
 
             print("\nHand mouse stopped.")
             if input_mode == "text":
-                print("You: ", end="", flush=True)
+                print("User: ", end="", flush=True)
 
         def silent_run():
             run_hand_mouse(mouse_stop_event, on_stop=notify_mouse_stopped)
@@ -3883,18 +4188,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
 
     if "rescan apps" in command:
-
+        refreshed_apps = refresh_apps_cache()
         INSTALLED_APPS.clear()
-
-        new_apps = scan_installed_apps()
-        store_apps = scan_store_apps()
-
-        INSTALLED_APPS.update(new_apps)
-        INSTALLED_APPS.update(store_apps)
-
-        save_apps_to_cache(INSTALLED_APPS)
-
-        speak("Applications rescanned and cache updated.")
+        INSTALLED_APPS.update(refreshed_apps)
+        speak(f"Applications rescanned and cache updated. Found {len(INSTALLED_APPS)} apps.")
         return
 
     if command in ["background mode", "start background mode", "minimize to tray", "tray mode"]:
@@ -3925,20 +4222,6 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(whatsapp_screen_reply)
         return
 
-    visible_screen_reply = handle_visible_screen_action(command)
-    if visible_screen_reply:
-        speak(visible_screen_reply)
-        return
-
-    if command in [
-        "what app am i in",
-        "what window is active",
-        "current window",
-        "active window",
-    ]:
-        speak(get_active_window_summary())
-        return
-
     settings_action_reply = handle_settings_page_action(command)
     if settings_action_reply:
         speak(settings_action_reply)
@@ -3957,6 +4240,20 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     windows_app_reply = open_default_windows_app(command)
     if windows_app_reply:
         speak(windows_app_reply)
+        return
+
+    visible_screen_reply = handle_visible_screen_action(command)
+    if visible_screen_reply:
+        speak(visible_screen_reply)
+        return
+
+    if command in [
+        "what app am i in",
+        "what window is active",
+        "current window",
+        "active window",
+    ]:
+        speak(get_active_window_summary())
         return
 
     intent_result = try_handle_intent(command)
@@ -3993,6 +4290,18 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
 
     if handle_airplane(command):
+        return
+
+    if handle_focus_assist(command):
+        return
+
+    if handle_camera_controls(command):
+        return
+
+    if handle_microphone_controls(command):
+        return
+
+    if handle_quick_settings_controls(command):
         return
 
     if "battery" in command:
@@ -4064,6 +4373,20 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak("I was created by my Captain.")
         return
 
+    if command in {
+        "hi",
+        "hello",
+        "hey",
+        "hi odin",
+        "hello odin",
+        "hey odin",
+        "hi grandpa",
+        "hello grandpa",
+        "hey grandpa",
+    }:
+        speak("Hey! I am doing good. How are you?")
+        return
+
     if "how are you" in command:
         speak("I am doing great! Thank you for asking.")
         return
@@ -4076,7 +4399,20 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(tell_joke())
         return
 
-    if command.startswith(("who is", "what is", "tell me about")):
+    if command.startswith(
+        (
+            "who is",
+            "who was",
+            "what is",
+            "what are",
+            "tell me about",
+            "how is",
+            "how are",
+            "latest about",
+            "latest on",
+            "news about",
+        )
+    ):
         response = wikipedia_search(command)
         speak(response)
         return
@@ -4154,47 +4490,8 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(pending_confirmation["message"])
         return
 
-    if command.startswith("open"):
-
-        app_requested = command.replace("open", "").strip().lower()
-
-        # Check alias dictionary
-        for alias, exe in APP_ALIASES.items():
-            if app_requested == alias:
-
-                speak(f"Opening {alias}")
-                time.sleep(0.5)
-
-                def open_app():
-                    subprocess.Popen(["start", exe], shell=True)
-
-                threading.Thread(target=open_app, daemon=True).start()
-                return
-
-        # Check scanned installed apps
-        for app_name, path in INSTALLED_APPS.items():
-
-            if app_requested in app_name.lower():
-
-                speak(f"Opening {app_name}")
-                time.sleep(0.5)
-
-                def open_app():
-                    try:
-                        if "!" in path:
-                            subprocess.Popen(
-                                f"explorer shell:AppsFolder\\{path}", shell=True
-                            )
-                        else:
-                            os.startfile(path)
-                    except Exception as e:
-                        print("Open error:", e)
-                        speak("Unable to open application.")
-
-                threading.Thread(target=open_app, daemon=True).start()
-                return
-
-        speak("Application not found.")
+    if command.startswith(("open ", "start ", "launch ")) or command in {"open", "start", "launch"}:
+        speak(_open_scanned_or_known_app(command, INSTALLED_APPS))
         return
 
     if command.startswith("type"):
@@ -4211,18 +4508,27 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     ):
         stream_output = input_mode == "text"
         compact_reply = input_mode == "voice" and get_setting("assistant.compact_voice_replies", True)
-        if stream_output:
-            start_streaming_reply()
+        streamed_any = False
+
+        def _stream_chunk(chunk):
+            nonlocal streamed_any
+            if not chunk:
+                return
+            if stream_output and not streamed_any:
+                start_streaming_reply()
+            streamed_any = True
+            append_streaming_reply(chunk)
+
         try:
             response = ask_ollama(
                 f"The user is asking about {app_scan_module.LAST_TOPIC}. {command}",
-                stream_callback=append_streaming_reply if stream_output else None,
+                stream_callback=_stream_chunk if stream_output else None,
                 compact=compact_reply,
             )
         finally:
-            if stream_output:
+            if stream_output and streamed_any:
                 end_streaming_reply()
-        speak(response, already_printed=stream_output)
+        speak(response, already_printed=stream_output and streamed_any)
         set_last_result(response)
         return
 
@@ -4230,19 +4536,28 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     try:
         stream_output = input_mode == "text"
         compact_reply = input_mode == "voice" and get_setting("assistant.compact_voice_replies", True)
-        if stream_output:
-            start_streaming_reply()
+        streamed_any = False
+
+        def _stream_chunk(chunk):
+            nonlocal streamed_any
+            if not chunk:
+                return
+            if stream_output and not streamed_any:
+                start_streaming_reply()
+            streamed_any = True
+            append_streaming_reply(chunk)
+
         try:
             response = ask_ollama(
                 command,
-                stream_callback=append_streaming_reply if stream_output else None,
+                stream_callback=_stream_chunk if stream_output else None,
                 compact=compact_reply,
             )
         finally:
-            if stream_output:
+            if stream_output and streamed_any:
                 end_streaming_reply()
         if response:
-            speak(response, already_printed=stream_output)
+            speak(response, already_printed=stream_output and streamed_any)
             set_last_result(response)
         else:
             speak("I did not get a proper response.")

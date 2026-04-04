@@ -1,9 +1,11 @@
 .venv/
+.python311/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .env
+backend/chat_history.json
 backend/logs/
 backend/data/memory.json
 backend/data/apps_cache.json
@@ -24,7 +26,10 @@ backend/data/google_calendar_cache.json
 backend/data/telegram_state.json
 backend/data/telegram_remote_log.json
 backend/data/assistant.db
+backend/data/*.db-shm
+backend/data/*.db-wal
 backend/data/chat_state.json
+backend/data/nextgen_features.json
 backend/data/tasks.json
 backend/data/emergency_credentials.json
 backend/data/iot_credentials.json

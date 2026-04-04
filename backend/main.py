@@ -13,7 +13,17 @@ from core.assistant import main
 if __name__ == "__main__":
     args = set(sys.argv[1:])
     start_in_tray = "--tray" in args
-    start_in_ui = "--voice" not in args and "--text" not in args and not start_in_tray
-    if "--ui" in args:
-        start_in_ui = True
-    main(start_in_tray=start_in_tray, start_in_ui=start_in_ui)
+    no_ui = "--no-ui" in args or "--terminal" in args or "--cli" in args
+    start_in_ui = ("--ui" in args) and not no_ui
+
+    forced_input_mode = None
+    if "--voice" in args:
+        forced_input_mode = "voice"
+    elif "--text" in args or no_ui:
+        forced_input_mode = "text"
+
+    main(
+        start_in_tray=start_in_tray,
+        start_in_ui=start_in_ui,
+        forced_input_mode=forced_input_mode,
+    )

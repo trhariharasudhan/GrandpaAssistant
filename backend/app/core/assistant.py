@@ -20,7 +20,7 @@ from core.quick_overlay import (
     unregister_overlay_hotkey,
 )
 from core.tray_manager import set_tray_exit_callback, set_tray_open_callbacks, start_tray, stop_tray
-from modules.app_scan_module import categorize_apps, get_all_apps, scan_store_apps
+from modules.app_scan_module import get_all_apps
 from modules.briefing_module import build_daily_brief, build_due_reminder_alert
 from modules.dictation_module import handle_dictation_text, is_dictation_active, stop_dictation
 from modules.event_module import get_event_data
@@ -70,6 +70,7 @@ WAKE_RETRY_WINDOW = get_setting("voice.wake_retry_window_seconds", 6)
 
 stop_event = threading.Event()
 hand_mouse_thread = None
+STATUS_LINE_WIDTH = 96
 
 
 def _build_compact_startup_messages():
@@ -330,12 +331,19 @@ def _open_overlay():
 
 def glowing_cursor():
     while True:
-        sys.stdout.write("\rYou: *")
+        sys.stdout.write("\rUser: *")
         sys.stdout.flush()
         time.sleep(0.5)
-        sys.stdout.write("\rYou:  ")
+        sys.stdout.write("\rUser:  ")
         sys.stdout.flush()
         time.sleep(0.5)
+
+
+def _clear_status_line(newline=False):
+    sys.stdout.write("\r" + " " * STATUS_LINE_WIDTH + "\r")
+    if newline:
+        sys.stdout.write("\n")
+    sys.stdout.flush()
 
 
 def _wait_for_thread(thread, poll_interval=0.1):
@@ -448,14 +456,132 @@ def _looks_like_direct_command(command):
     return any(command.startswith(prefix) for prefix in direct_prefixes)
 
 
+def _detect_runtime_mode_switch(command, current_mode):
+    normalized = _normalize_phrase(command)
+    if not normalized:
+        return None
+
+    to_voice = {
+        "switch to voice mode",
+        "change to voice mode",
+        "go to voice mode",
+        "voice input mode",
+    }
+    to_text = {
+        "switch to text mode",
+        "change to text mode",
+        "go to text mode",
+        "text input mode",
+    }
+    to_ui = {
+        "switch to ui mode",
+        "change to ui mode",
+        "go to ui mode",
+    }
+    to_menu = {
+        "change mode",
+        "switch mode",
+        "mode menu",
+        "mode selection",
+        "back to mode selection",
+        "back to mode menu",
+        "choose mode",
+        "input mode menu",
+    }
+
+    if normalized in to_menu:
+        return "menu"
+    if current_mode != "voice" and normalized in to_voice:
+        return "voice"
+    if current_mode != "text" and normalized in to_text:
+        return "text"
+    if current_mode != "ui" and normalized in to_ui:
+        return "ui"
+    return None
+
+
+def _prompt_for_input_mode():
+    mode_map = {
+        "1": "voice",
+        "2": "text",
+        "3": "ui",
+    }
+
+    while True:
+        try:
+            print("\nChoose to enter input mode (1 - Voice / 2 - Text / 3 - UI): ", end="")
+            selected = input().strip()
+        except KeyboardInterrupt:
+            print("\nExiting Grandpa Assistant...")
+            speak("Goodbye Captain!")
+            stop_event.set()
+            return None
+
+        mode = mode_map.get(selected)
+        if mode:
+            return mode
+
+        print("Invalid mode selected.")
+        play_sound("error")
+        speak("Invalid mode selected.")
+
+
+def _run_selected_mode_loop(start_mode):
+    mode = start_mode
+
+    while True:
+        if mode == "menu":
+            mode = _prompt_for_input_mode()
+            if not mode:
+                return
+            continue
+
+        if mode == "voice":
+            set_response_mode("voice")
+            play_sound("start")
+            next_mode = voice_mode()
+        elif mode == "text":
+            set_response_mode("text")
+            play_sound("start")
+            speak("Text mode activated.")
+            print()
+            next_mode = text_mode()
+        elif mode == "ui":
+            set_response_mode("text")
+            play_sound("start")
+            speak("UI activated.")
+            launch_odin_ui(INSTALLED_APPS)
+            return
+        else:
+            mode = "menu"
+            continue
+
+        if next_mode in {"voice", "text", "ui", "menu"}:
+            mode = next_mode
+            continue
+        return
+
+
 def _process_voice_command(command, current_timeout):
+    mode_switch = _detect_runtime_mode_switch(command, current_mode="voice")
+    if mode_switch:
+        if mode_switch == "menu":
+            speak("Opening mode selection.")
+        elif mode_switch == "text":
+            speak("Switching to text mode.")
+        elif mode_switch == "ui":
+            speak("Switching to UI mode.")
+        else:
+            speak("Voice mode already active.")
+        return {"exit": False, "timeout": ACTIVE_TIMEOUT, "switch_mode": mode_switch}
+
     if command == "exit assistant":
         stop_dictation()
         speak("Goodbye Captain!")
         return {"exit": True, "timeout": current_timeout}
 
-    sys.stdout.write("\r" + " " * 60 + "\r")
-    print(f"You said: {command}")
+    _clear_status_line(newline=True)
+    print(f"User: {command}")
 
     if command == "stop speaking":
         stop_speaking()
@@ -483,7 +609,7 @@ def _process_voice_command(command, current_timeout):
     return {"exit": False, "timeout": ACTIVE_TIMEOUT}
 
 
-def main(start_in_tray=False, start_in_ui=False):
+def main(start_in_tray=False, start_in_ui=False, forced_input_mode=None):
     global INSTALLED_APPS
     global WAKE_WORD, INITIAL_TIMEOUT, ACTIVE_TIMEOUT, POST_WAKE_PAUSE, EMPTY_LISTEN_BACKOFF
     global WAKE_MATCH_THRESHOLD, WAKE_RETRY_WINDOW
@@ -500,9 +626,15 @@ def main(start_in_tray=False, start_in_ui=False):
     EMPTY_LISTEN_BACKOFF = get_setting("voice.empty_listen_backoff_seconds", 0.2)
     WAKE_MATCH_THRESHOLD = get_setting("voice.wake_match_threshold", 0.68)
     WAKE_RETRY_WINDOW = get_setting("voice.wake_retry_window_seconds", 6)
-    INSTALLED_APPS = get_all_apps()
-    INSTALLED_APPS.update(scan_store_apps())
-    categorized = categorize_apps(INSTALLED_APPS)
+    interface_mode = str(get_setting("startup.interface_mode", "terminal") or "terminal").strip().lower()
+    if interface_mode not in {"terminal", "ui"}:
+        interface_mode = "terminal"
+    terminal_input_mode = str(get_setting("startup.terminal_input_mode", "text") or "text").strip().lower()
+    if terminal_input_mode not in {"voice", "text"}:
+        terminal_input_mode = "text"
+    terminal_only_mode = interface_mode == "terminal" and not start_in_ui
+
+    INSTALLED_APPS = get_all_apps(refresh=True)
     start_web_api(INSTALLED_APPS)
     refresh_startup_auto_launch()
 
@@ -542,35 +674,32 @@ def main(start_in_tray=False, start_in_ui=False):
         launch_odin_ui(INSTALLED_APPS, startup_messages=startup_messages)
         return
 
-    print("\n========= INSTALLED APPLICATIONS =========")
-    print("Total apps found:", len(INSTALLED_APPS))
-
-    for category, apps in categorized.items():
-        if apps:
-            print(f"\n--- {category} ({len(apps)}) ---")
-            for app in apps:
-                print("  *", app)
+    if get_setting("startup.show_installed_apps_on_boot", False):
+        print("\n========= INSTALLED APPLICATIONS =========")
+        print("Total apps found:", len(INSTALLED_APPS))
 
     for startup_message in startup_messages:
         speak(startup_message)
-    show_startup_notifications()
-    show_startup_brief_popup()
-    show_startup_agenda_popup()
-    show_startup_health_popup()
-    show_startup_weather_popup()
-    show_startup_status_popup()
-    show_startup_recap_popup()
+    if not terminal_only_mode:
+        show_startup_notifications()
+        show_startup_brief_popup()
+        show_startup_agenda_popup()
+        show_startup_health_popup()
+        show_startup_weather_popup()
+        show_startup_status_popup()
+        show_startup_recap_popup()
     run_startup_daily_automations()
-    start_notification_monitor()
+    if not terminal_only_mode:
+        start_notification_monitor()
     restore_scheduled_jobs()
     if get_setting("google_contacts.auto_refresh_enabled", True):
         start_google_contacts_auto_refresh(get_setting("google_contacts.auto_refresh_hours", 24))
-    if get_setting("ocr.region_hotkey_enabled", True):
+    if not terminal_only_mode and get_setting("ocr.region_hotkey_enabled", True):
         register_region_hotkey(
             _handle_ocr_hotkey_result,
             get_setting("ocr.region_hotkey", "ctrl+shift+o"),
         )
-    if get_setting("overlay.hotkey_enabled", True):
+    if not terminal_only_mode and get_setting("overlay.hotkey_enabled", True):
         register_overlay_hotkey(
             _handle_overlay_command,
             get_setting("overlay.hotkey", "ctrl+shift+space"),
@@ -595,34 +724,10 @@ def main(start_in_tray=False, start_in_ui=False):
             voice_mode()
             return
 
-    try:
-        print("\nChoose to enter input mode (1 - Voice / 2 - Text / 3 - UI): ", end="")
-        mode = input().strip()
-    except KeyboardInterrupt:
-        print("\nExiting Grandpa Assistant...")
-        speak("Goodbye Captain!")
-        stop_event.set()
-        return
-
-    if mode == "1":
-        set_response_mode("voice")
-        play_sound("start")
-        voice_mode()
-    elif mode == "2":
-        set_response_mode("text")
-        play_sound("start")
-        speak("Text mode activated.")
-        print()
-        text_mode()
-    elif mode == "3":
-        set_response_mode("text")
-        play_sound("start")
-        speak("UI activated.")
-        launch_odin_ui(INSTALLED_APPS)
-    else:
-        print("Invalid mode selected.")
-        play_sound("error")
-        speak("Invalid mode selected.")
+    selected_mode = str(forced_input_mode or "").strip().lower()
+    if selected_mode not in {"voice", "text"}:
+        selected_mode = "menu"
+    _run_selected_mode_loop(selected_mode)
 
 
 def start_hand_mouse():
@@ -667,8 +772,7 @@ def voice_mode():
                         sys.stdout.write("\rWaiting for wake word" + "." * dots + "   ")
                         sys.stdout.flush()
                         time.sleep(0.4)
-                    sys.stdout.write("\r" + " " * 60 + "\r")
-                    sys.stdout.flush()
+                    _clear_status_line()
 
                 anim_thread = threading.Thread(target=animate_wait, daemon=True)
                 anim_thread.start()
@@ -692,10 +796,14 @@ def voice_mode():
                         last_active_time = time.time()
                         result = _process_voice_command(trailing_command, ACTIVE_TIMEOUT)
                         if result["exit"]:
-                            break
+                            return None
+                        next_mode = result.get("switch_mode")
+                        if next_mode:
+                            return next_mode
                         active_mode = True
                         current_timeout = result["timeout"]
                     else:
+                        _clear_status_line(newline=True)
                         speak("Yes Captain?")
                         time.sleep(POST_WAKE_PAUSE)
                         active_mode = True
@@ -707,7 +815,10 @@ def voice_mode():
                     last_active_time = time.time()
                     result = _process_voice_command(command, ACTIVE_TIMEOUT)
                     if result["exit"]:
-                        break
+                        return None
+                    next_mode = result.get("switch_mode")
+                    if next_mode:
+                        return next_mode
                     active_mode = True
                     current_timeout = result["timeout"]
 
@@ -717,7 +828,10 @@ def voice_mode():
                     last_active_time = time.time()
                     result = _process_voice_command(command, ACTIVE_TIMEOUT)
                     if result["exit"]:
-                        break
+                        return None
+                    next_mode = result.get("switch_mode")
+                    if next_mode:
+                        return next_mode
                     active_mode = True
                     current_timeout = result["timeout"]
 
@@ -756,7 +870,7 @@ def voice_mode():
 
             if not is_dictation_active() and time.time() - last_active_time > current_timeout:
                 active_mode = False
-                sys.stdout.write("\r" + " " * 60 + "\r")
+                _clear_status_line()
                 print("Going back to sleep mode...\n")
                 continue
 
@@ -773,29 +887,47 @@ def voice_mode():
             result = _process_voice_command(command, current_timeout)
             current_timeout = result["timeout"]
             if result["exit"]:
-                break
+                return None
+            next_mode = result.get("switch_mode")
+            if next_mode:
+                return next_mode
 
     except KeyboardInterrupt:
         print()
         stop_dictation()
         stop_tray()
         speak("Goodbye Captain!")
+        return None
 
 
 def text_mode():
     while True:
         try:
-            print(Fore.CYAN + "You: " + Style.RESET_ALL, end="", flush=True)
+            print(Fore.CYAN + "User: " + Style.RESET_ALL, end="", flush=True)
             command = input().strip().lower()
 
             if not command:
                 continue
 
+            mode_switch = _detect_runtime_mode_switch(command, current_mode="text")
+            if mode_switch:
+                if mode_switch == "menu":
+                    speak("Opening mode selection.")
+                elif mode_switch == "voice":
+                    speak("Switching to voice mode.")
+                elif mode_switch == "ui":
+                    speak("Switching to UI mode.")
+                else:
+                    speak("Text mode already active.")
+                    print()
+                    continue
+                return mode_switch
+
             if command in ["exit", "quit"]:
                 speak("Goodbye Captain!")
                 stop_dictation()
                 stop_tray()
-                break
+                return None
 
             process_command(command, INSTALLED_APPS, input_mode="text")
             play_sound("success")
@@ -806,4 +938,4 @@ def text_mode():
             speak("Goodbye Captain!")
             stop_dictation()
             stop_tray()
-            break
+            return None

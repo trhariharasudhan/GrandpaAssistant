@@ -15,6 +15,7 @@ OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
 OPENAI_MAX_RETRIES_ENV = "OPENAI_MAX_RETRIES"
 OPENAI_RETRY_BASE_DELAY_ENV = "OPENAI_RETRY_BASE_DELAY_SECONDS"
 OPENAI_RETRY_MAX_DELAY_ENV = "OPENAI_RETRY_MAX_DELAY_SECONDS"
+OPENAI_REQUEST_TIMEOUT_ENV = "OPENAI_REQUEST_TIMEOUT_SECONDS"
 OLLAMA_MODEL_ENV = "OLLAMA_MODEL"
 OLLAMA_BASE_URL_ENV = "OLLAMA_BASE_URL"
 DEFAULT_LLM_PROVIDER = "auto"
@@ -23,6 +24,7 @@ DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_OPENAI_MAX_RETRIES = 4
 DEFAULT_OPENAI_RETRY_BASE_DELAY_SECONDS = 2.0
 DEFAULT_OPENAI_RETRY_MAX_DELAY_SECONDS = 20.0
+DEFAULT_OPENAI_REQUEST_TIMEOUT_SECONDS = 30.0
 DEFAULT_OLLAMA_MODEL = "llama3:8b"
 DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 RETRYABLE_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
@@ -254,6 +256,10 @@ def _openai_model_candidates(model: str | None = None) -> list[str]:
 
 def _post_openai_request(payload: dict, *, stream: bool = False) -> requests.Response:
     max_attempts = _env_int(OPENAI_MAX_RETRIES_ENV, DEFAULT_OPENAI_MAX_RETRIES)
+    request_timeout = _env_float(
+        OPENAI_REQUEST_TIMEOUT_ENV,
+        DEFAULT_OPENAI_REQUEST_TIMEOUT_SECONDS,
+    )
     requested_model = str(payload.get("model") or "").strip() or None
     last_error = None
 
@@ -264,7 +270,7 @@ def _post_openai_request(payload: dict, *, stream: bool = False) -> requests.Res
                 _chat_endpoint(),
                 headers=_openai_headers(),
                 json=payload,
-                timeout=120,
+                timeout=request_timeout,
                 stream=stream,
             )
             response.raise_for_status()

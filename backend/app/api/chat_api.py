@@ -8,6 +8,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from llm_client import generate_chat_reply, stream_chat_reply
+from offline_multi_model import (
+    OfflineAssistantError,
+    generate_offline_reply,
+    get_ollama_status,
+    list_installed_models,
+)
 
 
 app = FastAPI(title="Grandpa Assistant Chat API", version="1.0.0")
@@ -26,6 +32,11 @@ CHAT_HISTORY: list[dict] = []
 
 class ChatRequest(BaseModel):
     message: str
+
+
+class AskRequest(BaseModel):
+    prompt: str
+    mode: str | None = "auto"
 
 
 def _utc_now() -> str:
@@ -48,7 +59,35 @@ def _trim_history() -> None:
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "grandpa-assistant-fastapi"}
+    return {
+        "ok": True,
+        "service": "grandpa-assistant-fastapi",
+        "offline_assistant": get_ollama_status(),
+    }
+
+
+@app.get("/models")
+def get_models() -> dict:
+    try:
+        return {
+            "ok": True,
+            "models": list_installed_models(),
+        }
+    except OfflineAssistantError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/ask")
+def ask(request: AskRequest) -> dict:
+    try:
+        result = generate_offline_reply(request.prompt, mode=request.mode)
+    except OfflineAssistantError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+    return {
+        "ok": True,
+        **result,
+    }
 
 
 @app.get("/chat/history")

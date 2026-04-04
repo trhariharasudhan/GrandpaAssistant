@@ -76,6 +76,7 @@ class OdinUI:
         "ur": "your",
         "wont": "won't",
     }
+    COMMAND_TIMEOUT_SECONDS = 25
 
     def __init__(self, installed_apps, startup_messages=None):
         self.installed_apps = installed_apps
@@ -905,32 +906,57 @@ class OdinUI:
         self.command_running = True
         spoken_messages = []
         buffer = io.StringIO()
-        with self._patched_speaker():
-            original_ui_append = self._append_message
-            original_voice_speak = self._real_voice_speak
+        output = ""
+        try:
+            with self._patched_speaker():
+                original_ui_append = self._append_message
+                original_voice_speak = self._real_voice_speak
 
-            def capture_speak(text, *args, **kwargs):
-                cleaned = self._clean_console_text(str(text))
-                if cleaned:
-                    spoken_messages.append(cleaned)
-                    self.root.after(0, lambda value=cleaned: original_ui_append("Grandpa", value, "assistant"))
-                    if self.mode_is_voice:
-                        self.root.after(0, lambda: self._set_voice_orb_state("speaking", "Speaking"))
-                        original_voice_speak(cleaned, already_printed=True)
-                        self.root.after(0, lambda: self._set_voice_orb_state("listening", "Listening"))
+                def capture_speak(text, *args, **kwargs):
+                    cleaned = self._clean_console_text(str(text))
+                    if cleaned:
+                        spoken_messages.append(cleaned)
+                        self.root.after(0, lambda value=cleaned: original_ui_append("Grandpa", value, "assistant"))
+                        if self.mode_is_voice:
+                            self.root.after(0, lambda: self._set_voice_orb_state("speaking", "Speaking"))
+                            original_voice_speak(cleaned, already_printed=True)
+                            self.root.after(0, lambda: self._set_voice_orb_state("listening", "Listening"))
 
-            command_router_module.speak = capture_speak
-            voice_speak_module.speak = capture_speak
-            with contextlib.redirect_stdout(buffer):
-                try:
-                    command_router_module.process_command(command.lower(), self.installed_apps, input_mode="text")
-                except Exception as error:
-                    output = "I hit a small interface issue while handling that command."
-                    self.root.after(0, lambda: self._set_voice_orb_state("error", "Error"))
-                else:
-                    output = self._sanitize_output(buffer.getvalue(), spoken_messages)
+                command_router_module.speak = capture_speak
+                voice_speak_module.speak = capture_speak
+                with contextlib.redirect_stdout(buffer):
+                    runner_error = {"value": None}
 
-        self.root.after(0, lambda: self._finish_command(output))
+                    def run_router_command():
+                        try:
+                            command_router_module.process_command(
+                                command.lower(),
+                                self.installed_apps,
+                                input_mode="text",
+                            )
+                        except Exception as error:
+                            runner_error["value"] = error
+
+                    runner = threading.Thread(target=run_router_command, daemon=True)
+                    runner.start()
+                    runner.join(self.COMMAND_TIMEOUT_SECONDS)
+
+                    if runner.is_alive():
+                        output = (
+                            "Command is taking too long. "
+                            "Please click Reload once and try again."
+                        )
+                        self.root.after(0, lambda: self._set_voice_orb_state("error", "Timeout"))
+                    elif runner_error["value"] is not None:
+                        output = "I hit a small interface issue while handling that command."
+                        self.root.after(0, lambda: self._set_voice_orb_state("error", "Error"))
+                    else:
+                        output = self._sanitize_output(buffer.getvalue(), spoken_messages)
+        except Exception:
+            output = "I hit a small interface issue while handling that command."
+            self.root.after(0, lambda: self._set_voice_orb_state("error", "Error"))
+        finally:
+            self.root.after(0, lambda value=output: self._finish_command(value))
 
     def _finish_command(self, output):
         if output:

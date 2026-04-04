@@ -69,3 +69,20 @@ frontend/
 2. Do not add new business logic into `features/modules/`; that folder is alias-only.
 3. Keep temporary test files in `scripts/` or local ignored paths, not the repo root.
 4. Update this file when adding major new folders or moving module ownership.
+
+## 6) Why `.env` And `.env.example` Both Exist
+
+- `.env` is your real local secrets/runtime config (machine-specific, never commit).
+- `.env.example` is a safe template with placeholder values so setup is easy for new machines/users.
+- They are intentionally both needed; they are not duplicate files.
+
+## 7) Runtime Files You Can Ignore In Explorer
+
+- `__pycache__/` folders
+- `.venv/`
+- `backend/chat_history.json`
+- `backend/data/apps_cache.json`
+- `backend/data/assistant.db`
+- `backend/data/chat_state.json`
+
+These are generated while running the app and are not source code.

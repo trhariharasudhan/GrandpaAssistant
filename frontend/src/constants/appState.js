@@ -112,6 +112,12 @@ export const initialUiState = {
   },
   object_history: [],
   object_watch_history: [],
+  automation: {
+    checked: 0,
+    executed: [],
+    failed: [],
+    skipped: [],
+  },
   nextgen: {
     day_plan_summary: "Loading...",
     habits_count: 0,
@@ -122,6 +128,8 @@ export const initialUiState = {
     rag_docs_count: 0,
     automation_total: 0,
     automation_enabled: 0,
+    automation_history_count: 0,
+    last_automation_event: {},
     language_mode: "auto",
     voice_mode: "normal",
     mobile_enabled: false,

@@ -9,35 +9,64 @@ import pygetwindow as gw
 
 
 SETTINGS_PAGE_MAP = {
-    "settings": ("ms-settings:", "Settings"),
+    "settings": ("ms-settings:", "Settings Home"),
+    "settings home": ("ms-settings:", "Settings Home"),
+    "home": ("ms-settings:", "Settings Home"),
+    "system": ("ms-settings:system", "System settings"),
+    "system settings": ("ms-settings:system", "System settings"),
+    "display": ("ms-settings:display", "Display settings"),
     "display settings": ("ms-settings:display", "Display settings"),
+    "sound": ("ms-settings:sound", "Sound settings"),
     "sound settings": ("ms-settings:sound", "Sound settings"),
     "volume settings": ("ms-settings:sound", "Sound settings"),
+    "bluetooth": ("ms-settings:bluetooth", "Bluetooth settings"),
     "bluetooth settings": ("ms-settings:bluetooth", "Bluetooth settings"),
+    "bluetooth and devices": ("ms-settings:bluetooth", "Bluetooth and devices"),
+    "bluetooth & devices": ("ms-settings:bluetooth", "Bluetooth and devices"),
+    "network settings": ("ms-settings:network", "Network and internet"),
+    "network and internet": ("ms-settings:network", "Network and internet"),
+    "network & internet": ("ms-settings:network", "Network and internet"),
+    "wifi": ("ms-settings:network-wifi", "Wi-Fi settings"),
     "wifi settings": ("ms-settings:network-wifi", "Wi-Fi settings"),
-    "network settings": ("ms-settings:network", "Network settings"),
+    "battery": ("ms-settings:batterysaver", "Battery settings"),
     "battery settings": ("ms-settings:batterysaver", "Battery settings"),
+    "storage": ("ms-settings:storagesense", "Storage settings"),
     "storage settings": ("ms-settings:storagesense", "Storage settings"),
     "windows update": ("ms-settings:windowsupdate", "Windows Update"),
     "update settings": ("ms-settings:windowsupdate", "Windows Update"),
-    "startup apps settings": ("ms-settings:startupapps", "Startup apps settings"),
+    "apps": ("ms-settings:appsfeatures", "Apps settings"),
     "apps settings": ("ms-settings:appsfeatures", "Apps settings"),
+    "installed apps": ("ms-settings:appsfeatures", "Installed apps"),
+    "startup apps settings": ("ms-settings:startupapps", "Startup apps settings"),
+    "default apps settings": ("ms-settings:defaultapps", "Default apps settings"),
+    "personalization": ("ms-settings:personalization", "Personalization settings"),
     "personalization settings": ("ms-settings:personalization", "Personalization settings"),
     "theme settings": ("ms-settings:themes", "Theme settings"),
     "taskbar settings": ("ms-settings:taskbar", "Taskbar settings"),
-    "privacy settings": ("ms-settings:privacy", "Privacy settings"),
-    "camera privacy settings": ("ms-settings:privacy-webcam", "Camera privacy settings"),
-    "microphone privacy settings": ("ms-settings:privacy-microphone", "Microphone privacy settings"),
-    "default apps settings": ("ms-settings:defaultapps", "Default apps settings"),
-    "accessibility settings": ("ms-settings:easeofaccess", "Accessibility settings"),
-    "voice access settings": ("ms-settings:easeofaccess-speechrecognition", "Voice access settings"),
-    "speech settings": ("ms-settings:speech", "Speech settings"),
-    "notifications settings": ("ms-settings:notifications", "Notifications settings"),
-    "focus assist settings": ("ms-settings:quiethours", "Focus assist settings"),
+    "accounts": ("ms-settings:yourinfo", "Accounts settings"),
+    "accounts settings": ("ms-settings:yourinfo", "Accounts settings"),
+    "time and language": ("ms-settings:timeandlanguage", "Time and language"),
+    "time & language": ("ms-settings:timeandlanguage", "Time and language"),
     "time settings": ("ms-settings:dateandtime", "Date and time settings"),
     "keyboard settings": ("ms-settings:keyboard", "Keyboard settings"),
     "mouse settings": ("ms-settings:mousetouchpad", "Mouse settings"),
+    "mouse pointer and touch": ("ms-settings:mousetouchpad", "Mouse pointer and touch"),
     "touchpad settings": ("ms-settings:devices-touchpad", "Touchpad settings"),
+    "gaming": ("ms-settings:gaming", "Gaming settings"),
+    "gaming settings": ("ms-settings:gaming", "Gaming settings"),
+    "accessibility": ("ms-settings:easeofaccess", "Accessibility settings"),
+    "accessibility settings": ("ms-settings:easeofaccess", "Accessibility settings"),
+    "voice access settings": ("ms-settings:easeofaccess-speechrecognition", "Voice access settings"),
+    "speech settings": ("ms-settings:speech", "Speech settings"),
+    "notifications": ("ms-settings:notifications", "Notifications settings"),
+    "notifications settings": ("ms-settings:notifications", "Notifications settings"),
+    "focus assist settings": ("ms-settings:quiethours", "Focus assist settings"),
+    "privacy and security": ("ms-settings:privacy", "Privacy and security"),
+    "privacy & security": ("ms-settings:privacy", "Privacy and security"),
+    "privacy settings": ("ms-settings:privacy", "Privacy and security"),
+    "camera privacy settings": ("ms-settings:privacy-webcam", "Camera privacy settings"),
+    "microphone privacy settings": ("ms-settings:privacy-microphone", "Microphone privacy settings"),
+    "cloud storage": ("ms-settings:storage", "Storage settings"),
 }
 
 DEFAULT_APP_COMMANDS = {
@@ -94,6 +123,15 @@ HOTKEY_ACTIONS = {
     "switch window": (("alt", "tab"), "Switched the active window."),
     "show desktop": (("win", "d"), "Toggled desktop view."),
     "open start menu": (("win",), "Opened the Start menu."),
+    "click start button": (("win",), "Opened the Start menu."),
+    "press start button": (("win",), "Opened the Start menu."),
+    "open start button": (("win",), "Opened the Start menu."),
+    "close start menu": (("esc",), "Closed the Start menu."),
+    "focus taskbar": (("win", "t"), "Focused the taskbar."),
+    "show taskbar": (("win", "t"), "Focused the taskbar."),
+    "open task view": (("win", "tab"), "Opened Task View."),
+    "open widgets": (("win", "w"), "Opened Widgets."),
+    "open system tray": (("win", "b"), "Focused the system tray."),
     "copy that": (("ctrl", "c"), "Copied the current selection."),
     "paste that": (("ctrl", "v"), "Pasted from the clipboard."),
     "select all": (("ctrl", "a"), "Selected everything in the current area."),
@@ -131,8 +169,32 @@ def open_windows_settings_page(command):
             target = normalized.replace(prefix, "", 1).strip()
             break
 
-    if target in SETTINGS_PAGE_MAP:
-        uri, label = SETTINGS_PAGE_MAP[target]
+    if not target:
+        return None
+
+    cleaned_target = (
+        target.replace("&", "and")
+        .replace(" page", "")
+        .replace(" tab", "")
+        .replace(" section", "")
+        .strip()
+    )
+    cleaned_target = " ".join(cleaned_target.split())
+
+    candidate_targets = [cleaned_target]
+    if cleaned_target.startswith("settings "):
+        candidate_targets.append(cleaned_target.replace("settings ", "", 1).strip())
+    if not cleaned_target.endswith("settings"):
+        candidate_targets.append(f"{cleaned_target} settings")
+
+    resolved = None
+    for candidate in candidate_targets:
+        if candidate in SETTINGS_PAGE_MAP:
+            resolved = SETTINGS_PAGE_MAP[candidate]
+            break
+
+    if resolved:
+        uri, label = resolved
         if _open_ms_settings(uri):
             return f"Opening {label}."
         return f"I could not open {label} right now."
@@ -199,8 +261,118 @@ def handle_voice_access_control(command):
     return None
 
 
+def _apply_projection_mode(mode):
+    mode_positions = {
+        "pc_screen_only": 0,
+        "duplicate": 1,
+        "extend": 2,
+        "second_screen_only": 3,
+    }
+    index = mode_positions.get(mode)
+    if index is None:
+        return False
+
+    try:
+        pyautogui.hotkey("win", "p")
+        time.sleep(0.45)
+        for _ in range(4):
+            pyautogui.press("up")
+            time.sleep(0.04)
+        for _ in range(index):
+            pyautogui.press("down")
+            time.sleep(0.04)
+        pyautogui.press("enter")
+        return True
+    except Exception:
+        return False
+
+
 def handle_desktop_action(command):
     normalized = " ".join((command or "").lower().strip().split())
+
+    projection_intents = {
+        "duplicate": [
+            "duplicate screen",
+            "duplicate display",
+            "duplicate mode",
+            "set display duplicate",
+            "display mode duplicate",
+            "project duplicate",
+            "switch to duplicate",
+        ],
+        "extend": [
+            "extend screen",
+            "extend display",
+            "extend mode",
+            "set display extend",
+            "display mode extend",
+            "project extend",
+            "switch to extend",
+        ],
+        "second_screen_only": [
+            "second screen only",
+            "projector only",
+            "external display only",
+            "switch to second screen only",
+            "display mode second screen",
+        ],
+        "pc_screen_only": [
+            "pc screen only",
+            "laptop screen only",
+            "main screen only",
+            "switch to pc screen only",
+            "display mode pc screen",
+        ],
+    }
+    for mode, phrases in projection_intents.items():
+        if any(phrase in normalized for phrase in phrases):
+            if _apply_projection_mode(mode):
+                pretty = {
+                    "duplicate": "duplicate",
+                    "extend": "extend",
+                    "second_screen_only": "second screen only",
+                    "pc_screen_only": "PC screen only",
+                }.get(mode, mode)
+                return f"Switched display mode to {pretty}."
+            return "I could not change display mode right now."
+
+    taskbar_slot_match = re.match(r"^(?:open|launch|start)\s+(?:taskbar\s+)?app\s+([1-9])$", normalized)
+    if taskbar_slot_match:
+        slot = taskbar_slot_match.group(1)
+        try:
+            pyautogui.hotkey("win", slot)
+            return f"Opened taskbar app slot {slot}."
+        except Exception:
+            return f"I could not open taskbar app slot {slot} right now."
+
+    if normalized in ["open hidden icons", "show hidden icons", "open tray overflow"]:
+        try:
+            pyautogui.hotkey("win", "b")
+            time.sleep(0.2)
+            pyautogui.press("enter")
+            return "Opened hidden icons from the taskbar."
+        except Exception:
+            return "I could not open hidden icons right now."
+
+    if normalized in ["next taskbar app", "taskbar next app"]:
+        try:
+            pyautogui.hotkey("win", "t")
+            time.sleep(0.15)
+            pyautogui.press("right")
+            pyautogui.press("enter")
+            return "Switched to the next taskbar app."
+        except Exception:
+            return "I could not switch to the next taskbar app right now."
+
+    if normalized in ["previous taskbar app", "taskbar previous app"]:
+        try:
+            pyautogui.hotkey("win", "t")
+            time.sleep(0.15)
+            pyautogui.press("left")
+            pyautogui.press("enter")
+            return "Switched to the previous taskbar app."
+        except Exception:
+            return "I could not switch to the previous taskbar app right now."
 
     combo_match = re.match(r"^press ((?:ctrl|control|alt|shift|win|windows)(?: [a-z0-9]+)+)$", normalized)
     if combo_match:
@@ -292,7 +464,38 @@ def handle_desktop_action(command):
 def handle_settings_page_action(command):
     normalized = " ".join((command or "").lower().strip().split())
 
-    scroll_match = re.match(r"^(?:open|show|go to) (.+ settings|windows update) and scroll (down|up)$", normalized)
+    go_match = re.match(
+        r"^(?:open|show)\s+settings(?:\s+home)?\s+(?:and\s+)?(?:go to|open)\s+(.+)$",
+        normalized,
+    )
+    if go_match:
+        target = go_match.group(1).strip()
+        if not target:
+            return "Tell me which Settings section you want."
+        open_reply = open_windows_settings_page(f"open {target}")
+        return open_reply or "I could not open that Settings section right now."
+
+    search_match = re.match(r"^(?:open|show|go to) (.+?) and search (?:for )?(.+)$", normalized)
+    if search_match:
+        target = search_match.group(1).strip()
+        search_text = search_match.group(2).strip()
+        open_reply = open_windows_settings_page(f"open {target}")
+        if not open_reply:
+            return None
+        if not search_text:
+            return f"{open_reply} Tell me what to search."
+        time.sleep(1.6)
+        try:
+            pyautogui.hotkey("ctrl", "f")
+            time.sleep(0.25)
+            pyautogui.write(search_text, interval=0.03)
+            time.sleep(0.2)
+            pyautogui.press("enter")
+            return f"{open_reply} Then I searched for {search_text}."
+        except Exception:
+            return f"{open_reply} I could not type the search text right now."
+
+    scroll_match = re.match(r"^(?:open|show|go to) (.+?) and scroll (down|up)$", normalized)
     if scroll_match:
         target = scroll_match.group(1)
         direction = scroll_match.group(2)
@@ -303,7 +506,7 @@ def handle_settings_page_action(command):
         pyautogui.scroll(-700 if direction == "down" else 700)
         return f"{open_reply} Then I scrolled {direction}."
 
-    click_match = re.match(r"^(?:open|show|go to) (.+ settings|windows update) and click (.+)$", normalized)
+    click_match = re.match(r"^(?:open|show|go to) (.+?) and click (.+)$", normalized)
     if click_match:
         target = click_match.group(1)
         click_target = click_match.group(2).strip()
@@ -321,7 +524,7 @@ def handle_settings_page_action(command):
             return f"{open_reply} Then I clicked {click_target}."
         return f"{open_reply} I could not find {click_target} to click."
 
-    find_match = re.match(r"^(?:open|show|go to) (.+ settings|windows update) and find (.+)$", normalized)
+    find_match = re.match(r"^(?:open|show|go to) (.+?) and find (.+)$", normalized)
     if find_match:
         target = find_match.group(1)
         find_target = find_match.group(2).strip()

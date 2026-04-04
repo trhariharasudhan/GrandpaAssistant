@@ -44,7 +44,7 @@ from modules.google_contacts_module import (
 )
 from modules.health_module import get_system_status
 from modules.notes_module import latest_note
-from modules.nextgen_module import nextgen_status_snapshot
+from modules.nextgen_module import nextgen_status_snapshot, run_due_automation_rules
 from modules.startup_module import (
     disable_startup_auto_launch,
     enable_startup_auto_launch,
@@ -969,7 +969,153 @@ def _looks_like_tool_command(command):
     return lowered.startswith(action_roots)
 
 
+def _looks_like_direct_action_input(message):
+    cleaned = _compact_text(message)
+    lowered = cleaned.lower()
+    if not cleaned:
+        return False
+    if len(cleaned) > 140:
+        return False
+    if lowered.endswith("?"):
+        return False
+    if lowered.startswith(("can you ", "could you ", "would you ", "how ", "why ", "explain ")):
+        return False
+
+    exact_commands = {
+        "weather",
+        "today events",
+        "latest note",
+        "voice status",
+        "voice diagnostics",
+        "admin status",
+        "administrator status",
+        "full control status",
+        "settings access status",
+        "energy saver status",
+        "battery saver status",
+        "night light status",
+        "mobile hotspot status",
+        "nearby sharing status",
+        "live captions status",
+        "focus assist status",
+        "do not disturb status",
+        "camera status",
+        "microphone status",
+        "mic status",
+        "nextgen status",
+        "habit dashboard",
+        "goal board",
+        "automation rules",
+        "automation history",
+        "mobile companion status",
+        "smart reminder priority",
+        "show settings",
+        "plan my day",
+        "what should i do now",
+    }
+    if lowered in exact_commands:
+        return True
+
+    command_roots = (
+        "open ",
+        "close ",
+        "start ",
+        "stop ",
+        "add ",
+        "set ",
+        "enable ",
+        "disable ",
+        "show ",
+        "list ",
+        "delete ",
+        "remove ",
+        "create ",
+        "plan ",
+        "run ",
+        "scan ",
+        "detect ",
+        "watch ",
+        "sync ",
+        "use ",
+        "save ",
+        "rename ",
+        "reschedule ",
+        "call ",
+        "message ",
+        "mail ",
+        "send ",
+        "wifi ",
+        "wi-fi ",
+        "wireless ",
+        "bluetooth ",
+        "blue tooth ",
+        "blutooth ",
+        "airplane ",
+        "flight mode ",
+        "energy saver ",
+        "battery saver ",
+        "power saver ",
+        "night light ",
+        "night mode ",
+        "mobile hotspot ",
+        "hotspot ",
+        "nearby sharing ",
+        "nearby share ",
+        "live captions ",
+        "live caption ",
+        "accessibility ",
+        "cast ",
+        "project screen ",
+        "second screen ",
+        "projection mode ",
+        "focus assist ",
+        "do not disturb ",
+        "quiet hours ",
+        "dnd ",
+        "camera ",
+        "microphone ",
+        "mic ",
+        "display mode ",
+        "duplicate screen ",
+        "extend screen ",
+        "pc screen only",
+        "second screen only",
+        "volume ",
+        "brightness ",
+        "mute",
+        "unmute",
+        "turn on ",
+        "turn off ",
+        "switch on ",
+        "switch off ",
+        "press ",
+        "click ",
+    )
+    return lowered.startswith(command_roots)
+
+
+def _execute_tool_command_for_chat(command, source="chat-tool"):
+    if _is_risky_command(command):
+        return (
+            f"I can do that, but I need confirmation first: {command}",
+            command,
+            [],
+            _create_confirmation(command, source=source),
+        )
+
+    tool_messages = _capture_command_reply(command)
+    if not tool_messages:
+        return "Command completed.", command, [], None
+    if len(tool_messages) == 1:
+        return tool_messages[0], command, tool_messages, None
+    return " ".join(tool_messages), command, tool_messages, None
+
+
 def _run_tool_aware_reply(history, user_message):
+    if _looks_like_direct_action_input(user_message):
+        command = _compact_text(user_message)
+        return _execute_tool_command_for_chat(command, source="chat-direct")
+
     first_pass = generate_chat_reply(
         history,
         user_message,
@@ -980,15 +1126,13 @@ def _run_tool_aware_reply(history, user_message):
         command = _compact_text(first_pass.replace("TOOL:", "", 1))
         if not _looks_like_tool_command(command):
             return command or first_pass, None, [], None
-        if _is_risky_command(command):
-            return (
-                f"I can do that, but I need confirmation first: {command}",
-                command,
-                [],
-                _create_confirmation(command, source="chat-tool"),
-            )
-        tool_messages = _capture_command_reply(command)
-        tool_summary = "\n".join(tool_messages)
+        command_reply, tool_command, tool_messages, confirmation_id = _execute_tool_command_for_chat(
+            command,
+            source="chat-tool",
+        )
+        if confirmation_id:
+            return command_reply, tool_command, tool_messages, confirmation_id
+        tool_summary = "\n".join(tool_messages) or command_reply
         bridge_message = (
             f"User request: {user_message}\n"
             f"Tool command used: {command}\n"
@@ -1304,6 +1448,21 @@ def _build_ui_state():
         for item in proactive_state.get("suggestions", [])[:2]:
             notifications.append({"level": "suggestion", "text": item["text"]})
 
+    automation_tick = _safe_call(
+        lambda: run_due_automation_rules(force=False),
+        {"checked": 0, "executed": [], "failed": [], "skipped": []},
+    )
+    for item in (automation_tick.get("executed") or [])[:2]:
+        notifications.append(
+            {
+                "level": "info",
+                "text": (
+                    f"Automation ran: {item.get('rule', 'automation')} "
+                    f"- {item.get('message', 'completed')}"
+                ),
+            }
+        )
+
     nextgen_state = _safe_call(
         nextgen_status_snapshot,
         {
@@ -1408,6 +1567,7 @@ def _build_ui_state():
         "object_history": _safe_call(get_detection_history, []),
         "object_watch_history": _safe_call(get_watch_event_history, []),
         "nextgen": nextgen_state,
+        "automation": automation_tick,
     }
 
 
@@ -1706,6 +1866,31 @@ def chat_reply(request: ChatRequest):
     prompt_message = _build_chat_input(session, message)
 
     try:
+        if _looks_like_direct_action_input(message):
+            direct_reply, tool_command, tool_messages, confirmation_id = _execute_tool_command_for_chat(
+                _compact_text(message),
+                source="chat-direct",
+            )
+            assistant_item = _history_item(
+                "assistant",
+                direct_reply.strip() or "I could not generate a reply right now.",
+            )
+            if tool_command:
+                assistant_item["tool"] = {"command": tool_command, "messages": tool_messages}
+            if confirmation_id:
+                assistant_item["confirmation_id"] = confirmation_id
+            session["messages"].append(assistant_item)
+            session["messages"] = _trim_messages(session["messages"])
+            session["updated_at"] = _utc_now()
+            _save_chat_state()
+            return {
+                "ok": True,
+                "reply": assistant_item["content"],
+                "message": assistant_item,
+                "messages": session["messages"],
+                "session": session,
+            }
+
         reply, tool_command, tool_messages, confirmation_id = _run_tool_aware_reply(session["messages"][:-1], prompt_message)
         assistant_item = _history_item("assistant", reply)
         if tool_command:
@@ -1736,6 +1921,25 @@ def regenerate_reply(request: RegenerateRequest):
     last_user_message = messages[-1]["content"]
     prompt_message = _build_chat_input(session, last_user_message)
     try:
+        if _looks_like_direct_action_input(last_user_message):
+            direct_reply, tool_command, tool_messages, confirmation_id = _execute_tool_command_for_chat(
+                _compact_text(last_user_message),
+                source="chat-direct-regenerate",
+            )
+            assistant_item = _history_item(
+                "assistant",
+                direct_reply.strip() or "I could not generate a reply right now.",
+            )
+            if tool_command:
+                assistant_item["tool"] = {"command": tool_command, "messages": tool_messages}
+            if confirmation_id:
+                assistant_item["confirmation_id"] = confirmation_id
+            messages.append(assistant_item)
+            session["messages"] = _trim_messages(messages)
+            session["updated_at"] = _utc_now()
+            _save_chat_state()
+            return {"ok": True, "message": assistant_item, "session": session}
+
         reply, tool_command, tool_messages, confirmation_id = _run_tool_aware_reply(messages[:-1], prompt_message)
         assistant_item = _history_item("assistant", reply)
         if tool_command:
@@ -1775,6 +1979,36 @@ async def chat_stream(request: ChatRequest):
         full_reply = ""
         confirmation_id = None
         try:
+            if _looks_like_direct_action_input(message):
+                direct_reply, tool_command, tool_messages, confirmation_id = _execute_tool_command_for_chat(
+                    _compact_text(message),
+                    source="chat-direct-stream",
+                )
+                assistant_item = _history_item(
+                    "assistant",
+                    direct_reply.strip() or "I could not generate a reply right now.",
+                )
+                if tool_command:
+                    assistant_item["tool"] = {"command": tool_command, "messages": tool_messages}
+                if confirmation_id:
+                    assistant_item["confirmation_id"] = confirmation_id
+                session["messages"].append(assistant_item)
+                session["messages"] = _trim_messages(session["messages"])
+                session["updated_at"] = _utc_now()
+                _save_chat_state()
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "type": "done",
+                            "message": assistant_item,
+                            "session": {"id": session["id"], "title": session["title"]},
+                        }
+                    )
+                    + "\n\n"
+                )
+                return
+
             for chunk in stream_chat_reply(
                 history_snapshot,
                 prompt_message,

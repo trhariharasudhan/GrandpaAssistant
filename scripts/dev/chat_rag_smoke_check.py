@@ -103,6 +103,16 @@ def run_chat_and_rag_flow():
         stream_ok = response.status_code == 200 and '"type": "chunk"' in stream_text and '"type": "done"' in stream_text
         checks.append(("Streaming reply", stream_ok))
 
+        with client.stream("POST", "/chat/stream", json={"message": "nextgen status", "session_id": session_id}) as response:
+            direct_tool_stream_text = "".join(chunk for chunk in response.iter_text())
+        direct_tool_stream_ok = (
+            response.status_code == 200
+            and '"type": "done"' in direct_tool_stream_text
+            and '"type": "chunk"' not in direct_tool_stream_text
+            and "Nextgen feature status" in direct_tool_stream_text
+        )
+        checks.append(("Direct command stream route", direct_tool_stream_ok))
+
         rename = client.post("/chat/sessions/rename", json={"session_id": session_id, "title": "Smoke Session Renamed"})
         rename_ok = rename.status_code == 200 and rename.json().get("ok") is True
         checks.append(("Session rename", rename_ok))
@@ -153,6 +163,7 @@ def run_chat_and_rag_flow():
         checks.append(("Session delete", delete_ok))
 
         details["stream_excerpt"] = stream_text[:180].replace("\n", " ")
+        details["direct_tool_stream_excerpt"] = direct_tool_stream_text[:180].replace("\n", " ")
         details["rag_reply"] = str(rag_payload.get("reply", ""))
         details["remaining_session"] = second_id
 
@@ -168,6 +179,7 @@ def main():
         _print_result(name, ok)
 
     _print_result("Stream excerpt", True, details.get("stream_excerpt", ""))
+    _print_result("Direct command stream excerpt", True, details.get("direct_tool_stream_excerpt", ""))
     _print_result("RAG reply sample", True, details.get("rag_reply", ""))
     _print_result("Secondary session id", True, details.get("remaining_session", ""))
 

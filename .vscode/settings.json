@@ -1,0 +1,15 @@
+{
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/.pytest_cache": true,
+        ".venv": true,
+        "backend/chat_history.json": true,
+        "backend/data/apps_cache.json": true,
+        "backend/data/assistant.db": true,
+        "backend/data/chat_state.json": true
+    },
+    "search.exclude": {
+        "**/__pycache__": true,
+        ".venv": true
+    }
+}

@@ -179,14 +179,21 @@ def run_nextgen_flow():
         "create automation morning brief when time is 8 am then send daily summary"
     )
     list_automation_reply = _run("list automations")
+    run_automation_reply = _run("run automations now")
+    automation_history_reply = _run("automation history")
     disable_automation_reply = _run("disable automation morning brief")
     checks.append(
         (
             "9) Automation rules",
             _contains(create_automation_reply, "automation created")
             and _contains(list_automation_reply, "automation rules")
+            and _contains(run_automation_reply, "automation run complete")
+            and _contains(automation_history_reply, "automation history")
             and _contains(disable_automation_reply, "disabled"),
-            f"{create_automation_reply} | {list_automation_reply} | {disable_automation_reply}",
+            (
+                f"{create_automation_reply} | {list_automation_reply} | "
+                f"{run_automation_reply} | {automation_history_reply} | {disable_automation_reply}"
+            ),
         )
     )
 

@@ -277,7 +277,7 @@ def handle_visible_screen_action(command):
         return describe_visible_screen_targets()
 
     pattern_map = [
-        (r"^open (?:this )?(?:file|folder|item )?(.+)$", "double", "Opened"),
+        (r"^open (?:this )?(?:file|folder|item)\s+(.+)$", "double", "Opened"),
         (r"^double click (?:this )?(?:file|folder|item )?(.+)$", "double", "Double-clicked"),
         (r"^right click (?:this )?(?:file|folder|item )?(.+)$", "right", "Right-clicked"),
         (r"^select (?:this )?(?:file|folder|item )?(.+)$", "single", "Selected"),

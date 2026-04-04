@@ -21,6 +21,7 @@ export default function DashboardSurface({
   const objectAlertProfile = uiState.object_detection?.alert_profile || "balanced";
   const objectAlertCooldown = uiState.object_detection?.watch_alert_cooldown_seconds ?? 8;
   const nextgen = uiState.nextgen || {};
+  const automationTick = uiState.automation || {};
   const nextgenHighlights = (uiState.dashboard?.nextgen_highlights || []).length
     ? uiState.dashboard?.nextgen_highlights || []
     : nextgen.highlights || [];
@@ -243,6 +244,7 @@ export default function DashboardSurface({
           <p>{`Habits: ${nextgen.habits_count ?? 0} | Goals: ${nextgen.goals_count ?? 0} | Milestones: ${nextgen.milestones_done ?? 0}/${nextgen.milestones_total ?? 0}`}</p>
           <p>{`Meetings: ${nextgen.meetings_count ?? 0} | RAG docs: ${nextgen.rag_docs_count ?? 0}`}</p>
           <p>{`Automation: ${nextgen.automation_enabled ?? 0}/${nextgen.automation_total ?? 0} on | Language: ${nextgen.language_mode || "auto"} | Voice: ${nextgen.voice_mode || "normal"}`}</p>
+          <p>{`Automation runs (this tick): ${automationTick.executed?.length || 0} success, ${automationTick.failed?.length || 0} failed`}</p>
           <p>{`Mobile: ${nextgen.mobile_enabled ? `Connected${nextgen.mobile_device ? ` (${nextgen.mobile_device})` : ""}` : "Not connected"}`}</p>
           {nextgenHighlights.length ? (
             <ul className="mini-list compact-list">
@@ -261,6 +263,8 @@ export default function DashboardSurface({
             <button className="action-button" onClick={() => runCommand("meeting summary")}>Meeting Summary</button>
             <button className="action-button" onClick={() => runCommand("rag library summary")}>RAG Library</button>
             <button className="action-button" onClick={() => runCommand("automation rules")}>Automations</button>
+            <button className="action-button" onClick={() => runCommand("run automations now")}>Run Automations</button>
+            <button className="action-button" onClick={() => runCommand("automation history")}>Automation History</button>
             <button className="action-button" onClick={() => runCommand("mobile companion status")}>Mobile Status</button>
           </div>
         </section>

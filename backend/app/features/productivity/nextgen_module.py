@@ -2,6 +2,7 @@ import datetime
 import json
 import os
 import re
+import threading
 import uuid
 
 from productivity.event_module import get_event_data
@@ -42,6 +43,16 @@ VOICE_TRAINER_PRESETS = {
     },
 }
 
+AUTOMATION_HISTORY_LIMIT = 80
+_AUTOMATION_TRIGGER_TIME_PATTERNS = (
+    r"^time\s+is\s+(.+)$",
+    r"^at\s+(.+)$",
+    r"^daily\s+at\s+(.+)$",
+    r"^every\s+day\s+at\s+(.+)$",
+    r"^everyday\s+at\s+(.+)$",
+)
+_DATA_LOCK = threading.RLock()
+
 
 def _default_data():
     return {
@@ -50,6 +61,7 @@ def _default_data():
         "meetings": [],
         "rag_library": {},
         "automation_rules": [],
+        "automation_history": [],
         "mobile_companion": {
             "enabled": False,
             "device_name": "",
@@ -72,36 +84,50 @@ def _clean_text(value):
 
 
 def _load_data():
-    if not os.path.exists(DATA_FILE):
-        return _default_data()
-    try:
-        with open(DATA_FILE, "r", encoding="utf-8") as file:
-            raw = json.load(file)
-    except Exception:
-        return _default_data()
+    with _DATA_LOCK:
+        if not os.path.exists(DATA_FILE):
+            return _default_data()
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as file:
+                raw = json.load(file)
+        except Exception:
+            return _default_data()
 
-    data = _default_data()
-    if isinstance(raw, dict):
-        data.update({key: value for key, value in raw.items() if key in data})
-    if not isinstance(data.get("rag_library"), dict):
-        data["rag_library"] = {}
-    if not isinstance(data.get("automation_rules"), list):
-        data["automation_rules"] = []
-    if not isinstance(data.get("habits"), list):
-        data["habits"] = []
-    if not isinstance(data.get("goals"), list):
-        data["goals"] = []
-    if not isinstance(data.get("meetings"), list):
-        data["meetings"] = []
-    if not isinstance(data.get("mobile_companion"), dict):
-        data["mobile_companion"] = _default_data()["mobile_companion"]
-    return data
+        data = _default_data()
+        if isinstance(raw, dict):
+            data.update({key: value for key, value in raw.items() if key in data})
+        if not isinstance(data.get("rag_library"), dict):
+            data["rag_library"] = {}
+        if not isinstance(data.get("automation_rules"), list):
+            data["automation_rules"] = []
+        if not isinstance(data.get("automation_history"), list):
+            data["automation_history"] = []
+        if not isinstance(data.get("habits"), list):
+            data["habits"] = []
+        if not isinstance(data.get("goals"), list):
+            data["goals"] = []
+        if not isinstance(data.get("meetings"), list):
+            data["meetings"] = []
+        if not isinstance(data.get("mobile_companion"), dict):
+            data["mobile_companion"] = _default_data()["mobile_companion"]
+
+        for rule in data["automation_rules"]:
+            if not isinstance(rule, dict):
+                continue
+            rule.setdefault("enabled", True)
+            rule.setdefault("last_run_at", "")
+            rule.setdefault("last_run_key", "")
+            rule.setdefault("last_run_status", "never")
+            rule.setdefault("last_run_message", "")
+            rule.setdefault("run_count", 0)
+        return data
 
 
 def _save_data(data):
-    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-    with open(DATA_FILE, "w", encoding="utf-8") as file:
-        json.dump(data, file, indent=2, ensure_ascii=False)
+    with _DATA_LOCK:
+        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+        with open(DATA_FILE, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=2, ensure_ascii=False)
 
 
 def _parse_due_datetime(reminder):
@@ -222,6 +248,230 @@ def _find_by_title(items, title):
         if name == query or query in name:
             return item
     return None
+
+
+def _normalize_time_text(raw_value):
+    text = _clean_text(raw_value).lower().replace(".", "")
+    text = re.sub(r"(\d)(am|pm)$", r"\1 \2", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _parse_trigger_time(trigger_text):
+    raw = _clean_text(trigger_text).lower()
+    if not raw:
+        return None
+
+    candidate = raw
+    for pattern in _AUTOMATION_TRIGGER_TIME_PATTERNS:
+        match = re.match(pattern, raw)
+        if match:
+            candidate = match.group(1)
+            break
+    candidate = _normalize_time_text(candidate)
+    formats = [
+        "%I:%M %p",
+        "%I %p",
+        "%H:%M",
+        "%H",
+    ]
+    for pattern in formats:
+        try:
+            parsed = datetime.datetime.strptime(candidate, pattern)
+            return parsed.hour, parsed.minute
+        except ValueError:
+            continue
+    return None
+
+
+def _trigger_time_label(hour, minute):
+    return datetime.time(hour=hour, minute=minute).strftime("%I:%M %p")
+
+
+def _evaluate_time_trigger(rule, now, force=False):
+    if force:
+        stamp = now.strftime("%Y-%m-%dT%H:%M:%S")
+        return {
+            "due": True,
+            "run_key": f"force:{stamp}",
+            "reason": "manual-force",
+            "target_label": "forced",
+            "target_hour": now.hour,
+            "target_minute": now.minute,
+        }
+
+    trigger = _clean_text(rule.get("trigger")).lower()
+    parsed = _parse_trigger_time(trigger)
+    if parsed is None:
+        return {
+            "due": False,
+            "run_key": "",
+            "reason": "unsupported-trigger",
+            "target_label": trigger or "unknown",
+            "target_hour": None,
+            "target_minute": None,
+        }
+    hour, minute = parsed
+    due = now.hour == hour and now.minute == minute
+    return {
+        "due": due,
+        "run_key": f"{now.date().isoformat()}@{hour:02d}:{minute:02d}",
+        "reason": "time-match" if due else "not-due",
+        "target_label": _trigger_time_label(hour, minute),
+        "target_hour": hour,
+        "target_minute": minute,
+    }
+
+
+def _execute_automation_action(action_text):
+    action = _clean_text(action_text)
+    lowered = action.lower()
+    if not lowered:
+        return False, "Automation action is empty."
+
+    if "send daily summary" in lowered or "daily brief" in lowered:
+        from productivity.briefing_module import build_brief_details
+
+        return True, build_brief_details()
+
+    if "show proactive suggestions" in lowered or "proactive suggestions" in lowered:
+        from productivity.proactive_suggestion_engine import generate_proactive_suggestions
+
+        suggestions = generate_proactive_suggestions("default") or []
+        lines = [
+            str(item.get("text"))
+            for item in suggestions
+            if isinstance(item, dict) and item.get("text")
+        ]
+        if lines:
+            return True, "Proactive suggestions refreshed: " + " | ".join(lines[:3])
+        return True, "Proactive suggestions refreshed."
+
+    if "smart reminder priority" in lowered or "prioritize reminders" in lowered:
+        return True, smart_reminder_priority_summary()
+
+    if "generate ai day plan" in lowered or "ai day plan" in lowered or "day plan with ai" in lowered:
+        plan = generate_ai_day_plan()
+        return True, plan.get("summary") or "AI day plan generated."
+
+    if "habit dashboard" in lowered:
+        return True, habit_dashboard_summary()
+
+    if "goal board" in lowered:
+        return True, goal_board_summary()
+
+    if "meeting summary" in lowered:
+        return True, meeting_mode_summary()
+
+    if "rag library summary" in lowered or "show rag library" in lowered:
+        return True, rag_library_summary()
+
+    if "mobile companion status" in lowered:
+        return True, mobile_companion_status()
+
+    send_mobile_match = re.match(r"^send\s+mobile\s+update\s+(.+)$", action, flags=re.IGNORECASE)
+    if send_mobile_match:
+        return True, send_mobile_update(send_mobile_match.group(1).strip())
+
+    return False, (
+        "Unsupported automation action. Supported examples: "
+        "send daily summary, show proactive suggestions, smart reminder priority, "
+        "generate ai day plan."
+    )
+
+
+def _append_automation_history(data, record):
+    history = data.setdefault("automation_history", [])
+    history.append(record)
+    if len(history) > AUTOMATION_HISTORY_LIMIT:
+        del history[:-AUTOMATION_HISTORY_LIMIT]
+
+
+def run_due_automation_rules(force=False, now=None):
+    with _DATA_LOCK:
+        moment = now or datetime.datetime.now()
+        data = _load_data()
+        rules = data.get("automation_rules") or []
+
+        executed = []
+        skipped = []
+        failed = []
+        changed = False
+
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+
+            rule_name = _clean_text(rule.get("name")) or "automation"
+            if not rule.get("enabled", True):
+                skipped.append({"rule": rule_name, "reason": "disabled"})
+                continue
+
+            trigger_state = _evaluate_time_trigger(rule, moment, force=force)
+            if not trigger_state.get("due"):
+                skipped.append({"rule": rule_name, "reason": trigger_state.get("reason", "not-due")})
+                continue
+
+            run_key = _clean_text(trigger_state.get("run_key"))
+            if not force and run_key and _clean_text(rule.get("last_run_key")) == run_key:
+                skipped.append({"rule": rule_name, "reason": "already-executed"})
+                continue
+
+            ok, message = _execute_automation_action(rule.get("action", ""))
+            history_record = {
+                "id": str(uuid.uuid4()),
+                "rule_id": _clean_text(rule.get("id")) or "",
+                "rule_name": rule_name,
+                "trigger": _clean_text(rule.get("trigger")) or "",
+                "action": _clean_text(rule.get("action")) or "",
+                "executed_at": _utc_now(),
+                "status": "success" if ok else "failed",
+                "message": _clean_text(message),
+                "run_key": run_key,
+            }
+            _append_automation_history(data, history_record)
+
+            rule["last_run_at"] = history_record["executed_at"]
+            rule["last_run_key"] = run_key
+            rule["last_run_status"] = "success" if ok else "failed"
+            rule["last_run_message"] = history_record["message"]
+            if ok:
+                rule["run_count"] = int(rule.get("run_count") or 0) + 1
+                executed.append(
+                    {
+                        "rule": rule_name,
+                        "message": history_record["message"],
+                        "target_time": trigger_state.get("target_label", ""),
+                    }
+                )
+            else:
+                failed.append({"rule": rule_name, "message": history_record["message"]})
+            rule["updated_at"] = _utc_now()
+            changed = True
+
+        if changed:
+            _save_data(data)
+
+        return {
+            "checked": len([rule for rule in rules if isinstance(rule, dict)]),
+            "executed": executed,
+            "failed": failed,
+            "skipped": skipped,
+        }
+
+
+def automation_history_summary(limit=5):
+    data = _load_data()
+    history = data.get("automation_history") or []
+    if not history:
+        return "Automation history is empty."
+    lines = []
+    for item in reversed(history[-limit:]):
+        rule_name = _clean_text(item.get("rule_name")) or "automation"
+        status = _clean_text(item.get("status")) or "unknown"
+        message = _clean_text(item.get("message")) or "No message."
+        lines.append(f"{rule_name} [{status}] - {message}")
+    return "Automation history: " + " | ".join(lines)
 
 
 def add_habit(name):
@@ -594,29 +844,45 @@ def create_automation_rule(name, trigger, action):
     clean_action = _clean_text(action)
     if not clean_name or not clean_trigger or not clean_action:
         return "Use create automation <name> when <trigger> then <action>."
+    parsed_trigger = _parse_trigger_time(clean_trigger)
+    if parsed_trigger is None:
+        return (
+            "Trigger format not supported. Try: time is 8 am, at 09:30 pm, "
+            "or daily at 07:15."
+        )
     data = _load_data()
     rules = data["automation_rules"]
     existing = _find_by_title(rules, clean_name)
+    target_label = _trigger_time_label(parsed_trigger[0], parsed_trigger[1])
     if existing:
         existing["trigger"] = clean_trigger
         existing["action"] = clean_action
         existing["enabled"] = True
         existing["updated_at"] = _utc_now()
+        existing["trigger_type"] = "daily_time"
+        existing["trigger_time"] = f"{parsed_trigger[0]:02d}:{parsed_trigger[1]:02d}"
         _save_data(data)
-        return f"Automation updated: {clean_name}."
+        return f"Automation updated: {clean_name}. Runs daily at {target_label}."
     rules.append(
         {
             "id": str(uuid.uuid4()),
             "name": clean_name,
             "trigger": clean_trigger,
+            "trigger_type": "daily_time",
+            "trigger_time": f"{parsed_trigger[0]:02d}:{parsed_trigger[1]:02d}",
             "action": clean_action,
             "enabled": True,
             "created_at": _utc_now(),
             "updated_at": _utc_now(),
+            "last_run_at": "",
+            "last_run_key": "",
+            "last_run_status": "never",
+            "last_run_message": "",
+            "run_count": 0,
         }
     )
     _save_data(data)
-    return f"Automation created: {clean_name}."
+    return f"Automation created: {clean_name}. Runs daily at {target_label}."
 
 
 def list_automation_rules(limit=10):
@@ -626,8 +892,15 @@ def list_automation_rules(limit=10):
     lines = []
     for rule in rules[:limit]:
         status = "on" if rule.get("enabled", True) else "off"
+        run_status = _clean_text(rule.get("last_run_status")) or "never"
+        run_count = int(rule.get("run_count") or 0)
+        trigger_time = _clean_text(rule.get("trigger_time"))
+        trigger_label = trigger_time if trigger_time else rule.get("trigger", "")
+        last_run_at = _clean_text(rule.get("last_run_at"))
+        last_run_label = last_run_at[:16].replace("T", " ") if last_run_at else "never"
         lines.append(
-            f"{rule.get('name', 'Rule')} [{status}] when {rule.get('trigger', '')} then {rule.get('action', '')}"
+            f"{rule.get('name', 'Rule')} [{status}] at {trigger_label} -> {rule.get('action', '')} "
+            f"(last {run_status}, runs {run_count}, last at {last_run_label})"
         )
     return "Automation rules: " + " | ".join(lines)
 
@@ -702,6 +975,7 @@ def nextgen_status_snapshot():
     meetings = data.get("meetings") or []
     rag_library = data.get("rag_library") or {}
     rules = data.get("automation_rules") or []
+    automation_history = data.get("automation_history") or []
     mobile = data.get("mobile_companion") or {}
 
     total_milestones = 0
@@ -712,6 +986,13 @@ def nextgen_status_snapshot():
         done_milestones += sum(1 for item in milestones if item.get("done"))
 
     enabled_rules = sum(1 for rule in rules if rule.get("enabled", True))
+    last_automation_event = automation_history[-1] if automation_history else {}
+    last_automation_label = (
+        f"{_clean_text(last_automation_event.get('rule_name'))} "
+        f"[{_clean_text(last_automation_event.get('status'))}]"
+        if last_automation_event
+        else "No automation executions yet"
+    )
     language_mode = get_language_mode()
     voice_mode = _clean_text(get_setting("voice.mode", "normal")) or "normal"
     day_plan_summary = _clean_text(day_plan.get("summary")) or "No AI day plan generated yet."
@@ -727,6 +1008,7 @@ def nextgen_status_snapshot():
         f"Meetings captured: {len(meetings)}",
         f"RAG docs tagged: {len(rag_library)}",
         f"Automation rules: {enabled_rules}/{len(rules)} enabled",
+        f"Last automation: {last_automation_label}",
         (
             "Mobile companion: active"
             + (f" ({mobile_device})" if mobile_device else "")
@@ -745,6 +1027,8 @@ def nextgen_status_snapshot():
         "rag_docs_count": len(rag_library),
         "automation_total": len(rules),
         "automation_enabled": enabled_rules,
+        "automation_history_count": len(automation_history),
+        "last_automation_event": last_automation_event,
         "language_mode": language_mode,
         "voice_mode": voice_mode,
         "mobile_enabled": mobile_enabled,

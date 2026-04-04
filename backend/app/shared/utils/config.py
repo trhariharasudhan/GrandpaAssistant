@@ -40,8 +40,8 @@ DEFAULT_SETTINGS = {
     },
     "sounds": {
         "enabled": True,
-        "start": True,
-        "success": True,
+        "start": False,
+        "success": False,
         "error": True,
     },
     "startup": {
@@ -49,10 +49,14 @@ DEFAULT_SETTINGS = {
         "auto_launch_enabled": False,
         "react_ui_on_tray_enabled": False,
         "react_ui_on_tray_mode": "browser",
+        "interface_mode": "terminal",
+        "terminal_input_mode": "text",
+        "show_installed_apps_on_boot": False,
     },
     "assistant": {
-        "persona": "friendly",
+        "persona": "casual",
         "model": "phi3",
+        "chatgpt_mode_full": True,
         "compact_voice_replies": True,
         "offline_mode_enabled": False,
         "developer_mode_enabled": False,
