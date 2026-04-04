@@ -143,6 +143,34 @@ def get_all_memory_entries():
     return {row["path"]: json.loads(row["value_json"]) for row in rows}
 
 
+def get_memory_rows():
+    initialize_database()
+    migrate_legacy_memory()
+
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            """
+            SELECT path, value_json, updated_at
+            FROM memory_entries
+            ORDER BY updated_at DESC, path ASC
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+
+    items = []
+    for row in rows:
+        items.append(
+            {
+                "path": row["path"],
+                "value": json.loads(row["value_json"]),
+                "updated_at": row["updated_at"],
+            }
+        )
+    return items
+
+
 def log_command(command_text, source="unknown"):
     initialize_database()
 

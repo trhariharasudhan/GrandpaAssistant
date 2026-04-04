@@ -12,10 +12,20 @@ export default function DashboardSurface({
 }) {
   const proactive = uiState.proactive || {};
   const proactiveSuggestions = proactive.suggestions || [];
+  const hardware = uiState.integrations?.hardware || {};
+  const hardwareCapabilities = hardware.capabilities || {};
   const smartHome = uiState.integrations?.smart_home || {};
+  const smartHomeConfiguredDevices = smartHome.configured_devices || [];
+  const smartHomeDiscoveredDevices = smartHome.discovered_devices || [];
+  const smartHomeRecentActions = smartHome.recent_actions || [];
   const faceSecurity = uiState.integrations?.face_security || {};
   const voiceSettings = voiceStatus.settings || {};
   const voiceDiagnostics = voiceStatus.diagnostics || {};
+  const sttStatus = voiceStatus.stt || {};
+  const ttsStatus = voiceStatus.tts || {};
+  const piperStatus = ttsStatus.piper || {};
+  const piperSetup = piperStatus.setup || {};
+  const piperModels = piperSetup.available_models || [];
   const plannerFocusSuggestions = uiState.dashboard?.focus_suggestions || [];
   const reminderTimeline = uiState.dashboard?.reminder_timeline || {};
   const objectAlertProfile = uiState.object_detection?.alert_profile || "balanced";
@@ -165,12 +175,56 @@ export default function DashboardSurface({
               {mode === "voice" ? (
                 <>
                   <small>{`Wake word: ${voiceStatus.wake_word || "hey grandpa"} | State: ${voiceStatus.state_label || "ready"}${voiceStatus.follow_up_active ? ` | Follow-up: ${voiceStatus.follow_up_remaining}s` : ""}`}</small>
-                  <small>{`Threshold: ${voiceSettings.wake_match_threshold ?? 0.68} | Retry: ${voiceSettings.wake_retry_window_seconds ?? 6}s | Fallback: ${voiceSettings.wake_direct_fallback_enabled ? "On" : "Off"}`}</small>
-                  <small>{`Follow-up listen: ${voiceSettings.follow_up_listen_timeout ?? 3}s | Interrupt hold: ${voiceSettings.interrupt_follow_up_seconds ?? 5}s`}</small>
+                  <small>{`Threshold: ${voiceSettings.wake_match_threshold ?? 0.68} | Retry: ${voiceSettings.wake_retry_window_seconds ?? 6}s | Strict wake: ${voiceSettings.wake_requires_prefix ? "On" : "Off"}`}</small>
+                  <small>{`Prefix window: ${voiceSettings.wake_max_prefix_words ?? 1} word(s) | Follow-up listen: ${voiceSettings.follow_up_listen_timeout ?? 3}s | Interrupt hold: ${voiceSettings.interrupt_follow_up_seconds ?? 5}s`}</small>
+                  <small>{`Continuous conversation: ${voiceSettings.continuous_conversation_enabled ? "On" : "Off"} | Keep alive: ${voiceSettings.follow_up_keep_alive_seconds ?? 12}s | Fallback: ${voiceSettings.wake_direct_fallback_enabled ? "On" : "Off"}`}</small>
+                  <small>{`STT: ${sttStatus.resolved_backend || "auto"} | TTS: ${ttsStatus.resolved_backend || "auto"} | Piper: ${piperStatus.ready ? "Ready" : "Not ready"} (${piperModels.length} model${piperModels.length === 1 ? "" : "s"} found)`}</small>
                   <small>{`Wake hits: ${voiceDiagnostics.wake_detection_count || 0} | Commands: ${voiceDiagnostics.command_count || 0} | Interrupts: ${voiceDiagnostics.interrupt_count || 0}`}</small>
                 </>
               ) : null}
             </div>
+          </div>
+        </section>
+
+        <section className="dashboard-card">
+          <div className="dashboard-card-head">
+            <h3>Hardware & IoT</h3>
+            <button className="ghost-button" onClick={() => runCommand("iot inventory")}>
+              Refresh
+            </button>
+          </div>
+          <p>{hardwareCapabilities.summary || "Hardware summary unavailable."}</p>
+          <p>{smartHome.summary || "Smart Home status unavailable."}</p>
+          <p>{`Hardware devices: ${hardware.device_count || 0} | Discovered smart devices: ${smartHome.discovered_count || 0} | Control ready: ${smartHome.control_ready_count || 0}`}</p>
+          <p>{`Configured devices: ${smartHome.device_count || 0} | Commands: ${smartHome.command_count || 0} | Enabled: ${smartHome.enabled ? "Yes" : "No"}`}</p>
+          {smartHomeConfiguredDevices.length ? (
+            <ul className="mini-list compact-list">
+              {smartHomeConfiguredDevices.slice(0, 3).map((item) => (
+                <li key={`configured-iot-${item.name}`}>{`${item.name} (${(item.commands || []).length} command${(item.commands || []).length === 1 ? "" : "s"})`}</li>
+              ))}
+            </ul>
+          ) : null}
+          {smartHomeDiscoveredDevices.length ? (
+            <ul className="mini-list compact-list">
+              {smartHomeDiscoveredDevices.slice(0, 3).map((item) => (
+                <li key={`discovered-iot-${item.id}`}>{`${item.name}${item.hostname ? ` (${item.hostname})` : ""}${item.control_ready ? " - control ready" : ""}`}</li>
+              ))}
+            </ul>
+          ) : null}
+          {smartHomeRecentActions.length ? (
+            <ul className="mini-list compact-list">
+              {smartHomeRecentActions.slice(0, 2).map((item, index) => (
+                <li key={`iot-action-${index}`}>{`${item.matched_command || item.input}: ${item.ok ? "ok" : "failed"}`}</li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="action-grid compact two-col">
+            <button className="action-button" onClick={() => runCommand("smart home status")}>Smart Home Status</button>
+            <button className="action-button" onClick={() => runCommand("iot inventory")}>IoT Inventory</button>
+            <button className="action-button" onClick={() => runCommand("iot action history")}>IoT History</button>
+            <button className="action-button" onClick={() => runCommand("piper setup status")}>Piper Setup</button>
+            <button className="action-button" onClick={() => runCommand("use piper voice")}>Use Piper Voice</button>
+            <button className="action-button" onClick={() => runCommand("voice diagnostics")}>Voice Diagnostics</button>
           </div>
         </section>
 
@@ -323,6 +377,7 @@ export default function DashboardSurface({
             <h3>Integrations</h3>
           </div>
           <p>{smartHome.summary || "Smart Home status unavailable."}</p>
+          <p>{`Example config: ${smartHome.config_example_path || "Unavailable"}`}</p>
           <p>{faceSecurity.summary || "Face security status unavailable."}</p>
           <div className="command-chips">
             {(smartHome.sample_commands || []).slice(0, 3).map((item) => (
@@ -333,6 +388,7 @@ export default function DashboardSurface({
           </div>
           <div className="action-grid compact two-col">
             <button className="action-button" onClick={() => runCommand("smart home status")}>Smart Home Status</button>
+            <button className="action-button" onClick={() => runCommand("smart home setup help")}>IoT Setup Help</button>
             <button className="action-button" onClick={() => runCommand("face security status")}>Face Security</button>
             <button className="action-button" onClick={() => runCommand("enroll my face")}>Enroll Face</button>
             <button className="action-button" onClick={() => runCommand("verify my face")}>Verify Face</button>

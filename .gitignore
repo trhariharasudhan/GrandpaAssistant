@@ -29,11 +29,16 @@ backend/data/assistant.db
 backend/data/*.db-shm
 backend/data/*.db-wal
 backend/data/chat_state.json
+backend/data/hardware_devices.json
 backend/data/nextgen_features.json
 backend/data/tasks.json
 backend/data/emergency_credentials.json
 backend/data/iot_credentials.json
+backend/data/iot_action_history.json
 backend/data/face_profile.json
+backend/data/piper/
+backend/data/voices/
+models/piper/
 /package-lock.json
 temp_*_report*.json
 temp_run_output*.txt

@@ -12,6 +12,7 @@ from brain.database import (
     migrate_legacy_memory,
     set_memory_value,
 )
+from brain.semantic_memory import search_semantic_memory
 
 # -------- STOP WORDS (ignore these words in questions) --------
 STOP_WORDS = [
@@ -890,5 +891,19 @@ def search_memory(question):
         formatted_value = _format_memory_value(value)
         verb = "are" if isinstance(value, list) else "is"
         return f"Your {field} {verb} {formatted_value}."
+
+    semantic_results = search_semantic_memory(question, limit=3)
+    if semantic_results:
+        best_match = semantic_results[0]
+        path = best_match["path"]
+        value = best_match["value"]
+        custom_response = _custom_memory_response(normalized_question, path, value, memory)
+        if custom_response:
+            return custom_response
+
+        field = _humanize_label(path)
+        formatted_value = _format_memory_value(value)
+        verb = "are" if isinstance(value, list) else "is"
+        return f"From your saved memory, your {field} {verb} {formatted_value}."
 
     return None

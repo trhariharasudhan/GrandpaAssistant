@@ -26,6 +26,7 @@ export default function SidebarPanels({
 }) {
   const proactive = uiState.proactive || {};
   const proactiveSuggestions = proactive.suggestions || [];
+  const hardware = uiState.integrations?.hardware || {};
   const smartHome = uiState.integrations?.smart_home || {};
   const faceSecurity = uiState.integrations?.face_security || {};
 
@@ -204,7 +205,9 @@ export default function SidebarPanels({
 
       <SectionCard title="Integrations">
         <ul className="mini-list compact-list">
+          <li>{hardware.capabilities?.summary || "Hardware status unavailable."}</li>
           <li>{smartHome.summary || "Smart Home status unavailable."}</li>
+          <li>{`Smart devices: ${smartHome.discovered_count || 0} | Control ready: ${smartHome.control_ready_count || 0}`}</li>
           <li>{faceSecurity.summary || "Face security status unavailable."}</li>
         </ul>
         <div className="command-chips">
@@ -216,6 +219,8 @@ export default function SidebarPanels({
         </div>
         <div className="action-grid">
           <button className="action-button" onClick={() => runCommand("smart home status")}>Smart Home</button>
+          <button className="action-button" onClick={() => runCommand("iot inventory")}>IoT Inventory</button>
+          <button className="action-button" onClick={() => runCommand("piper setup status")}>Piper Setup</button>
           <button className="action-button" onClick={() => runCommand("face security status")}>Face Security</button>
           <button className="action-button" onClick={() => runCommand("enroll my face")}>Enroll Face</button>
           <button className="action-button" onClick={() => runCommand("verify my face")}>Verify Face</button>

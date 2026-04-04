@@ -9,17 +9,21 @@ opencv-python
 playsound==1.2.2
 Pillow
 psutil
+paho-mqtt
+pyudev
 PyAudio
 pyautogui
 pycaw
 pygetwindow
 pyjokes
 pystray
+pywin32
 pypdf
 pytesseract
 pyttsx3
 requests
 screen_brightness_control
+sounddevice
 SpeechRecognition
 Wikipedia-API
 google-api-python-client
@@ -34,3 +38,4 @@ python-multipart
 vaderSentiment
 uvicorn
 ultralytics
+wmi

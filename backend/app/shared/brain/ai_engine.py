@@ -7,6 +7,7 @@ import time
 import requests
 
 from brain.memory_engine import get_memory
+from brain.semantic_memory import get_semantic_memory_lines
 from llm_client import generate_chat_reply, load_env_file
 from utils.config import get_setting
 
@@ -127,6 +128,12 @@ def _build_prompt(prompt, compact=False):
     if memory_lines:
         formatted_prompt += "\nRemembered user context:\n"
         for line in memory_lines:
+            formatted_prompt += f"- {line}\n"
+
+    semantic_memory_lines = get_semantic_memory_lines(prompt, limit=3)
+    if semantic_memory_lines:
+        formatted_prompt += "\nAdditional relevant saved memory:\n"
+        for line in semantic_memory_lines:
             formatted_prompt += f"- {line}\n"
 
     if conversation_history:

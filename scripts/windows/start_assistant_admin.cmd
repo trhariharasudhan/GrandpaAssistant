@@ -2,7 +2,8 @@
 setlocal
 
 set "ROOT=%~dp0..\.."
-set "PYTHON_EXE=%ROOT%\.venv\Scripts\python.exe"
+set "PYTHON_EXE=%ROOT%\.python311\python.exe"
+if not exist "%PYTHON_EXE%" set "PYTHON_EXE=%ROOT%\.venv\Scripts\python.exe"
 if not exist "%PYTHON_EXE%" set "PYTHON_EXE=python"
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^

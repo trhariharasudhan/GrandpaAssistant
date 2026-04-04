@@ -23,6 +23,10 @@ from brain.memory_engine import (
     update_named_contact_field,
     update_memory_field,
 )
+from brain.semantic_memory import (
+    semantic_memory_search_summary,
+    semantic_memory_status_summary,
+)
 import pyperclip
 from brain.question_analyzer import is_personal_question
 from core.intent_router import try_handle_intent
@@ -184,6 +188,8 @@ from controls.brightness_control import handle_brightness
 from controls.volume_control import handle_volume, set_volume_percentage
 from utils.sound import play_sound
 from utils.config import APP_ALIASES, get_setting, update_setting
+from device_manager import DEVICE_MANAGER
+from startup_diagnostics import collect_startup_diagnostics, format_startup_diagnostics_report
 from features.productivity.briefing_module import build_brief_details
 from features.productivity.profile_module import build_proactive_nudge
 from features.productivity.proactive_suggestion_engine import (
@@ -199,7 +205,7 @@ from features.productivity.task_module import (
 )
 from features.security.emergency_dispatch import trigger_dual_emergency_protocol
 from features.security.face_verification import enroll_user_face, verify_user_face, is_face_enrolled
-from features.integrations.iot_module import dispatch_iot_command
+from features.integrations.iot_module import dispatch_iot_command, recent_iot_actions, resolve_iot_command, run_iot_command
 from vision.hand_mouse_control import run_hand_mouse
 from vision.object_detection import (
     apply_object_detection_alert_profile,
@@ -246,13 +252,30 @@ from vision.screen_reader import (
     read_screen_text,
     read_selected_area_text,
 )
-from voice.listen import apply_voice_profile, current_voice_mode
-from voice.listen import voice_status_summary
+from voice.listen import (
+    apply_voice_profile,
+    continuous_conversation_enabled,
+    current_voice_mode,
+    set_stt_backend,
+    stt_backend_status_summary,
+    voice_status_summary,
+)
 from voice.speak import (
+    autoconfigure_piper_model,
     append_streaming_reply,
+    clear_piper_config_path,
+    clear_piper_model_path,
     end_streaming_reply,
+    list_piper_models_summary,
+    piper_setup_status_summary,
+    prefer_piper_backend,
+    set_piper_config_path,
+    set_piper_model_path,
+    set_tts_backend,
     speak,
     start_streaming_reply,
+    tts_backend_status_summary,
+    voice_output_status_summary,
 )
 
 mouse_stop_event = None
@@ -263,7 +286,9 @@ pending_confirmation = None
 last_contact_context = {"name": "", "action": ""}
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 IOT_CREDENTIALS_PATH = os.path.join(BACKEND_DIR, "data", "iot_credentials.json")
+IOT_EXAMPLE_PATH = os.path.join(BACKEND_DIR, "data", "iot_credentials.example.json")
 FACE_PROFILE_PATH = os.path.join(BACKEND_DIR, "data", "face_profile.json")
+VOICE_IOT_SETUP_DOC_PATH = os.path.join(os.path.dirname(BACKEND_DIR), "docs", "local-voice-iot-setup.md")
 
 
 def _current_location_text():
@@ -575,6 +600,37 @@ def _smart_home_status_summary():
     return " ".join(summary)
 
 
+def _smart_home_setup_summary():
+    return (
+        f"Smart Home setup help: copy {IOT_EXAMPLE_PATH} to backend data iot_credentials json, "
+        "replace the placeholder values with your local webhook, Home Assistant, or MQTT settings, "
+        "then set enabled to true. "
+        f"Full setup notes are in {VOICE_IOT_SETUP_DOC_PATH}."
+    )
+
+
+def _iot_awareness_summary():
+    return DEVICE_MANAGER.iot_summary()
+
+
+def _iot_knowledge_summary(command: str) -> str | None:
+    return DEVICE_MANAGER.local_response(command)
+
+
+def _iot_action_history_summary() -> str:
+    actions = recent_iot_actions(limit=6)
+    if not actions:
+        return "No recent Smart Home actions were recorded yet."
+    return "Recent Smart Home actions: " + " | ".join(
+        f"{item.get('matched_command', item.get('input', 'command'))}: {'ok' if item.get('ok') else 'failed'}"
+        for item in actions
+    )
+
+
+def _piper_setup_summary():
+    return piper_setup_status_summary()
+
+
 def _face_security_status_summary():
     enrolled = is_face_enrolled()
     if not enrolled:
@@ -598,13 +654,24 @@ def _face_security_status_summary():
 def _voice_diagnostics_summary():
     wake_word = get_setting("wake_word", "hey grandpa")
     mode = current_voice_mode()
+    stt_backend = get_setting("voice.stt_backend", "auto")
+    tts_backend = get_setting("voice.tts_backend", "auto")
+    whisper_model = get_setting("voice.whisper_model", "base")
     post_wake_pause = get_setting("voice.post_wake_pause_seconds", 0.35)
     wake_timeout = get_setting("voice.wake_listen_timeout", 5)
     phrase_limit = get_setting("voice.wake_phrase_time_limit", 4)
     wake_threshold = get_setting("voice.wake_match_threshold", 0.68)
+    wake_requires_prefix = get_setting("voice.wake_requires_prefix", True)
+    wake_max_prefix_words = get_setting("voice.wake_max_prefix_words", 1)
     wake_retry = get_setting("voice.wake_retry_window_seconds", 6)
     follow_up_timeout = get_setting("voice.follow_up_timeout_seconds", 12)
     follow_up_listen_timeout = get_setting("voice.follow_up_listen_timeout", 3)
+    follow_up_keep_alive = get_setting("voice.follow_up_keep_alive_seconds", 12)
+    continuous_voice = get_setting("voice.continuous_conversation_enabled", True)
+    duplicate_window = get_setting("voice.duplicate_command_window_seconds", 4.0)
+    wake_ack_cooldown = get_setting("voice.wake_ack_cooldown_seconds", 2.5)
+    direct_fallback_min_chars = get_setting("voice.direct_fallback_min_chars", 7)
+    direct_fallback_min_words = get_setting("voice.direct_fallback_min_words", 2)
     interrupt_follow_up_seconds = get_setting("voice.interrupt_follow_up_seconds", 5)
     fallback_enabled = get_setting("voice.wake_direct_fallback_enabled", True)
     popup_enabled = get_setting("voice.desktop_popup_enabled", True)
@@ -614,19 +681,43 @@ def _voice_diagnostics_summary():
     return (
         f"Voice diagnostics: wake word is {wake_word}. "
         f"Profile is {mode}. "
+        f"Speech input backend is {stt_backend}. "
+        f"Speech output backend is {tts_backend}. "
+        f"Whisper model is {whisper_model}. "
         f"Post wake pause is {post_wake_pause} seconds. "
         f"Wake listen timeout is {wake_timeout} seconds. "
         f"Wake phrase limit is {phrase_limit} seconds. "
         f"Wake match threshold is {wake_threshold}. "
+        f"Strict wake detection is {'on' if wake_requires_prefix else 'off'}. "
+        f"Wake prefix window is {wake_max_prefix_words} words. "
         f"Wake retry window is {wake_retry} seconds. "
         f"Follow up timeout is {follow_up_timeout} seconds. "
         f"Follow up listen timeout is {follow_up_listen_timeout} seconds. "
+        f"Follow up keep alive is {follow_up_keep_alive} seconds. "
+        f"Continuous conversation is {'on' if continuous_voice else 'off'}. "
+        f"Duplicate command guard is {duplicate_window} seconds. "
+        f"Wake reply cooldown is {wake_ack_cooldown} seconds. "
+        f"Direct fallback minimum is {direct_fallback_min_words} words or {direct_fallback_min_chars} characters. "
         f"Interrupt follow up hold is {interrupt_follow_up_seconds} seconds. "
         f"Direct fallback is {'on' if fallback_enabled else 'off'}. "
         f"Desktop voice popup is {'on' if popup_enabled else 'off'}. "
         f"Desktop voice chime is {'on' if chime_enabled else 'off'}. "
         f"Offline mode is {'on' if offline_mode else 'off'}."
     )
+
+
+def _assistant_doctor_summary(include_ready=False):
+    diagnostics = collect_startup_diagnostics(use_cache=False, allow_create_dirs=False)
+    lines = format_startup_diagnostics_report(diagnostics, include_ready=include_ready)
+    return " ".join(lines)
+
+
+def _semantic_memory_summary():
+    return semantic_memory_status_summary()
+
+
+def _semantic_memory_lookup_summary(query):
+    return semantic_memory_search_summary(query, limit=3)
 
 
 def _build_emergency_alert_message():
@@ -1590,6 +1681,23 @@ def _handle_config_command(command):
         update_setting("voice.wake_match_threshold", threshold_value)
         return f"Wake match threshold updated to {threshold_value}."
 
+    wake_prefix_match = re.match(
+        r"^(?:set|change|update)\s+wake\s+prefix\s+words\s+to\s+(\d+)$",
+        command,
+    )
+    if wake_prefix_match:
+        prefix_words = max(0, min(4, int(wake_prefix_match.group(1))))
+        update_setting("voice.wake_max_prefix_words", prefix_words)
+        return f"Wake prefix window updated to {prefix_words} words."
+
+    if command in ["enable strict wake word", "enable strict wake detection", "turn on strict wake word"]:
+        update_setting("voice.wake_requires_prefix", True)
+        return "Strict wake word detection enabled."
+
+    if command in ["disable strict wake word", "disable strict wake detection", "turn off strict wake word"]:
+        update_setting("voice.wake_requires_prefix", False)
+        return "Strict wake word detection disabled."
+
     wake_retry_match = re.match(
         r"^(?:set|change|update)\s+wake retry window\s+to\s+(\d+(?:\.\d+)?)(?:\s+(?:second|seconds|sec|secs|s))?$",
         command,
@@ -1607,6 +1715,23 @@ def _handle_config_command(command):
         timeout_value = max(3.0, float(follow_up_timeout_match.group(1)))
         update_setting("voice.follow_up_timeout_seconds", timeout_value)
         return f"Follow up timeout updated to {timeout_value} seconds."
+
+    follow_up_keep_alive_match = re.match(
+        r"^(?:set|change|update)\s+follow up keep alive\s+to\s+(\d+(?:\.\d+)?)(?:\s+(?:second|seconds|sec|secs|s))?$",
+        command,
+    )
+    if follow_up_keep_alive_match:
+        timeout_value = max(3.0, float(follow_up_keep_alive_match.group(1)))
+        update_setting("voice.follow_up_keep_alive_seconds", timeout_value)
+        return f"Follow up keep alive updated to {timeout_value} seconds."
+
+    if command in ["enable continuous conversation", "turn on continuous conversation"]:
+        update_setting("voice.continuous_conversation_enabled", True)
+        return "Continuous conversation enabled."
+
+    if command in ["disable continuous conversation", "turn off continuous conversation"]:
+        update_setting("voice.continuous_conversation_enabled", False)
+        return "Continuous conversation disabled."
 
     follow_up_listen_timeout_match = re.match(
         r"^(?:set|change|update)\s+follow up listen timeout\s+to\s+(\d+(?:\.\d+)?)(?:\s+(?:second|seconds|sec|secs|s))?$",
@@ -2502,6 +2627,64 @@ def _handle_config_command(command):
         apply_voice_profile("normal")
         return "Voice mode changed to normal."
 
+    voice_backend_match = re.match(
+        r"^(?:set|change|use|switch\s+to)\s+(?:voice|speech|stt)(?:\s+input)?\s*(?:backend|engine|mode)?\s*(?:to\s+)?(auto|google|whisper)$",
+        command,
+    )
+    if voice_backend_match:
+        selected_backend = voice_backend_match.group(1).strip()
+        if set_stt_backend(selected_backend):
+            return f"Speech input backend set to {selected_backend}."
+        return "I could not change the speech input backend."
+
+    if command in [
+        "voice backend status",
+        "speech backend status",
+        "stt status",
+        "speech input status",
+        "voice input backend",
+    ]:
+        return stt_backend_status_summary()
+
+    tts_backend_match = re.match(
+        r"^(?:set|change|use|switch\s+to)\s+(?:voice|speech|tts)(?:\s+output)?\s*(?:backend|engine|mode)?\s*(?:to\s+)?(auto|sapi|pyttsx3|piper)$",
+        command,
+    )
+    if tts_backend_match:
+        selected_backend = tts_backend_match.group(1).strip()
+        if set_tts_backend(selected_backend):
+            return f"Speech output backend set to {selected_backend}."
+        return "I could not change the speech output backend."
+
+    if command in [
+        "tts backend status",
+        "speech output status",
+        "voice output status",
+        "tts status",
+        "voice output backend",
+    ]:
+        return tts_backend_status_summary()
+
+    piper_model_match = re.match(
+        r"^(?:set|change|update)\s+piper\s+(?:voice\s+)?model\s+(?:path\s+)?to\s+(.+)$",
+        command,
+    )
+    if piper_model_match:
+        return set_piper_model_path(piper_model_match.group(1).strip())[1]
+
+    if command in ["clear piper model path", "remove piper model path", "reset piper model path"]:
+        return clear_piper_model_path()[1]
+
+    piper_config_match = re.match(
+        r"^(?:set|change|update)\s+piper\s+config\s+(?:path\s+)?to\s+(.+)$",
+        command,
+    )
+    if piper_config_match:
+        return set_piper_config_path(piper_config_match.group(1).strip())[1]
+
+    if command in ["clear piper config path", "remove piper config path", "reset piper config path"]:
+        return clear_piper_config_path()[1]
+
     return None
 
 
@@ -2983,6 +3166,83 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
 
     if command in [
+        "smart home setup help",
+        "iot setup help",
+        "smart home setup",
+        "iot config help",
+    ]:
+        speak(_smart_home_setup_summary())
+        return
+
+    if command in [
+        "iot inventory",
+        "iot overview",
+        "smart home inventory",
+        "what iot devices are connected",
+        "what smart devices are connected",
+        "list iot devices",
+    ]:
+        speak(_iot_awareness_summary())
+        return
+
+    if command in [
+        "iot action history",
+        "smart home history",
+        "smart home action history",
+        "recent smart home actions",
+    ]:
+        speak(_iot_action_history_summary())
+        return
+
+    if any(
+        token in command
+        for token in [
+            "what is matter",
+            "what is zigbee",
+            "what is z wave",
+            "what is zwave",
+            "what is thread",
+            "what is mqtt",
+            "what is iot",
+            "what is smart home",
+            "what is home assistant",
+            "what is esp32",
+            "compare zigbee and matter",
+            "compare matter and zigbee",
+            "zigbee vs matter",
+            "matter vs zigbee",
+            "compare zigbee and z wave",
+            "compare zigbee and zwave",
+            "zigbee vs z wave",
+            "zigbee vs zwave",
+        ]
+    ):
+        response = _iot_knowledge_summary(command)
+        if response:
+            speak(response)
+            return
+
+    if command in [
+        "piper setup status",
+        "piper voice setup",
+        "piper status",
+    ]:
+        speak(_piper_setup_summary())
+        return
+
+    if command in ["list piper models", "show piper models", "available piper models"]:
+        speak(list_piper_models_summary())
+        return
+
+    if command in ["auto configure piper", "autoconfigure piper", "detect piper model"]:
+        speak(autoconfigure_piper_model()[1])
+        return
+
+    if command in ["use piper voice", "prefer piper voice", "switch to piper voice"]:
+        speak(prefer_piper_backend()[1])
+        return
+
+    if command in [
         "face security status",
         "face verification status",
         "face status",
@@ -2993,6 +3253,36 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
 
     if command in ["voice diagnostics", "voice tuning status", "voice debug"]:
         speak(_voice_diagnostics_summary())
+        return
+
+    if command in [
+        "assistant doctor",
+        "startup doctor",
+        "system doctor",
+        "check assistant health",
+        "assistant health check",
+    ]:
+        speak(_assistant_doctor_summary(include_ready=False))
+        return
+
+    if command in [
+        "semantic memory status",
+        "memory semantic status",
+        "semantic search status",
+    ]:
+        reply = _semantic_memory_summary()
+        speak(reply)
+        set_last_result(reply)
+        return
+
+    semantic_memory_search_match = re.match(
+        r"^(?:search|find|look\s+up)\s+(?:my\s+)?memory\s+(?:for\s+)?(.+)$",
+        command,
+    )
+    if semantic_memory_search_match:
+        reply = _semantic_memory_lookup_summary(semantic_memory_search_match.group(1).strip())
+        speak(reply)
+        set_last_result(reply)
         return
 
     # Phase 4: Smart Home IoT Catch-all
@@ -3045,17 +3335,31 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         ]
     )
 
-    if (command.startswith("turn on ") or command.startswith("turn off ") or \
-       command.startswith("switch on ") or command.startswith("switch off ")) and not network_like_command:
-        success, msg = dispatch_iot_command(command)
-        if success:
+    if not network_like_command:
+        iot_resolution = resolve_iot_command(command)
+        if iot_resolution.get("matched"):
+            if iot_resolution.get("requires_confirmation"):
+                pending_confirmation = {
+                    "type": "iot_action_confirm",
+                    "action": lambda: run_iot_command(command, confirm=True).get("message", "Smart Home command completed."),
+                    "message": iot_resolution.get("message")
+                    or f"Please confirm before I run {iot_resolution.get('matched_command', command)}.",
+                }
+                speak(pending_confirmation["message"])
+                return
+
+            success, msg = dispatch_iot_command(command)
             speak(msg)
+            if success:
+                set_last_result(msg)
             return
-        elif "I couldn't find a Smart Home device" not in msg:
-            speak(msg)
+        if iot_resolution.get("handled") and iot_resolution.get("message"):
+            candidate_commands = iot_resolution.get("candidate_commands") or []
+            if candidate_commands:
+                speak(iot_resolution["message"] + " Try " + " | ".join(candidate_commands[:3]) + ".")
+            else:
+                speak(iot_resolution["message"])
             return
-        # If it's just "I couldn't find a Smart Home device", we fall through in case 
-        # it was meant for something else.
 
     if command in ["enroll my face", "register my face", "save my face"]:
         speak("Looking for your face. Please look at the camera for a moment.")

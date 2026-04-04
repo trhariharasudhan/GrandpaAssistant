@@ -21,6 +21,14 @@ import uvicorn
 import core.command_router as command_router_module
 from brain.database import get_recent_commands
 from brain.memory_engine import get_memory
+from brain.semantic_memory import (
+    build_semantic_memory_context,
+    search_semantic_memory,
+    semantic_memory_status,
+)
+from device_manager import DEVICE_MANAGER
+from iot_control import get_iot_action_history
+from iot_registry import summarize_iot_config
 from core.command_router import process_command
 from llm_client import (
     DEFAULT_LLM_PROVIDER,
@@ -35,6 +43,7 @@ from llm_client import (
     load_env_file,
     stream_chat_reply,
 )
+from startup_diagnostics import collect_startup_diagnostics
 from modules.event_module import get_event_data
 from modules.google_contacts_module import CACHE_PATH as GOOGLE_CONTACTS_CACHE_PATH
 from modules.google_contacts_module import (
@@ -71,11 +80,17 @@ from features.productivity.proactive_suggestion_engine import (
 )
 from voice.listen import (
     _active_voice_settings,
+    continuous_conversation_enabled,
     current_voice_mode,
+    follow_up_keep_alive_seconds,
     is_interrupt_phrase,
+    is_follow_up_keepalive_phrase,
+    is_wake_only_phrase,
     listen,
-    looks_like_direct_command,
+    normalize_phrase,
+    stt_backend_payload,
     sanitize_follow_up_command,
+    should_run_direct_fallback,
     strip_wake_word,
     wake_word_detected,
 )
@@ -86,6 +101,8 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_
 load_env_file(os.path.join(PROJECT_ROOT, ".env"))
 DATA_DIR = os.path.join(PROJECT_ROOT, "backend", "data")
 CHAT_STATE_PATH = os.path.join(DATA_DIR, "chat_state.json")
+IOT_EXAMPLE_PATH = os.path.join(DATA_DIR, "iot_credentials.example.json")
+VOICE_IOT_SETUP_DOC_PATH = os.path.join(PROJECT_ROOT, "docs", "local-voice-iot-setup.md")
 
 app = FastAPI(title="Grandpa Assistant API", version="3.0.0")
 app.add_middleware(
@@ -109,6 +126,9 @@ _voice_messages = []
 _voice_last_reply = ""
 _voice_follow_up_until = 0.0
 _voice_state_label = "sleeping"
+_voice_last_command_key = ""
+_voice_last_command_at_ts = 0.0
+_voice_last_wake_ack_at = 0.0
 _voice_diagnostics = {
     "wake_detection_count": 0,
     "wake_only_count": 0,
@@ -116,14 +136,21 @@ _voice_diagnostics = {
     "follow_up_command_count": 0,
     "retry_window_command_count": 0,
     "direct_fallback_count": 0,
+    "duplicate_ignored_count": 0,
+    "ignored_count": 0,
     "interrupt_count": 0,
     "error_count": 0,
+    "recovery_count": 0,
     "last_heard_phrase": "",
     "last_heard_at": "",
     "last_processed_command": "",
     "last_command_at": "",
     "last_wake_at": "",
     "last_interrupt_at": "",
+    "last_ignored_phrase": "",
+    "last_ignored_reason": "",
+    "last_ignored_at": "",
+    "last_recovery_at": "",
     "last_error_at": "",
     "last_error_message": "",
     "wake_retry_until": 0.0,
@@ -293,7 +320,10 @@ def _local_now_label():
 
 
 def _reset_voice_diagnostics():
-    global _voice_diagnostics
+    global _voice_diagnostics, _voice_last_command_key, _voice_last_command_at_ts, _voice_last_wake_ack_at
+    _voice_last_command_key = ""
+    _voice_last_command_at_ts = 0.0
+    _voice_last_wake_ack_at = 0.0
     _voice_diagnostics = {
         "wake_detection_count": 0,
         "wake_only_count": 0,
@@ -301,14 +331,21 @@ def _reset_voice_diagnostics():
         "follow_up_command_count": 0,
         "retry_window_command_count": 0,
         "direct_fallback_count": 0,
+        "duplicate_ignored_count": 0,
+        "ignored_count": 0,
         "interrupt_count": 0,
         "error_count": 0,
+        "recovery_count": 0,
         "last_heard_phrase": "",
         "last_heard_at": "",
         "last_processed_command": "",
         "last_command_at": "",
         "last_wake_at": "",
         "last_interrupt_at": "",
+        "last_ignored_phrase": "",
+        "last_ignored_reason": "",
+        "last_ignored_at": "",
+        "last_recovery_at": "",
         "last_error_at": "",
         "last_error_message": "",
         "wake_retry_until": 0.0,
@@ -329,17 +366,30 @@ def _mark_voice_wake(retry_until):
 
 
 def _mark_voice_command(heard, source):
-    global _voice_diagnostics
+    global _voice_diagnostics, _voice_last_command_key, _voice_last_command_at_ts
     source = _compact_text(source) or "direct"
     _voice_diagnostics["command_count"] += 1
     _voice_diagnostics["last_processed_command"] = _compact_text(heard)
     _voice_diagnostics["last_command_at"] = _local_now_label()
+    _voice_last_command_key = normalize_phrase(heard)
+    _voice_last_command_at_ts = time.time()
     if source == "follow_up":
         _voice_diagnostics["follow_up_command_count"] += 1
     elif source == "retry_window":
         _voice_diagnostics["retry_window_command_count"] += 1
     elif source == "direct_fallback":
         _voice_diagnostics["direct_fallback_count"] += 1
+
+
+def _mark_voice_ignored(heard, reason):
+    global _voice_diagnostics
+    normalized_reason = _compact_text(reason) or "ignored"
+    _voice_diagnostics["ignored_count"] += 1
+    if normalized_reason == "duplicate":
+        _voice_diagnostics["duplicate_ignored_count"] += 1
+    _voice_diagnostics["last_ignored_phrase"] = _compact_text(heard)
+    _voice_diagnostics["last_ignored_reason"] = normalized_reason
+    _voice_diagnostics["last_ignored_at"] = _local_now_label()
 
 
 def _mark_voice_interrupt():
@@ -353,6 +403,12 @@ def _mark_voice_error(message):
     _voice_diagnostics["error_count"] += 1
     _voice_diagnostics["last_error_at"] = _local_now_label()
     _voice_diagnostics["last_error_message"] = _compact_text(message)
+
+
+def _mark_voice_recovery():
+    global _voice_diagnostics
+    _voice_diagnostics["recovery_count"] += 1
+    _voice_diagnostics["last_recovery_at"] = _local_now_label()
 
 
 def _voice_diagnostics_payload():
@@ -374,44 +430,32 @@ def _load_local_json(path):
 
 
 def _smart_home_status_payload():
-    credentials_path = os.path.join(DATA_DIR, "iot_credentials.json")
-    creds = _load_local_json(credentials_path)
-    if not creds:
-        return {
-            "configured": False,
-            "enabled": False,
-            "device_count": 0,
-            "sample_commands": [],
-            "placeholder_count": 0,
-            "summary": "Smart Home is not configured yet.",
-        }
-
-    webhooks = creds.get("webhooks") or {}
-    sample_commands = list(webhooks.keys())[:4]
-    placeholder_count = 0
-    for config in webhooks.values():
-        url = str((config or {}).get("url") or "")
-        if "YOUR_KEY_HERE" in url or "YOUR_HOME_ASSISTANT_WEBHOOK_ID" in url:
-            placeholder_count += 1
-
-    enabled = bool(creds.get("enabled"))
-    summary_parts = [
-        f"Smart Home is {'enabled' if enabled else 'disabled'} with {len(webhooks)} configured command(s)."
-    ]
-    if sample_commands:
-        summary_parts.append("Try " + " | ".join(sample_commands[:3]) + ".")
-    elif enabled:
-        summary_parts.append("Add webhook commands to start controlling devices.")
-    if placeholder_count:
-        summary_parts.append(f"{placeholder_count} command(s) still use placeholder keys.")
-
+    configured = summarize_iot_config()
+    discovered = _safe_call(DEVICE_MANAGER.get_iot_status, {"discovered_devices": [], "summary": "IoT status unavailable."})
     return {
-        "configured": True,
-        "enabled": enabled,
-        "device_count": len(webhooks),
-        "sample_commands": sample_commands,
-        "placeholder_count": placeholder_count,
-        "summary": " ".join(summary_parts),
+        "configured": configured.get("configured", False),
+        "enabled": configured.get("enabled", False),
+        "device_count": configured.get("device_count", 0),
+        "command_count": configured.get("command_count", 0),
+        "sample_commands": configured.get("sample_commands", []),
+        "placeholder_count": configured.get("placeholder_count", 0),
+        "configured_devices": configured.get("devices", []),
+        "discovered_devices": discovered.get("discovered_devices", []),
+        "discovered_count": discovered.get("discovered_count", 0),
+        "control_ready_count": discovered.get("control_ready_count", 0),
+        "recent_actions": get_iot_action_history(limit=8),
+        "config_example_path": IOT_EXAMPLE_PATH,
+        "setup_doc_path": VOICE_IOT_SETUP_DOC_PATH,
+        "supported_control_modes": ["webhook", "home_assistant_service", "mqtt"],
+        "summary": " ".join(
+            part
+            for part in [
+                configured.get("summary", ""),
+                discovered.get("summary", ""),
+            ]
+            if part
+        ).strip()
+        or "Smart Home status unavailable.",
     }
 
 
@@ -863,14 +907,28 @@ def _effective_system_prompt():
 
 
 def _build_chat_input(session, user_message):
+    memory_context = build_semantic_memory_context(user_message)
     document_context = _session_document_context(session, user_message)
-    if not document_context:
+    if not memory_context and not document_context:
         return user_message
+
+    sections = []
+    if memory_context:
+        sections.append(memory_context)
+    if document_context:
+        sections.append(document_context)
+    combined_context = "\n\n".join(sections)
+
+    guidance = (
+        "Answer clearly using the provided context when relevant. "
+        "If the attached document does not contain the answer, say that briefly."
+        if document_context
+        else "Answer clearly and use the saved memory only when it helps the user."
+    )
     return (
-        f"{document_context}\n\n"
+        f"{combined_context}\n\n"
         f"User question: {user_message}\n"
-        "Answer clearly using the document context when relevant. "
-        "If the document does not contain the answer, say that briefly."
+        f"{guidance}"
     )
 
 
@@ -1181,6 +1239,35 @@ def _voice_follow_up_remaining():
     return max(0, int(_voice_follow_up_until - datetime.datetime.now().timestamp()))
 
 
+def _voice_duplicate_window_seconds():
+    try:
+        return max(0.5, float(get_setting("voice.duplicate_command_window_seconds", 4.0) or 4.0))
+    except Exception:
+        return 4.0
+
+
+def _is_duplicate_voice_command(heard):
+    normalized = normalize_phrase(heard)
+    if not normalized or not _voice_last_command_key or not _voice_last_command_at_ts:
+        return False
+    if normalized != _voice_last_command_key:
+        return False
+    return (time.time() - _voice_last_command_at_ts) <= _voice_duplicate_window_seconds()
+
+
+def _should_ack_wake():
+    global _voice_last_wake_ack_at
+    try:
+        cooldown = max(0.0, float(get_setting("voice.wake_ack_cooldown_seconds", 2.5) or 2.5))
+    except Exception:
+        cooldown = 2.5
+    now = time.time()
+    if cooldown and _voice_last_wake_ack_at and (now - _voice_last_wake_ack_at) < cooldown:
+        return False
+    _voice_last_wake_ack_at = now
+    return True
+
+
 def _handle_voice_command(heard, follow_up_timeout, source="direct"):
     global _voice_state_label
     speaking_hold = max(0.0, min(1.0, float(get_setting("voice.speaking_state_hold_seconds", 0.3) or 0.3)))
@@ -1193,15 +1280,22 @@ def _handle_voice_command(heard, follow_up_timeout, source="direct"):
     if speaking_hold > 0:
         time.sleep(speaking_hold)
     _push_voice_messages([f"You : {heard}", *[f"Grandpa : {reply}" for reply in replies]])
-    _set_voice_follow_up(datetime.datetime.now().timestamp() + follow_up_timeout)
-    _voice_state_label = "follow_up"
-    _set_voice_state(activity="Follow-up", transcript="Listening for follow-up command...", error="")
+    if continuous_conversation_enabled():
+        _set_voice_follow_up(datetime.datetime.now().timestamp() + follow_up_timeout)
+        _voice_state_label = "follow_up"
+        _set_voice_state(activity="Follow-up", transcript="Listening for follow-up command...", error="")
+    else:
+        wake_word = _compact_text(get_setting("wake_word", "hey grandpa")) or "hey grandpa"
+        _set_voice_follow_up(0.0)
+        _voice_state_label = "sleeping"
+        _set_voice_state(activity="Sleeping", transcript=f"Say {wake_word} to wake me.", error="")
 
 
 def _voice_loop():
     global _voice_enabled, _voice_state_label
     wake_retry_until = 0.0
     while _voice_enabled:
+        error_backoff = 0.8
         try:
             settings = _active_voice_settings()
             wake_word = _compact_text(get_setting("wake_word", "hey grandpa")) or "hey grandpa"
@@ -1213,6 +1307,7 @@ def _voice_loop():
                 2.0, min(15.0, float(settings.get("interrupt_follow_up_seconds", 5) or 5))
             )
             interrupt_hold = max(0.0, min(1.0, float(get_setting("voice.interrupt_state_hold_seconds", 0.35) or 0.35)))
+            error_backoff = max(0.1, min(3.0, float(settings.get("error_recovery_backoff_seconds", 0.8) or 0.8)))
             now_ts = datetime.datetime.now().timestamp()
             follow_up_active = _voice_follow_up_until > now_ts
 
@@ -1250,14 +1345,29 @@ def _voice_loop():
                 continue
 
             if follow_up_active:
+                if is_follow_up_keepalive_phrase(heard):
+                    keep_alive_until = datetime.datetime.now().timestamp() + follow_up_keep_alive_seconds()
+                    _set_voice_follow_up(keep_alive_until)
+                    _voice_state_label = "follow_up"
+                    _set_voice_state(activity="Follow-up", transcript="Keeping the conversation open.", error="")
+                    continue
                 if wake_word_detected(heard, wake_word):
                     trailing_follow_up = strip_wake_word(heard, wake_word)
-                    if trailing_follow_up:
+                    if trailing_follow_up and not is_wake_only_phrase(heard, wake_word):
+                        if _is_duplicate_voice_command(trailing_follow_up):
+                            _mark_voice_ignored(trailing_follow_up, "duplicate")
+                            _set_voice_follow_up(datetime.datetime.now().timestamp() + follow_up_timeout)
+                            continue
                         _handle_voice_command(trailing_follow_up, follow_up_timeout, source="follow_up")
                     else:
                         _set_voice_follow_up(datetime.datetime.now().timestamp() + follow_up_timeout)
                         _voice_state_label = "awake"
                         _set_voice_state(activity="Awake", transcript="Listening for your command.", error="")
+                    continue
+                if _is_duplicate_voice_command(heard):
+                    _mark_voice_ignored(heard, "duplicate")
+                    _set_voice_follow_up(datetime.datetime.now().timestamp() + follow_up_timeout)
+                    _set_voice_state(activity="Follow-up", transcript="Ignoring duplicate command. Listening again.", error="")
                     continue
                 _handle_voice_command(heard, follow_up_timeout, source="follow_up")
                 continue
@@ -1266,29 +1376,46 @@ def _voice_loop():
                 trailing_command = strip_wake_word(heard, wake_word)
                 wake_retry_until = datetime.datetime.now().timestamp() + wake_retry_window
                 _mark_voice_wake(wake_retry_until)
-                if trailing_command:
+                if trailing_command and not is_wake_only_phrase(heard, wake_word):
+                    if _is_duplicate_voice_command(trailing_command):
+                        _mark_voice_ignored(trailing_command, "duplicate")
+                        continue
                     _handle_voice_command(trailing_command, follow_up_timeout, source="wake_inline")
                 else:
                     _voice_diagnostics["wake_only_count"] += 1
                     _set_voice_follow_up(datetime.datetime.now().timestamp() + follow_up_timeout)
                     _voice_state_label = "awake"
                     _set_voice_state(activity="Awake", transcript="Wake word heard. Listening now.", error="")
-                    voice_speak_module.speak("Yes?")
+                    if _should_ack_wake():
+                        voice_speak_module.speak("Yes?")
                     if post_wake_pause > 0:
                         time.sleep(post_wake_pause)
                 continue
 
-            if wake_retry_until and datetime.datetime.now().timestamp() <= wake_retry_until and looks_like_direct_command(heard):
+            if wake_retry_until and datetime.datetime.now().timestamp() <= wake_retry_until and should_run_direct_fallback(heard):
+                if _is_duplicate_voice_command(heard):
+                    _mark_voice_ignored(heard, "duplicate")
+                    continue
                 _handle_voice_command(heard, follow_up_timeout, source="retry_window")
                 continue
 
-            if wake_direct_fallback and looks_like_direct_command(heard):
+            if wake_direct_fallback and should_run_direct_fallback(heard):
+                if _is_duplicate_voice_command(heard):
+                    _mark_voice_ignored(heard, "duplicate")
+                    continue
                 _handle_voice_command(heard, follow_up_timeout, source="direct_fallback")
                 continue
         except Exception as error:
             _voice_state_label = "error"
             _mark_voice_error(str(error))
-            _set_voice_state(activity="Error", error=str(error))
+            _set_voice_follow_up(0.0)
+            _set_voice_state(activity="Error", transcript="Recovering voice listener...", error=str(error))
+            time.sleep(error_backoff)
+            _mark_voice_recovery()
+            if _voice_enabled:
+                wake_word = _compact_text(get_setting("wake_word", "hey grandpa")) or "hey grandpa"
+                _voice_state_label = "sleeping"
+                _set_voice_state(activity="Sleeping", transcript=f"Say {wake_word} to wake me.", error="")
     _set_voice_follow_up(0.0)
     _voice_state_label = "ready"
     _set_voice_state(activity="Ready", transcript="" if not _voice_enabled else _voice_transcript)
@@ -1311,6 +1438,8 @@ def _voice_status_payload():
         "state_label": _voice_state_label,
         "wake_word": wake_word,
         "voice_profile": current_voice_mode(),
+        "stt": stt_backend_payload(),
+        "tts": voice_speak_module.tts_backend_payload(),
         "follow_up_active": _voice_follow_up_until > datetime.datetime.now().timestamp(),
         "follow_up_remaining": _voice_follow_up_remaining(),
         "transcript": _voice_transcript,
@@ -1482,6 +1611,18 @@ def _build_ui_state():
             "highlights": [],
         },
     )
+    doctor_state = collect_startup_diagnostics()
+    semantic_memory_state = semantic_memory_status(prewarm=False)
+    hardware_state = _safe_call(
+        DEVICE_MANAGER.get_status,
+        {
+            "ok": False,
+            "device_count": 0,
+            "devices": [],
+            "recent_events": [],
+            "capabilities": {"summary": "Hardware status unavailable."},
+        },
+    )
 
     return {
         "overview": {
@@ -1512,6 +1653,7 @@ def _build_ui_state():
         "memory": {
             "preferred_language": preferred_language,
             "favorite_contact": favorite_contact,
+            "semantic": semantic_memory_state,
         },
         "settings": {
             "wake_word": wake_word,
@@ -1532,6 +1674,7 @@ def _build_ui_state():
             "recent_changes": recent_contact_changes,
         },
         "integrations": {
+            "hardware": hardware_state,
             "smart_home": _smart_home_status_payload(),
             "face_security": _face_security_payload(),
         },
@@ -1553,6 +1696,7 @@ def _build_ui_state():
             "react_frontend_ready": os.path.exists(os.path.join(PROJECT_ROOT, "scripts", "windows", "start_react_frontend.cmd")),
             "react_desktop_ready": os.path.exists(os.path.join(PROJECT_ROOT, "scripts", "windows", "start_react_electron.cmd")),
         },
+        "doctor": doctor_state,
         "voice": _voice_status_payload(),
         "chat_settings": _chat_settings,
         "chat_sessions": _ordered_sessions()[:10],
@@ -1573,12 +1717,46 @@ def _build_ui_state():
 
 @app.get("/api/health")
 def api_health():
-    return {"ok": True, "service": "grandpa-assistant-api"}
+    return {
+        "ok": True,
+        "service": "grandpa-assistant-api",
+        "semantic_memory": semantic_memory_status(prewarm=False),
+        "doctor": collect_startup_diagnostics(),
+    }
+
+
+@app.get("/api/doctor")
+def api_doctor():
+    return {
+        "ok": True,
+        "doctor": collect_startup_diagnostics(use_cache=False),
+    }
 
 
 @app.get("/api/ui-state")
 def api_ui_state():
     return {"ok": True, "state": _build_ui_state()}
+
+
+@app.get("/api/memory/status")
+def api_memory_status():
+    return {
+        "ok": True,
+        "memory": semantic_memory_status(prewarm=False),
+    }
+
+
+@app.post("/api/memory/search")
+def api_memory_search(request: ChatRequest):
+    query = _compact_text(request.message)
+    if not query:
+        raise HTTPException(status_code=400, detail="Message is required.")
+    return {
+        "ok": True,
+        "query": query,
+        "results": search_semantic_memory(query, limit=5),
+        "memory": semantic_memory_status(prewarm=True),
+    }
 
 
 @app.get("/api/voice/status")

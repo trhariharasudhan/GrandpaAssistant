@@ -41,11 +41,23 @@ from modules.desktop_launch_module import launch_react_for_tray, open_react_brow
 from modules.startup_module import refresh_startup_auto_launch
 from modules.google_contacts_module import start_google_contacts_auto_refresh
 from modules.task_module import get_task_data
+from startup_diagnostics import collect_startup_diagnostics, format_startup_diagnostics_report
 from utils.config import get_setting
 from utils.sound import play_sound
 from vision.hand_mouse_control import run_hand_mouse
 from vision.screen_reader import register_region_hotkey, unregister_region_hotkey
-from voice.listen import listen, sanitize_follow_up_command
+from voice.listen import (
+    continuous_conversation_enabled,
+    follow_up_keep_alive_seconds,
+    is_follow_up_keepalive_phrase,
+    is_interrupt_phrase,
+    is_wake_only_phrase,
+    listen,
+    sanitize_follow_up_command,
+    should_run_direct_fallback,
+    strip_wake_word as shared_strip_wake_word,
+    wake_word_detected as shared_wake_word_detected,
+)
 from voice.speak import set_response_mode, speak, stop_speaking
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -356,71 +368,11 @@ def _normalize_phrase(text):
 
 
 def _wake_word_detected(command, wake_word):
-    normalized_command = _normalize_phrase(command)
-    normalized_wake_word = _normalize_phrase(wake_word)
-    wake_threshold = get_setting("voice.wake_match_threshold", WAKE_MATCH_THRESHOLD)
-    wake_aliases = {
-        normalized_wake_word,
-        "hi grandpa",
-        "hello grandpa",
-        "hey grand pa",
-        "hay grandpa",
-        "a grandpa",
-        "hey grampa",
-        "hi grampa",
-    }
-
-    if not normalized_command or not normalized_wake_word:
-        return False
-
-    for alias in wake_aliases:
-        if alias and alias in normalized_command:
-            return True
-
-    command_words = normalized_command.split()
-    wake_words = normalized_wake_word.split()
-    wake_len = len(wake_words)
-
-    if wake_len == 0 or len(command_words) < wake_len:
-        return False
-
-    for index in range(len(command_words) - wake_len + 1):
-        window = " ".join(command_words[index:index + wake_len])
-        if any(
-            SequenceMatcher(None, window, alias).ratio() >= wake_threshold
-            for alias in wake_aliases
-            if alias
-        ):
-            return True
-
-    return any(
-        SequenceMatcher(None, normalized_command, alias).ratio() >= wake_threshold
-        for alias in wake_aliases
-        if alias
-    )
+    return shared_wake_word_detected(command, wake_word)
 
 
 def _strip_wake_word(command, wake_word):
-    normalized_command = _normalize_phrase(command)
-    normalized_wake_word = _normalize_phrase(wake_word)
-    aliases = [
-        normalized_wake_word,
-        "hi grandpa",
-        "hello grandpa",
-        "hey grand pa",
-        "hay grandpa",
-        "hey grampa",
-        "hi grampa",
-    ]
-
-    if not normalized_command or not normalized_wake_word:
-        return ""
-
-    for alias in aliases:
-        if alias and normalized_command.startswith(alias):
-            return normalized_command[len(alias):].strip()
-
-    return ""
+    return shared_strip_wake_word(command, wake_word)
 
 
 def _looks_like_direct_command(command):
@@ -633,10 +585,22 @@ def main(start_in_tray=False, start_in_ui=False, forced_input_mode=None):
     if terminal_input_mode not in {"voice", "text"}:
         terminal_input_mode = "text"
     terminal_only_mode = interface_mode == "terminal" and not start_in_ui
+    show_startup_doctor = get_setting("startup.print_diagnostics_on_boot", True)
+    show_ready_checks = get_setting("startup.print_ready_diagnostics_on_boot", False)
 
     INSTALLED_APPS = get_all_apps(refresh=True)
+    startup_diagnostics = collect_startup_diagnostics(use_cache=False, allow_create_dirs=True)
     start_web_api(INSTALLED_APPS)
     refresh_startup_auto_launch()
+
+    if show_startup_doctor:
+        print("\n========= STARTUP DOCTOR =========")
+        for line in format_startup_diagnostics_report(
+            startup_diagnostics,
+            include_ready=show_ready_checks,
+        ):
+            print(line)
+        print("==================================\n")
 
     startup_messages = _build_compact_startup_messages()
     urgent_alert = build_due_reminder_alert()
@@ -759,6 +723,36 @@ def voice_mode():
     active_mode = False
     last_active_time = 0
     wake_retry_until = 0
+    last_processed_command = ""
+    last_processed_at = 0.0
+    last_wake_ack_at = 0.0
+
+    def _is_duplicate_recent(command):
+        normalized = _normalize_phrase(command)
+        if not normalized or not last_processed_command or not last_processed_at:
+            return False
+        try:
+            window_seconds = max(0.5, float(get_setting("voice.duplicate_command_window_seconds", 4.0) or 4.0))
+        except Exception:
+            window_seconds = 4.0
+        return normalized == last_processed_command and (time.time() - last_processed_at) <= window_seconds
+
+    def _mark_processed(command):
+        nonlocal last_processed_command, last_processed_at
+        last_processed_command = _normalize_phrase(command)
+        last_processed_at = time.time()
+
+    def _should_ack_wake():
+        nonlocal last_wake_ack_at
+        try:
+            cooldown = max(0.0, float(get_setting("voice.wake_ack_cooldown_seconds", 2.5) or 2.5))
+        except Exception:
+            cooldown = 2.5
+        now = time.time()
+        if cooldown and last_wake_ack_at and (now - last_wake_ack_at) < cooldown:
+            return False
+        last_wake_ack_at = now
+        return True
 
     try:
         while True:
@@ -788,52 +782,81 @@ def voice_mode():
 
                 command = command.lower().strip()
 
+                if is_interrupt_phrase(command):
+                    stop_speaking()
+                    active_mode = True
+                    last_active_time = time.time()
+                    current_timeout = ACTIVE_TIMEOUT
+                    continue
+
                 if _wake_word_detected(command, WAKE_WORD):
                     trailing_command = _strip_wake_word(command, WAKE_WORD)
                     play_sound("start")
                     wake_retry_until = time.time() + WAKE_RETRY_WINDOW
-                    if trailing_command:
+                    if trailing_command and not is_wake_only_phrase(command, WAKE_WORD):
+                        if _is_duplicate_recent(trailing_command):
+                            continue
                         last_active_time = time.time()
+                        _mark_processed(trailing_command)
                         result = _process_voice_command(trailing_command, ACTIVE_TIMEOUT)
                         if result["exit"]:
                             return None
                         next_mode = result.get("switch_mode")
                         if next_mode:
                             return next_mode
-                        active_mode = True
-                        current_timeout = result["timeout"]
+                        if continuous_conversation_enabled():
+                            active_mode = True
+                            current_timeout = result["timeout"]
+                        else:
+                            active_mode = False
+                            current_timeout = INITIAL_TIMEOUT
                     else:
                         _clear_status_line(newline=True)
-                        speak("Yes Captain?")
+                        if _should_ack_wake():
+                            speak("Yes Captain?")
                         time.sleep(POST_WAKE_PAUSE)
                         active_mode = True
                         last_active_time = time.time()
                         current_timeout = INITIAL_TIMEOUT
 
-                elif wake_retry_until and time.time() <= wake_retry_until and _looks_like_direct_command(command):
+                elif wake_retry_until and time.time() <= wake_retry_until and should_run_direct_fallback(command):
+                    if _is_duplicate_recent(command):
+                        continue
                     play_sound("start")
                     last_active_time = time.time()
+                    _mark_processed(command)
                     result = _process_voice_command(command, ACTIVE_TIMEOUT)
                     if result["exit"]:
                         return None
                     next_mode = result.get("switch_mode")
                     if next_mode:
                         return next_mode
-                    active_mode = True
-                    current_timeout = result["timeout"]
+                    if continuous_conversation_enabled():
+                        active_mode = True
+                        current_timeout = result["timeout"]
+                    else:
+                        active_mode = False
+                        current_timeout = INITIAL_TIMEOUT
 
-                elif _looks_like_direct_command(command):
+                elif should_run_direct_fallback(command):
                     # Practical fallback when wake word recognition is weak.
+                    if _is_duplicate_recent(command):
+                        continue
                     play_sound("start")
                     last_active_time = time.time()
+                    _mark_processed(command)
                     result = _process_voice_command(command, ACTIVE_TIMEOUT)
                     if result["exit"]:
                         return None
                     next_mode = result.get("switch_mode")
                     if next_mode:
                         return next_mode
-                    active_mode = True
-                    current_timeout = result["timeout"]
+                    if continuous_conversation_enabled():
+                        active_mode = True
+                        current_timeout = result["timeout"]
+                    else:
+                        active_mode = False
+                        current_timeout = INITIAL_TIMEOUT
 
                 continue
 
@@ -882,10 +905,28 @@ def voice_mode():
             if not command:
                 time.sleep(EMPTY_LISTEN_BACKOFF)
                 continue
+            if is_follow_up_keepalive_phrase(command):
+                last_active_time = time.time()
+                current_timeout = max(current_timeout, follow_up_keep_alive_seconds())
+                continue
+            if is_interrupt_phrase(command):
+                stop_speaking()
+                last_active_time = time.time()
+                current_timeout = ACTIVE_TIMEOUT
+                continue
+            if _is_duplicate_recent(command):
+                last_active_time = time.time()
+                current_timeout = ACTIVE_TIMEOUT
+                continue
             last_active_time = time.time()
+            _mark_processed(command)
 
             result = _process_voice_command(command, current_timeout)
-            current_timeout = result["timeout"]
+            if continuous_conversation_enabled():
+                current_timeout = result["timeout"]
+            else:
+                active_mode = False
+                current_timeout = INITIAL_TIMEOUT
             if result["exit"]:
                 return None
             next_mode = result.get("switch_mode")
