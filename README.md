@@ -1,618 +1,275 @@
 # GrandpaAssistant
 
-GrandpaAssistant is a Windows-first personal desktop assistant built with Python. It combines voice interaction, text commands, personal memory, local AI, OCR-based screen tools, desktop automation, tray mode, dashboard reporting, and task workflows in a single assistant project.
+GrandpaAssistant is a Windows-first personal desktop assistant built with Python, FastAPI, React, and local AI tools. It combines voice and text interaction, local memory, OCR-based screen actions, system controls, productivity workflows, and an offline multi-model backend powered by Ollama.
 
-It is designed for local usage on a personal Windows machine and uses Ollama for general AI replies, Tesseract OCR for screen reading, and local JSON/SQLite storage for memory, tasks, reminders, notes, and settings.
+The project is designed for a personal Windows machine and keeps the core assistant workflow local wherever possible.
 
-## Highlights
+## What It Does
 
-- Voice mode with wake word support
-- Text mode for direct terminal usage
-- Mode-specific replies
-  - text mode gives text replies
-  - voice mode gives voice replies
-- Personal memory system backed by `memory.json` and SQLite
-- Task, reminder, note, and dashboard workflows
-- Weather, battery, and daily brief support
-- App launch and system control commands
-- OCR-based screen reading, text finding, and click actions
-- Active window and app-specific context awareness
-- Hand mouse mode using webcam gestures
-- Tray/background mode
-- Configurable sound and voice settings
-
-## Completion Tracker
-
-- Full finish checklist: [`docs/PROJECT_COMPLETION_CHECKLIST.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\PROJECT_COMPLETION_CHECKLIST.md)
-- V1 scope freeze: [`docs/V1_SCOPE.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\V1_SCOPE.md)
-- Future roadmap: [`docs/FUTURE_FEATURE_ROADMAP.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\FUTURE_FEATURE_ROADMAP.md)
-- Docs index: [`docs/README.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\README.md)
-
-## Quick Setup (V1)
-
-Use this fast path if you want the app running quickly on a new Windows machine.
-
-### 1) Python and dependencies
-
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r backend/requirements.txt
-cd frontend
-npm install
-cd ..
-```
-
-### 2) LLM runtime (choose one)
-
-- Ollama local mode (default):
-
-```powershell
-ollama pull llama3:8b
-```
-
-- OpenAI mode (optional): create `.env` in repo root:
-
-```env
-LLM_PROVIDER=openai
-OPENAI_API_KEY=your_key_here
-OPENAI_MODEL=gpt-4.1-mini
-```
-
-### 3) OCR requirement
-
-- Install Tesseract OCR (Windows build): [UB Mannheim installer](https://github.com/UB-Mannheim/tesseract/wiki)
-- Keep default install path: `C:\Program Files\Tesseract-OCR\tesseract.exe`
-
-### 4) First run checks
-
-```powershell
-python -V
-python main.py
-```
-
-When the app starts, choose mode:
-- `1` voice
-- `2` text
-- `3` UI
-
-For desktop frontend shell:
-
-```powershell
-scripts\windows\start_react_desktop.cmd
-```
-
-## V1 Scope (Frozen)
-
-V1 is intentionally limited to these stable daily-use flows:
-
-- chat baseline (including sessions and streaming)
-- voice wake baseline
-- tasks, reminders, and notes baseline
-- file upload + RAG baseline
-- planner and dashboard baseline
-
-Moved to V2 for now:
-
-- object detection extras
-- advanced automation experiments
-- niche model workflows
-
-## Feature Set
-
-### Core Interaction
-
-- Voice mode with wake word
-- Text mode
-- Stop speaking
-- Dictation mode
-- Startup, success, and error feedback sounds
-
-### Personal Memory
-
-- Answer questions from saved profile data
-- Update saved memory by command
-- Remove selected memory fields by command
-- Profile summary
-- Personal snapshot
-- Focus suggestions
-- Proactive nudges
-
-### Productivity
-
-- Add, list, complete, and delete tasks
-- Add, list, and delete reminders
-- Add, list, and delete notes
-- Daily brief
-- Urgent reminder report
-- Full dashboard / status center
-
-### Automation and Routines
-
-- Preset modes
-  - work mode
-  - study mode
-  - movie mode
-- Custom routine creation and deletion
-- Volume and brightness actions inside routines
-- App launching inside routines
-
-### Vision and Screen Actions
-
-- Read full screen text
-- Find text on screen
-- Click visible text on screen
-- Check whether screen text is visible
-- Active app detection
-- Current window title detection
-- Browser tab summary
-- Code editor file/context summary
-- File Explorer folder summary
-- WhatsApp screen summary
-
-### System Controls
-
-- Open installed apps
-- Rescan installed apps
-- Open File Explorer
-- Screenshot capture
-- Battery info
-- Wi-Fi, Bluetooth, and Airplane Mode settings
-- Minimize, maximize, restore, and switch app windows
-- Lock, sleep, sign out, restart, and shutdown
-- Smart confirmation for risky actions
-
-### AI and Search
-
+- Voice and text assistant modes
 - Local AI replies through Ollama
-- Wikipedia-style topic lookup
-- Intent router with command registry
-- Command history logging
+- Multi-model routing for general, fast, and coding prompts
+- OCR and screen-reading tools with Tesseract
+- Window, app, and desktop context awareness
+- Tasks, reminders, notes, and dashboard workflows
+- System controls for apps, audio, brightness, screenshots, and more
+- React/Electron frontend support
+- Tray/background mode for desktop usage
 
-### Settings and Config
+## Local AI Stack
 
-- Show current settings
-- Change wake word
-- Change voice timeout values
-- Enable/disable tray startup
-- Mute/unmute sounds
-- Toggle start/success/error sounds
-- Voice profiles
-  - normal
-  - sensitive
-  - noise cancel
+The repo now includes an offline FastAPI backend that routes requests by intent:
 
-## Tech Stack
+- General prompts -> `mistral:7b`
+- Fast replies -> `phi3:mini`
+- Coding prompts -> `deepseek-coder:6.7b`
 
-- Python
-- Ollama
-- SpeechRecognition + PyAudio
-- pyttsx3
-- MediaPipe
-- OpenCV
-- PyAutoGUI
-- Tesseract OCR
-- pystray
-- Pillow
-- SQLite
+Available API endpoints:
 
-## Project Structure
+- `GET /health`
+- `GET /models`
+- `POST /ask`
+- `POST /chat`
+- `POST /chat/stream`
 
-High-level map:
+Example `/ask` request:
 
-- `main.py` - root launcher
-- `backend/main.py` - backend bootstrap and import-path setup
-- `backend/app/api/` - FastAPI server and chat/voice endpoints
-- `backend/app/core/` - runtime loop, command routing, tray, overlay, UI wiring
-- `backend/app/shared/` - shared infra (config, DB, sound, LLM client, helpers)
-- `backend/app/features/` - domain features split by area:
-  - `productivity/`, `system/`, `automation/`, `intelligence/`, `voice/`, `vision/`, `integrations/`, `security/`
-  - `modules/` is a compatibility alias layer for older imports
-- `backend/assets/` - static assets (sounds/models)
-- `backend/data/` - runtime local data (JSON/SQLite)
-- `frontend/src/` - React application code
-- `frontend/electron/` - Electron shell
-- `scripts/windows/` - Windows startup/build helpers
-- `docs/` - planning and architecture docs
+```json
+{
+  "prompt": "Write a Python function that returns the square of a number.",
+  "mode": "coding"
+}
+```
 
-Quick editing guide:
+`mode` supports:
 
-- Add new assistant commands: `backend/app/core/command_router.py`
-- Add API endpoints: `backend/app/api/web_api.py`
-- Add/modify backend features: `backend/app/features/<domain>/`
-- Update UI components: `frontend/src/`
-- Update launch/build scripts: `scripts/windows/`
+- `auto`
+- `general`
+- `fast`
+- `coding`
 
-Detailed map: [`docs/PROJECT_STRUCTURE.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\PROJECT_STRUCTURE.md)
+## Quick Start
 
-## Requirements
+### 1. Prerequisites
 
-Before running the assistant, make sure you have:
+Recommended for the Windows setup in this repo:
 
 - Windows 10 or Windows 11
-- Python 3.10 or newer
-- Microphone for voice mode
-- Speakers or headphones for voice replies
-- Ollama installed locally
-- Tesseract OCR installed for screen-reading features
-- Webcam for hand mouse mode
+- Python 3.11
+- Ollama
+- Tesseract OCR
+- Node.js and npm for the frontend
+- Microphone and speakers for voice features
+- Webcam for gesture/vision features
 
-## Installation
-
-### 1. Clone the repository
+### 2. Clone the Repository
 
 ```powershell
 git clone https://github.com/trhariharasudhan/GrandpaAssistant.git
 cd GrandpaAssistant
 ```
 
-### 2. Create and activate a virtual environment
+### 3. Install Python Dependencies
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r backend/requirements.txt
 ```
 
-If PowerShell blocks activation:
+### 4. Install Frontend Dependencies
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-```
-
-Then activate the environment again.
-
-### 3. Install dependencies
-
-```powershell
-pip install --upgrade pip
-pip install -r backend/requirements.txt
-```
-
-### 4. Install Ollama
-
-Download Ollama:
-
-- [https://ollama.com/](https://ollama.com/)
-
-Pull the model used by the project:
-
-```powershell
-ollama pull phi3
-```
-
-Make sure Ollama is running before using AI replies.
-
-### 5. Install Tesseract OCR
-
-Tesseract is required for OCR features such as:
-
-- `read screen`
-- `find <text>`
-- `click <text>`
-
-Recommended Windows build:
-
-- [Tesseract OCR for Windows](https://github.com/UB-Mannheim/tesseract/wiki)
-
-The project supports:
-
-- `C:\Program Files\Tesseract-OCR\tesseract.exe`
-- or `tesseract` available in `PATH`
-
-## Running the Assistant
-
-### Normal startup
-
-```powershell
-python main.py
-```
-
-### React frontend startup
-
-```powershell
-scripts\windows\start_react_ui.cmd
-```
-
-This opens:
-
-- Python backend assistant
-- React frontend dev UI
-
-Manual option:
-
-```powershell
-python main.py
 cd frontend
 npm install
-npm run dev
+cd ..
 ```
 
-### React frontend with browser
+### 5. Install the Offline AI Stack
+
+Fast path for the local Ollama setup:
 
 ```powershell
-scripts\windows\start_react_full.cmd
+scripts\windows\setup_offline_ai_stack.ps1
 ```
 
-This opens:
+That script installs the required Python AI packages, pulls the local Ollama models, and warms up the offline model cache for:
 
-- Python backend
-- React dev server
-- browser at `http://127.0.0.1:4173`
+- `sentence-transformers/all-MiniLM-L6-v2`
+- `ai4bharat/IndicBERTv2-MLM-only`
+- Whisper base
 
-### React desktop shell
-
-```powershell
-scripts\windows\start_react_desktop.cmd
-```
-
-This opens:
-
-- Python backend
-- React dev server
-- Electron desktop shell
-
-### Frontend-only launchers
-
-If the backend is already running in tray or another window:
-
-```powershell
-scripts\windows\start_react_frontend.cmd
-scripts\windows\start_react_electron.cmd
-```
-
-### Build portable desktop app
-
-```powershell
-scripts\windows\build_react_desktop.cmd
-```
-
-### Setup portable app shortcut
-
-```powershell
-scripts\windows\setup_portable_desktop.cmd
-```
-
-To enable startup launch for the packaged app:
-
-```powershell
-scripts\windows\setup_portable_desktop.cmd /startup-on
-```
-
-### Start directly in tray mode
-
-```powershell
-python main.py --tray
-```
-
-At startup choose:
-
-- `1` for voice mode
-- `2` for text mode
-
-## Usage Examples
-
-### Voice Mode
-
-Wake word:
-
-```text
-hey grandpa
-```
-
-Example voice commands:
-
-```text
-what time
-weather
-dashboard
-start dictation
-stop dictation
-background mode
-```
-
-### Text Mode
-
-Example text commands:
-
-```text
-what time
-what is my name
-weather in chennai
-dashboard
-open notepad
-take a note buy milk tomorrow
-list notes
-read screen
-find login
-click search
-```
-
-## Command Groups
-
-### Time and Calendar
-
-- `what time`
-- `what is date`
-- `what day`
-- `current month`
-- `current year`
-- `week number`
-
-### Memory and Profile
-
-- `what is my name`
-- `my father details`
-- `my github`
-- `my goals`
-- `tell me about myself`
-- `personal snapshot`
-- `what should i focus on`
-- `give me a suggestion`
-
-### Memory Updates
-
-- `update my father age to 58`
-- `set my wake up time to 6 am`
-- `remove my twitter`
-
-### Tasks, Reminders, and Notes
-
-- `add task finish report`
-- `list tasks`
-- `complete task 1`
-- `remind me to pay EB bill tomorrow`
-- `list reminders`
-- `take a note call client next week`
-- `list notes`
-- `delete note 1`
-
-### Dashboard and Daily Status
-
-- `daily brief`
-- `check reminders`
-- `dashboard`
-- `status center`
-- `full report`
-
-### Weather
-
-- `weather`
-- `what is the weather`
-- `weather in bangalore`
-- `forecast in chennai`
-
-### Apps and System
-
-- `open notepad`
-- `open explorer`
-- `switch to chrome`
-- `minimize chrome`
-- `maximize chrome`
-- `restore chrome`
-- `close notepad`
-- `take screenshot`
-- `restart`
-- `shutdown`
-
-### Vision and OCR
-
-- `read screen`
-- `find login`
-- `click search`
-- `is submit visible`
-- `what app am i using`
-- `what window is open`
-- `what am i seeing`
-- `summarize current browser page`
-- `summarize current code editor`
-- `what folder am i in`
-
-### Dictation
-
-- `start dictation`
-- `stop dictation`
-- `start detection`
-- `stop detection`
-
-Supported dictation phrases:
-
-- `comma`
-- `full stop`
-- `question mark`
-- `new line`
-- `enter`
-- `backspace`
-
-### Modes and Tray
-
-- `list modes`
-- `start work mode`
-- `start study mode`
-- `start movie mode`
-- `create mode coding volume 25 brightness 60 apps chrome, notepad`
-- `background mode`
-- `restore assistant`
-
-### Settings
-
-- `show settings`
-- `mute sounds`
-- `unmute sounds`
-- `turn off success sound`
-- `enable tray startup`
-- `disable tray startup`
-- `set wake word to hey captain`
-- `set initial timeout to 20`
-- `set active timeout to 90`
-- `enable sensitive voice mode`
-- `enable noise cancel mode`
-
-## Local Data Files
-
-Common runtime files under `backend/data/`:
-
-- `memory.json` - personal memory profile
-- `assistant.db` - SQLite database for memory/history
-- `tasks.json` - tasks and reminders
-- `notes.json` - saved notes
-- `settings.json` - local settings
-
-If this repository is public, review personal data before pushing runtime files.
-
-## Troubleshooting
-
-### Voice mode is not detecting well
-
-Try:
-
-- `enable sensitive voice mode`
-- `enable noise cancel mode`
-- restart the assistant after changing voice mode
-- check Windows microphone input level
-
-### `python` command not found
-
-Install Python and ensure it is added to `PATH`.
-
-### AI not responding
-
-Make sure Ollama is installed, running, and that the required model is pulled:
+### 6. Verify Ollama Models
 
 ```powershell
 ollama list
 ```
 
-### OCR not working
+Expected core models:
 
-Make sure Tesseract OCR is installed and reachable through the configured path or system `PATH`.
+- `mistral:7b`
+- `phi3:mini`
+- `deepseek-coder:6.7b`
 
-### Tray mode not working
+### 7. Run the Backend
 
-Make sure required dependencies are installed:
+```powershell
+uvicorn main:app --host 127.0.0.1 --port 8000
+```
 
-- `pystray`
-- `Pillow`
+If you prefer the legacy launcher:
 
-### Hand mouse not starting
+```powershell
+python main.py
+```
+
+## Optional Manual Offline Setup
+
+If you want to install the local AI dependencies manually instead of using the setup script:
+
+```powershell
+pip install fastapi uvicorn requests opencv-python pytesseract sentence-transformers faiss-cpu fasttext vaderSentiment transformers
+```
+
+Then pull the Ollama models:
+
+```powershell
+ollama pull mistral:7b
+ollama pull phi3:mini
+ollama pull deepseek-coder:6.7b
+```
+
+Other optional local tools used by this project:
+
+- Whisper for voice input
+- Piper TTS for voice output
+- IndicBERT through `transformers`
+
+## Frontend and Desktop Launchers
+
+React/Electron helpers are available under [`scripts/windows/`](scripts/windows/).
+
+Common launch options:
+
+```powershell
+scripts\windows\start_react_desktop.cmd
+scripts\windows\start_react_frontend.cmd
+scripts\windows\start_react_electron.cmd
+scripts\windows\build_react_desktop.cmd
+```
+
+## Project Structure
+
+- [`main.py`](main.py) - root launcher and FastAPI app export
+- [`backend/main.py`](backend/main.py) - backend bootstrap
+- [`backend/app/api/`](backend/app/api/) - FastAPI endpoints
+- [`backend/app/core/`](backend/app/core/) - assistant loop, routing, tray, overlays, UI wiring
+- [`backend/app/shared/`](backend/app/shared/) - shared infrastructure, config, LLM helpers, DB utilities
+- [`backend/app/features/`](backend/app/features/) - productivity, system, automation, vision, integrations, intelligence modules
+- [`frontend/src/`](frontend/src/) - React app
+- [`frontend/electron/`](frontend/electron/) - Electron shell
+- [`scripts/windows/`](scripts/windows/) - Windows startup and build helpers
+- [`docs/`](docs/) - docs, plans, structure notes
+
+Detailed structure reference:
+
+- [`docs/PROJECT_STRUCTURE.md`](docs/PROJECT_STRUCTURE.md)
+
+## Docs
+
+- [`docs/README.md`](docs/README.md)
+- [`docs/FUTURE_FEATURE_ROADMAP.md`](docs/FUTURE_FEATURE_ROADMAP.md)
+- [`docs/V1_SCOPE.md`](docs/V1_SCOPE.md)
+- [`docs/PROJECT_COMPLETION_CHECKLIST.md`](docs/PROJECT_COMPLETION_CHECKLIST.md)
+
+## Common Commands
+
+Run the assistant:
+
+```powershell
+python main.py
+```
+
+Run only the FastAPI backend:
+
+```powershell
+uvicorn main:app --host 127.0.0.1 --port 8000
+```
+
+Start directly in tray mode:
+
+```powershell
+python main.py --tray
+```
+
+Verify Ollama:
+
+```powershell
+ollama list
+```
+
+## Local Data and Privacy
+
+Runtime data is stored locally under `backend/data/` and includes settings, notes, reminders, assistant state, and other machine-specific files.
+
+This repo intentionally ignores private/runtime files such as:
+
+- local tokens
+- OCR/runtime caches
+- SQLite state
+- assistant settings and personal memory
+
+If you make the repo public, do not commit personal data from `backend/data/`.
+
+## Troubleshooting
+
+### `python` not found
+
+Install Python 3.11 and add it to `PATH`.
+
+### Ollama replies are not working
+
+Make sure Ollama is running and the required models are installed:
+
+```powershell
+ollama list
+```
+
+### OCR is not working
+
+Install Tesseract OCR and keep it available in `PATH` or at:
+
+```text
+C:\Program Files\Tesseract-OCR\tesseract.exe
+```
+
+### Voice mode issues
 
 Check:
 
-- webcam permission
-- MediaPipe and OpenCV installation
-- whether another app is already using the camera
+- microphone permissions
+- input level in Windows
+- installed voice/audio dependencies
 
-## Git Ignore Recommendation
+### Frontend issues
 
-Keep local runtime files out of source control when needed:
+Reinstall frontend dependencies:
 
-```gitignore
-.venv/
-__pycache__/
-*.pyc
-backend/data/settings.json
+```powershell
+cd frontend
+npm install
 ```
+
+## Current Status
+
+This repository is actively evolving. The current codebase includes:
+
+- the existing desktop assistant runtime
+- frontend/dashboard work
+- system and productivity upgrades
+- the new offline Ollama multi-model backend
 
 ## License
 
-No license file is currently included in this repository. Add a license if you plan to distribute or publish the project widely.
+No license file is currently included in this repository. Add one before wider redistribution if you want clear reuse terms.
