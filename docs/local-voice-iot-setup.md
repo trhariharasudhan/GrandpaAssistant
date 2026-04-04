@@ -9,6 +9,14 @@
    - `home_assistant_service`: direct Home Assistant service calls
    - `mqtt`: local MQTT broker publishing
 4. High-risk commands such as locks, doors, alarms, and disable actions should keep `requires_confirmation: true`.
+5. Run `scripts\windows\validate_iot_setup.cmd` to verify placeholders, required fields, and local connectivity.
+
+Useful assistant commands:
+
+- `iot validate`
+- `iot status`
+- `iot inventory`
+- `iot action history`
 
 ## Piper Voice Setup
 
@@ -21,6 +29,14 @@
    - `auto configure piper`
    - `use piper voice`
    - `piper setup status`
+4. Or run `scripts\windows\setup_piper_voice.ps1` and it will auto-configure the first detected model.
+
+Useful assistant commands:
+
+- `list piper models`
+- `use piper model to <model-name>`
+- `use piper voice`
+- `tts backend status`
 
 ## Wake Word Tuning
 

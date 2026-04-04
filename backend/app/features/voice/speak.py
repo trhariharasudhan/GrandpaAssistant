@@ -123,6 +123,27 @@ def available_piper_models():
     return models
 
 
+def choose_piper_model(model_name_or_path):
+    query = _compact_text(model_name_or_path)
+    if not query:
+        return False, "Please provide a Piper model name or full path."
+
+    normalized_query = query.lower()
+    for item in available_piper_models():
+        model_path = item["model_path"]
+        if normalized_query in {
+            model_path.lower(),
+            os.path.basename(model_path).lower(),
+            item["name"].lower(),
+        }:
+            update_setting("voice.piper_model_path", model_path)
+            if item["config_path"]:
+                update_setting("voice.piper_config_path", item["config_path"])
+            return True, f"Piper is now configured with {item['name']}."
+
+    return False, "I could not find that Piper model in the local voice folders."
+
+
 def autoconfigure_piper_model():
     models = available_piper_models()
     if not models:
@@ -177,6 +198,10 @@ def list_piper_models_summary():
     return "Available Piper models: " + " | ".join(
         f"{item['name']} ({item['size_mb']} MB)" for item in models[:6]
     )
+
+
+def choose_piper_model_summary(model_name_or_path):
+    return choose_piper_model(model_name_or_path)[1]
 
 
 def prefer_piper_backend():

@@ -1,7 +1,10 @@
 import json
 import os
 import re
+import socket
 from typing import Any
+
+import requests
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -307,6 +310,229 @@ def summarize_iot_config() -> dict[str, Any]:
         "sample_commands": sample_commands,
         "devices": device_list,
         "summary": " ".join(summary_parts),
+    }
+
+
+def validate_iot_config(*, test_connectivity: bool = False, timeout_seconds: float = 2.0) -> dict[str, Any]:
+    creds = load_iot_credentials()
+    if not creds:
+        return {
+            "ok": False,
+            "configured": False,
+            "enabled": False,
+            "summary": "Smart Home credentials file is missing.",
+            "checks": [
+                {
+                    "key": "credentials_file",
+                    "status": "error",
+                    "detail": "Add backend/data/iot_credentials.json to enable local IoT control.",
+                }
+            ],
+        }
+
+    webhooks = creds.get("webhooks") if isinstance(creds.get("webhooks"), dict) else {}
+    ha_config = creds.get("home_assistant") if isinstance(creds.get("home_assistant"), dict) else {}
+    mqtt_config = creds.get("mqtt") if isinstance(creds.get("mqtt"), dict) else {}
+    enabled = bool(creds.get("enabled"))
+
+    checks: list[dict[str, Any]] = []
+
+    if webhooks:
+        checks.append(
+            {
+                "key": "commands",
+                "status": "ok",
+                "detail": f"{len(webhooks)} Smart Home command(s) are configured.",
+            }
+        )
+    else:
+        checks.append(
+            {
+                "key": "commands",
+                "status": "warning",
+                "detail": "No Smart Home commands are configured yet.",
+            }
+        )
+
+    placeholder_count = 0
+    integration_counts = {"webhook": 0, "home_assistant_service": 0, "mqtt": 0, "unknown": 0}
+    for raw_name, entry in webhooks.items():
+        config = entry if isinstance(entry, dict) else {}
+        integration = _compact_text(config.get("type") or "webhook").lower() or "webhook"
+        if integration not in integration_counts:
+            integration = "unknown"
+        integration_counts[integration] += 1
+
+        url = _compact_text(config.get("url"))
+        if _placeholder_url(url):
+            placeholder_count += 1
+            checks.append(
+                {
+                    "key": f"placeholder:{raw_name}",
+                    "status": "warning",
+                    "detail": f"{raw_name} still uses a placeholder URL or key.",
+                }
+            )
+
+        if integration == "webhook" and not url:
+            checks.append(
+                {
+                    "key": f"webhook_url:{raw_name}",
+                    "status": "error",
+                    "detail": f"{raw_name} is missing its webhook URL.",
+                }
+            )
+
+        if integration == "home_assistant_service":
+            if not _compact_text(config.get("service")):
+                checks.append(
+                    {
+                        "key": f"ha_service:{raw_name}",
+                        "status": "error",
+                        "detail": f"{raw_name} is missing its Home Assistant service name.",
+                    }
+                )
+            if not _compact_text(config.get("entity_id")):
+                checks.append(
+                    {
+                        "key": f"ha_entity:{raw_name}",
+                        "status": "error",
+                        "detail": f"{raw_name} is missing its Home Assistant entity_id.",
+                    }
+                )
+
+        if integration == "mqtt" and not _compact_text(config.get("topic")):
+            checks.append(
+                {
+                    "key": f"mqtt_topic:{raw_name}",
+                    "status": "error",
+                    "detail": f"{raw_name} is missing its MQTT topic.",
+                }
+            )
+
+    if integration_counts["home_assistant_service"]:
+        ha_base = _compact_text(ha_config.get("base_url"))
+        ha_token = _compact_text(ha_config.get("token"))
+        if not ha_base:
+            checks.append(
+                {
+                    "key": "home_assistant_base_url",
+                    "status": "error",
+                    "detail": "Home Assistant base_url is missing.",
+                }
+            )
+        elif "PASTE_LONG_LIVED_ACCESS_TOKEN_HERE" in ha_token or not ha_token:
+            checks.append(
+                {
+                    "key": "home_assistant_token",
+                    "status": "warning",
+                    "detail": "Home Assistant token still looks like a placeholder or is empty.",
+                }
+            )
+        else:
+            checks.append(
+                {
+                    "key": "home_assistant_auth",
+                    "status": "ok",
+                    "detail": "Home Assistant base_url and token are present.",
+                }
+            )
+
+        if test_connectivity and ha_base and ha_token and "PASTE_LONG_LIVED_ACCESS_TOKEN_HERE" not in ha_token:
+            try:
+                response = requests.get(
+                    ha_base.rstrip("/") + "/api/",
+                    headers={"Authorization": f"Bearer {ha_token}"},
+                    timeout=timeout_seconds,
+                )
+                status = "ok" if response.ok else "warning"
+                checks.append(
+                    {
+                        "key": "home_assistant_connectivity",
+                        "status": status,
+                        "detail": f"Home Assistant connectivity check returned HTTP {response.status_code}.",
+                    }
+                )
+            except requests.RequestException as error:
+                checks.append(
+                    {
+                        "key": "home_assistant_connectivity",
+                        "status": "warning",
+                        "detail": f"Could not reach Home Assistant: {error}",
+                    }
+                )
+
+    if integration_counts["mqtt"]:
+        mqtt_host = _compact_text(mqtt_config.get("host"))
+        mqtt_port = int(mqtt_config.get("port") or 1883)
+        if not mqtt_host:
+            checks.append(
+                {
+                    "key": "mqtt_host",
+                    "status": "error",
+                    "detail": "MQTT host is missing.",
+                }
+            )
+        else:
+            checks.append(
+                {
+                    "key": "mqtt_host",
+                    "status": "ok",
+                    "detail": f"MQTT broker target is {mqtt_host}:{mqtt_port}.",
+                }
+            )
+
+        if test_connectivity and mqtt_host:
+            try:
+                with socket.create_connection((mqtt_host, mqtt_port), timeout=timeout_seconds):
+                    pass
+                checks.append(
+                    {
+                        "key": "mqtt_connectivity",
+                        "status": "ok",
+                        "detail": f"MQTT broker accepted a TCP connection on {mqtt_host}:{mqtt_port}.",
+                    }
+                )
+            except OSError as error:
+                checks.append(
+                    {
+                        "key": "mqtt_connectivity",
+                        "status": "warning",
+                        "detail": f"Could not connect to MQTT broker at {mqtt_host}:{mqtt_port}: {error}",
+                    }
+                )
+
+    if enabled:
+        checks.append(
+            {
+                "key": "enabled",
+                "status": "ok",
+                "detail": "Smart Home control is enabled.",
+            }
+        )
+    else:
+        checks.append(
+            {
+                "key": "enabled",
+                "status": "warning",
+                "detail": "Smart Home control is still disabled.",
+            }
+        )
+
+    error_count = sum(1 for item in checks if item["status"] == "error")
+    warning_count = sum(1 for item in checks if item["status"] == "warning")
+    ok_count = sum(1 for item in checks if item["status"] == "ok")
+    summary = (
+        f"IoT config validation found {ok_count} ready, {warning_count} warning, and {error_count} error check(s)."
+    )
+    return {
+        "ok": error_count == 0,
+        "configured": True,
+        "enabled": enabled,
+        "summary": summary,
+        "integration_counts": integration_counts,
+        "placeholder_count": placeholder_count,
+        "checks": checks,
     }
 
 

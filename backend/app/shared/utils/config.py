@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 
@@ -217,6 +218,16 @@ APP_ALIASES = {
     "paint": "mspaint.exe",
 }
 
+_SETTINGS_CACHE = None
+_SETTINGS_CACHE_MTIME = None
+_LAST_VALIDATION = {
+    "ok": True,
+    "warnings": [],
+    "corrected_paths": [],
+    "unknown_paths": [],
+    "restored_defaults": False,
+}
+
 
 def _merge_dicts(base, override):
     result = dict(base)
@@ -228,30 +239,240 @@ def _merge_dicts(base, override):
     return result
 
 
+def _write_settings_file(settings):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(SETTINGS_PATH, "w", encoding="utf-8") as file:
+        json.dump(settings, file, indent=4)
+
+
+def _settings_mtime():
+    try:
+        return os.path.getmtime(SETTINGS_PATH)
+    except OSError:
+        return None
+
+
+def _coerce_bool(value):
+    if isinstance(value, bool):
+        return value, False
+    if isinstance(value, (int, float)):
+        return bool(value), True
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        truthy = {"1", "true", "yes", "on", "enabled"}
+        falsy = {"0", "false", "no", "off", "disabled"}
+        if lowered in truthy:
+            return True, True
+        if lowered in falsy:
+            return False, True
+    return None, False
+
+
+def _coerce_like_default(value, default):
+    if isinstance(default, bool):
+        coerced, changed = _coerce_bool(value)
+        if coerced is not None:
+            return coerced, changed
+        return default, True
+
+    if isinstance(default, int) and not isinstance(default, bool):
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value, False
+        if isinstance(value, float) and value.is_integer():
+            return int(value), True
+        if isinstance(value, str):
+            try:
+                return int(value.strip()), True
+            except ValueError:
+                pass
+        return default, True
+
+    if isinstance(default, float):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value), not isinstance(value, float)
+        if isinstance(value, str):
+            try:
+                return float(value.strip()), True
+            except ValueError:
+                pass
+        return default, True
+
+    if isinstance(default, str):
+        if isinstance(value, str):
+            return value, False
+        return str(value), True
+
+    if isinstance(default, list):
+        if isinstance(value, list):
+            return copy.deepcopy(value), False
+        if isinstance(value, tuple):
+            return list(value), True
+        return copy.deepcopy(default), True
+
+    if isinstance(default, dict):
+        if isinstance(value, dict):
+            return copy.deepcopy(value), False
+        return copy.deepcopy(default), True
+
+    return copy.deepcopy(value), False
+
+
+def _unknown_setting_paths(settings, defaults, prefix=""):
+    unknown = []
+    if not isinstance(settings, dict) or not isinstance(defaults, dict):
+        return unknown
+
+    for key, value in settings.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if key not in defaults:
+            unknown.append(path)
+            continue
+        if isinstance(value, dict) and isinstance(defaults.get(key), dict):
+            unknown.extend(_unknown_setting_paths(value, defaults[key], path))
+    return unknown
+
+
+def _sanitize_settings_value(value, default, path, warnings, corrected_paths):
+    if isinstance(default, dict):
+        source = value if isinstance(value, dict) else {}
+        if value is not None and not isinstance(value, dict):
+            warnings.append(f"{path or 'root'} was reset because it should be an object.")
+            corrected_paths.append(path or "root")
+
+        result = {}
+        for key, child_default in default.items():
+            child_path = f"{path}.{key}" if path else key
+            result[key] = _sanitize_settings_value(source.get(key), child_default, child_path, warnings, corrected_paths)
+
+        for key, extra_value in source.items():
+            if key not in default:
+                result[key] = copy.deepcopy(extra_value)
+        return result
+
+    if value is None:
+        return copy.deepcopy(default)
+
+    coerced, changed = _coerce_like_default(value, default)
+    if changed:
+        warnings.append(f"{path} was corrected to match the expected setting type.")
+        corrected_paths.append(path)
+    return coerced
+
+
+def _build_validation_payload(*, warnings=None, corrected_paths=None, unknown_paths=None, restored_defaults=False):
+    warnings = list(warnings or [])
+    corrected_paths = sorted({path for path in (corrected_paths or []) if path})
+    unknown_paths = sorted({path for path in (unknown_paths or []) if path})
+    if unknown_paths:
+        warnings.append(
+            "Unknown custom settings were preserved: " + ", ".join(unknown_paths[:8]) + ("." if len(unknown_paths) <= 8 else ", ...")
+        )
+    return {
+        "ok": not warnings and not restored_defaults,
+        "warnings": warnings,
+        "corrected_paths": corrected_paths,
+        "unknown_paths": unknown_paths,
+        "restored_defaults": restored_defaults,
+    }
+
+
+def _cache_settings(settings, validation):
+    global _SETTINGS_CACHE, _SETTINGS_CACHE_MTIME, _LAST_VALIDATION
+    _SETTINGS_CACHE = copy.deepcopy(settings)
+    _SETTINGS_CACHE_MTIME = _settings_mtime()
+    _LAST_VALIDATION = {
+        "ok": bool(validation.get("ok")),
+        "warnings": list(validation.get("warnings", [])),
+        "corrected_paths": list(validation.get("corrected_paths", [])),
+        "unknown_paths": list(validation.get("unknown_paths", [])),
+        "restored_defaults": bool(validation.get("restored_defaults", False)),
+    }
+
+
+def get_last_settings_validation():
+    return copy.deepcopy(_LAST_VALIDATION)
+
+
 def load_settings():
+    global _SETTINGS_CACHE, _SETTINGS_CACHE_MTIME
     os.makedirs(DATA_DIR, exist_ok=True)
 
+    current_mtime = _settings_mtime()
+    if _SETTINGS_CACHE is not None and _SETTINGS_CACHE_MTIME == current_mtime:
+        return copy.deepcopy(_SETTINGS_CACHE)
+
     if not os.path.exists(SETTINGS_PATH):
-        save_settings(DEFAULT_SETTINGS)
-        return dict(DEFAULT_SETTINGS)
+        defaults = copy.deepcopy(DEFAULT_SETTINGS)
+        _write_settings_file(defaults)
+        _cache_settings(
+            defaults,
+            _build_validation_payload(
+                warnings=["settings.json was missing, so the default configuration was restored."],
+                restored_defaults=True,
+            ),
+        )
+        return copy.deepcopy(defaults)
 
     try:
         with open(SETTINGS_PATH, "r", encoding="utf-8") as file:
             saved = json.load(file)
     except (OSError, json.JSONDecodeError):
-        save_settings(DEFAULT_SETTINGS)
-        return dict(DEFAULT_SETTINGS)
+        defaults = copy.deepcopy(DEFAULT_SETTINGS)
+        _write_settings_file(defaults)
+        _cache_settings(
+            defaults,
+            _build_validation_payload(
+                warnings=["settings.json was unreadable, so the default configuration was restored."],
+                restored_defaults=True,
+            ),
+        )
+        return copy.deepcopy(defaults)
 
+    if not isinstance(saved, dict):
+        defaults = copy.deepcopy(DEFAULT_SETTINGS)
+        _write_settings_file(defaults)
+        _cache_settings(
+            defaults,
+            _build_validation_payload(
+                warnings=["settings.json did not contain a valid object, so the default configuration was restored."],
+                restored_defaults=True,
+            ),
+        )
+        return copy.deepcopy(defaults)
+
+    warnings = []
+    corrected_paths = []
+    unknown_paths = _unknown_setting_paths(saved, DEFAULT_SETTINGS)
     merged = _merge_dicts(DEFAULT_SETTINGS, saved)
-    if merged != saved:
-        save_settings(merged)
-    return merged
+    sanitized = _sanitize_settings_value(merged, DEFAULT_SETTINGS, "", warnings, corrected_paths)
+
+    if sanitized != saved:
+        _write_settings_file(sanitized)
+
+    _cache_settings(
+        sanitized,
+        _build_validation_payload(
+            warnings=warnings,
+            corrected_paths=corrected_paths,
+            unknown_paths=unknown_paths,
+            restored_defaults=False,
+        ),
+    )
+    return copy.deepcopy(sanitized)
 
 
 def save_settings(settings):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(SETTINGS_PATH, "w", encoding="utf-8") as file:
-        json.dump(settings, file, indent=4)
+    sanitized = _sanitize_settings_value(settings, DEFAULT_SETTINGS, "", [], [])
+    _write_settings_file(sanitized)
+    _cache_settings(
+        sanitized,
+        _build_validation_payload(
+            warnings=[],
+            corrected_paths=[],
+            unknown_paths=_unknown_setting_paths(settings, DEFAULT_SETTINGS) if isinstance(settings, dict) else [],
+            restored_defaults=False,
+        ),
+    )
 
 
 def get_setting(path, default=None):

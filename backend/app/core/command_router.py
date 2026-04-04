@@ -206,6 +206,7 @@ from features.productivity.task_module import (
 from features.security.emergency_dispatch import trigger_dual_emergency_protocol
 from features.security.face_verification import enroll_user_face, verify_user_face, is_face_enrolled
 from features.integrations.iot_module import dispatch_iot_command, recent_iot_actions, resolve_iot_command, run_iot_command
+from iot_registry import validate_iot_config
 from vision.hand_mouse_control import run_hand_mouse
 from vision.object_detection import (
     apply_object_detection_alert_profile,
@@ -263,6 +264,7 @@ from voice.listen import (
 from voice.speak import (
     autoconfigure_piper_model,
     append_streaming_reply,
+    choose_piper_model_summary,
     clear_piper_config_path,
     clear_piper_model_path,
     end_streaming_reply,
@@ -613,6 +615,31 @@ def _iot_awareness_summary():
     return DEVICE_MANAGER.iot_summary()
 
 
+def _hardware_status_summary() -> str:
+    return DEVICE_MANAGER.status_summary()
+
+
+def _hardware_event_history_summary() -> str:
+    events = DEVICE_MANAGER.get_recent_events(limit=6)
+    if not events:
+        return "No recent hardware events were recorded yet."
+    return "Recent hardware events: " + " | ".join(
+        item.get("message") or f"{item.get('device_name', 'device')}: {item.get('status', 'updated')}"
+        for item in events
+    )
+
+
+def _rescan_hardware_summary() -> str:
+    status = DEVICE_MANAGER.refresh(emit_events=True)
+    devices = status.get("devices") or []
+    capabilities = status.get("capabilities") or {}
+    summary = status.get("capabilities", {}).get("summary") or "Hardware scan finished."
+    return (
+        f"Hardware rescan complete. I can currently see {len(devices)} connected device or devices. "
+        f"{summary} Event history now has {status.get('event_count', 0)} item or items."
+    )
+
+
 def _iot_knowledge_summary(command: str) -> str | None:
     return DEVICE_MANAGER.local_response(command)
 
@@ -625,6 +652,19 @@ def _iot_action_history_summary() -> str:
         f"{item.get('matched_command', item.get('input', 'command'))}: {'ok' if item.get('ok') else 'failed'}"
         for item in actions
     )
+
+
+def _iot_validation_summary() -> str:
+    payload = validate_iot_config(test_connectivity=True)
+    checks = payload.get("checks") or []
+    warnings = [item.get("detail", "") for item in checks if item.get("status") == "warning"][:3]
+    errors = [item.get("detail", "") for item in checks if item.get("status") == "error"][:3]
+    parts = [payload.get("summary", "IoT validation finished.")]
+    if errors:
+        parts.append("Errors: " + " | ".join(errors))
+    if warnings:
+        parts.append("Warnings: " + " | ".join(warnings))
+    return " ".join(part for part in parts if part)
 
 
 def _piper_setup_summary():
@@ -3175,6 +3215,16 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
 
     if command in [
+        "iot validate",
+        "validate iot",
+        "iot config validation",
+        "validate smart home config",
+        "smart home validation",
+    ]:
+        speak(_iot_validation_summary())
+        return
+
+    if command in [
         "iot inventory",
         "iot overview",
         "smart home inventory",
@@ -3183,6 +3233,36 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         "list iot devices",
     ]:
         speak(_iot_awareness_summary())
+        return
+
+    if command in [
+        "hardware status",
+        "device status",
+        "connected hardware",
+        "what hardware is connected",
+        "what devices are connected",
+    ]:
+        speak(_hardware_status_summary())
+        return
+
+    if command in [
+        "recent hardware events",
+        "hardware events",
+        "recent device events",
+        "device events",
+    ]:
+        speak(_hardware_event_history_summary())
+        return
+
+    if command in [
+        "rescan hardware",
+        "scan hardware",
+        "refresh hardware",
+        "rescan devices",
+        "scan devices",
+        "refresh devices",
+    ]:
+        speak(_rescan_hardware_summary())
         return
 
     if command in [
@@ -3232,6 +3312,14 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
 
     if command in ["list piper models", "show piper models", "available piper models"]:
         speak(list_piper_models_summary())
+        return
+
+    choose_piper_match = re.match(
+        r"^(?:use|choose|select|set)\s+piper\s+(?:voice\s+)?model\s+(?:to\s+)?(.+)$",
+        command,
+    )
+    if choose_piper_match:
+        speak(choose_piper_model_summary(choose_piper_match.group(1).strip()))
         return
 
     if command in ["auto configure piper", "autoconfigure piper", "detect piper model"]:

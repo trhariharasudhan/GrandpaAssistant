@@ -1,5 +1,6 @@
 .venv/
 .python311/
+.codex/
 __pycache__/
 *.pyc
 *.pyo
@@ -35,10 +36,14 @@ backend/data/tasks.json
 backend/data/emergency_credentials.json
 backend/data/iot_credentials.json
 backend/data/iot_action_history.json
+backend/data/iot_mock_state.json
 backend/data/face_profile.json
 backend/data/piper/
+backend/data/tts_audio/
 backend/data/voices/
 models/piper/
+frontend/dist/
+frontend/release/
 /package-lock.json
 temp_*_report*.json
 temp_run_output*.txt

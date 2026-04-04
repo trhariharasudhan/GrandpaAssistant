@@ -1,6 +1,7 @@
 param(
     [string]$ModelPath = "",
-    [string]$ConfigPath = ""
+    [string]$ConfigPath = "",
+    [switch]$AutoConfigure = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,6 +10,11 @@ $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $PiperDir = Join-Path $ProjectRoot "backend\data\piper"
 $VoicesDir = Join-Path $ProjectRoot "backend\data\voices"
 $ModelsDir = Join-Path $ProjectRoot "models\piper"
+$PythonExe = @(
+    (Join-Path $ProjectRoot ".python311\python.exe"),
+    (Join-Path $ProjectRoot ".venv\Scripts\python.exe"),
+    "python"
+) | Where-Object { $_ -eq "python" -or (Test-Path $_) } | Select-Object -First 1
 
 foreach ($Path in @($PiperDir, $VoicesDir, $ModelsDir)) {
     if (-not (Test-Path $Path)) {
@@ -49,6 +55,25 @@ if ($DetectedModels) {
         Write-Host " - $($Item.FullName)"
     }
     Write-Host ""
+    if ($AutoConfigure -and $PythonExe) {
+        Write-Host "Running auto configure..."
+        @'
+import json
+import os
+import sys
+
+repo_root = os.getcwd()
+sys.path.insert(0, os.path.join(repo_root, "backend", "app"))
+sys.path.insert(0, os.path.join(repo_root, "backend", "app", "features"))
+sys.path.insert(0, os.path.join(repo_root, "backend", "app", "shared"))
+
+from voice.speak import autoconfigure_piper_model, piper_setup_payload
+
+ok, message = autoconfigure_piper_model()
+print(json.dumps({"ok": ok, "message": message, "piper": piper_setup_payload()}, indent=2))
+'@ | & $PythonExe -
+        Write-Host ""
+    }
     Write-Host "Next assistant commands:"
     Write-Host " - auto configure piper"
     Write-Host " - use piper voice"

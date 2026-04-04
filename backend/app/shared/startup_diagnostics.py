@@ -10,11 +10,12 @@ from typing import Any
 import requests
 
 from iot_registry import summarize_iot_config
-from utils.config import get_setting
+from utils.config import get_last_settings_validation, get_setting, load_settings
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 BACKEND_DATA_DIR = os.path.join(PROJECT_ROOT, "backend", "data")
+BACKEND_LOG_DIR = os.path.join(PROJECT_ROOT, "backend", "logs")
 DEFAULT_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 DEFAULT_TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 REQUIRED_MODELS = {
@@ -82,6 +83,70 @@ def _data_dir_status(allow_create_dirs: bool) -> tuple[str, str]:
             return "error", f"Could not create runtime data directory: {error}"
 
     return "warning", f"Runtime data directory is missing: {BACKEND_DATA_DIR}."
+
+
+def _log_dir_status(allow_create_dirs: bool) -> tuple[str, str]:
+    if os.path.isdir(BACKEND_LOG_DIR):
+        if os.access(BACKEND_LOG_DIR, os.W_OK):
+            return "ok", f"Backend log directory is writable at {BACKEND_LOG_DIR}."
+        return "warning", f"Backend log directory exists but is not writable: {BACKEND_LOG_DIR}."
+
+    if allow_create_dirs:
+        try:
+            os.makedirs(BACKEND_LOG_DIR, exist_ok=True)
+            return "ok", f"Backend log directory created at {BACKEND_LOG_DIR}."
+        except OSError as error:
+            return "error", f"Could not create backend log directory: {error}"
+
+    return "warning", f"Backend log directory is missing: {BACKEND_LOG_DIR}."
+
+
+def _settings_status() -> dict[str, Any]:
+    load_settings()
+    validation = get_last_settings_validation()
+    warnings = list(validation.get("warnings", []))
+    corrected_paths = list(validation.get("corrected_paths", []))
+    unknown_paths = list(validation.get("unknown_paths", []))
+    restored_defaults = bool(validation.get("restored_defaults", False))
+
+    if restored_defaults:
+        detail = warnings[0] if warnings else "Settings were restored to defaults."
+        return _item(
+            "settings_config",
+            "warning",
+            "Settings Validation",
+            detail,
+            warnings=warnings,
+            corrected_paths=corrected_paths,
+            unknown_paths=unknown_paths,
+        )
+
+    if warnings:
+        detail_parts = []
+        if corrected_paths:
+            detail_parts.append(f"{len(corrected_paths)} setting value(s) were auto-corrected")
+        if unknown_paths:
+            detail_parts.append(f"{len(unknown_paths)} custom setting path(s) were preserved")
+        detail = ". ".join(detail_parts) + "."
+        return _item(
+            "settings_config",
+            "warning",
+            "Settings Validation",
+            detail,
+            warnings=warnings,
+            corrected_paths=corrected_paths,
+            unknown_paths=unknown_paths,
+        )
+
+    return _item(
+        "settings_config",
+        "ok",
+        "Settings Validation",
+        "settings.json matches the expected assistant configuration schema.",
+        warnings=[],
+        corrected_paths=[],
+        unknown_paths=[],
+    )
 
 
 def _ollama_status() -> tuple[dict[str, Any], list[str]]:
@@ -367,6 +432,9 @@ def collect_startup_diagnostics(*, use_cache: bool = True, allow_create_dirs: bo
 
     data_status, data_detail = _data_dir_status(allow_create_dirs=allow_create_dirs)
     items.append(_item("data_dir", data_status, "Runtime Data Directory", data_detail))
+    log_status, log_detail = _log_dir_status(allow_create_dirs=allow_create_dirs)
+    items.append(_item("log_dir", log_status, "Backend Log Directory", log_detail))
+    items.append(_settings_status())
 
     ollama_item, installed_models = _ollama_status()
     items.append(ollama_item)

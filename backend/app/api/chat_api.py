@@ -1,12 +1,17 @@
 from datetime import datetime
 import json
+import os
+import time
+from typing import Any
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from api_logging import ensure_log_dir, log_api_event, new_request_id, request_summary
 from device_manager import DEVICE_MANAGER
 from brain.semantic_memory import (
     build_semantic_memory_context,
@@ -14,6 +19,7 @@ from brain.semantic_memory import (
     semantic_memory_status,
 )
 from iot_control import execute_iot_control, get_iot_action_history, resolve_iot_control_command
+from iot_registry import validate_iot_config
 from llm_client import generate_chat_reply, stream_chat_reply
 from offline_multi_model import (
     OfflineAssistantError,
@@ -23,6 +29,8 @@ from offline_multi_model import (
     select_route,
 )
 from startup_diagnostics import collect_startup_diagnostics
+from utils.config import get_last_settings_validation, load_settings
+from voice.speak import autoconfigure_piper_model, piper_setup_payload
 
 
 app = FastAPI(title="Grandpa Assistant Chat API", version="1.0.0")
@@ -37,6 +45,8 @@ app.add_middleware(
 
 
 CHAT_HISTORY: list[dict] = []
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+IOT_MOCK_STATE_PATH = os.path.join(PROJECT_ROOT, "backend", "data", "iot_mock_state.json")
 
 
 class ChatRequest(BaseModel):
@@ -60,6 +70,61 @@ class IoTKnowledgeRequest(BaseModel):
 class IoTControlRequest(BaseModel):
     command: str
     confirm: bool | None = False
+
+
+class BaseEnvelope(BaseModel):
+    ok: bool
+
+
+class DoctorResponse(BaseEnvelope):
+    doctor: dict[str, Any]
+
+
+class HealthResponse(BaseEnvelope):
+    service: str
+    offline_assistant: dict[str, Any]
+    hardware: dict[str, Any]
+    iot: dict[str, Any]
+    semantic_memory: dict[str, Any]
+    doctor: dict[str, Any]
+
+
+class DevicesResponse(BaseEnvelope):
+    devices: list[dict[str, Any]]
+    recent_events: list[dict[str, Any]]
+
+
+class DeviceRescanResponse(DevicesResponse):
+    status: dict[str, Any]
+
+
+class StatusResponse(BaseEnvelope):
+    assistant: dict[str, Any]
+
+
+class SettingsValidationResponse(BaseEnvelope):
+    validation: dict[str, Any]
+
+
+class PiperSetupResponse(BaseEnvelope):
+    piper: dict[str, Any]
+    message: str | None = None
+
+
+class IoTValidationResponse(BaseEnvelope):
+    validation: dict[str, Any]
+
+
+class AskResponse(BaseEnvelope):
+    prompt: str
+    mode: str
+    route: str
+    model: str
+    response: str
+    hardware_context_used: bool
+    hardware: dict[str, Any] | None = None
+    iot: dict[str, Any] | None = None
+    iot_control: dict[str, Any] | None = None
 
 
 def _hardware_aware_prompt(message: str) -> tuple[str, str | None]:
@@ -103,7 +168,91 @@ def _chat_prompt_with_memory(message: str) -> str:
     )
 
 
-@app.get("/health")
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    request_id = new_request_id()
+    request.state.request_id = request_id
+    started_at = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception as error:
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        log_api_event(
+            "request_failed",
+            level="error",
+            request_id=request_id,
+            duration_ms=duration_ms,
+            error=str(error),
+            **request_summary(request),
+        )
+        raise
+
+    response.headers["X-Request-Id"] = request_id
+    duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+    log_api_event(
+        "request_completed",
+        level="info",
+        request_id=request_id,
+        status_code=response.status_code,
+        duration_ms=duration_ms,
+        **request_summary(request),
+    )
+    return response
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, error: HTTPException) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", new_request_id())
+    detail = str(error.detail)
+    log_api_event(
+        "http_exception",
+        level="warning",
+        request_id=request_id,
+        status_code=error.status_code,
+        detail=detail,
+        **request_summary(request),
+    )
+    return JSONResponse(
+        status_code=error.status_code,
+        content={"ok": False, "error": detail, "request_id": request_id},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, error: RequestValidationError) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", new_request_id())
+    log_api_event(
+        "validation_exception",
+        level="warning",
+        request_id=request_id,
+        status_code=422,
+        errors=error.errors(),
+        **request_summary(request),
+    )
+    return JSONResponse(
+        status_code=422,
+        content={"ok": False, "error": "Request validation failed.", "details": error.errors(), "request_id": request_id},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, error: Exception) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", new_request_id())
+    log_api_event(
+        "unhandled_exception",
+        level="error",
+        request_id=request_id,
+        status_code=500,
+        error=str(error),
+        **request_summary(request),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"ok": False, "error": "Internal assistant error.", "request_id": request_id},
+    )
+
+
+@app.get("/health", response_model=HealthResponse)
 def health() -> dict:
     return {
         "ok": True,
@@ -116,7 +265,22 @@ def health() -> dict:
     }
 
 
-@app.get("/doctor")
+def _load_local_json(path: str) -> dict[str, Any]:
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            payload = json.load(file)
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_local_json(path: str, payload: dict[str, Any]) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as file:
+        json.dump(payload, file, indent=2, ensure_ascii=False)
+
+
+@app.get("/doctor", response_model=DoctorResponse)
 def doctor() -> dict:
     return {
         "ok": True,
@@ -126,6 +290,8 @@ def doctor() -> dict:
 
 @app.on_event("startup")
 def startup_device_monitor() -> None:
+    ensure_log_dir()
+    load_settings()
     DEVICE_MANAGER.start()
 
 
@@ -145,12 +311,51 @@ def get_models() -> dict:
         raise HTTPException(status_code=503, detail=str(error)) from error
 
 
-@app.get("/devices")
+@app.get("/devices", response_model=DevicesResponse)
 def get_devices() -> dict:
     return {
         "ok": True,
         "devices": DEVICE_MANAGER.get_devices(),
         "recent_events": DEVICE_MANAGER.get_recent_events(limit=10),
+    }
+
+
+@app.post("/devices/rescan", response_model=DeviceRescanResponse)
+def rescan_devices() -> dict:
+    status = DEVICE_MANAGER.refresh(emit_events=True)
+    return {
+        "ok": True,
+        "status": status,
+        "devices": status.get("devices", []),
+        "recent_events": status.get("recent_events", []),
+    }
+
+
+@app.get("/settings/validation", response_model=SettingsValidationResponse)
+def get_settings_validation() -> dict:
+    load_settings()
+    return {
+        "ok": True,
+        "validation": get_last_settings_validation(),
+    }
+
+
+@app.get("/voice/piper/status", response_model=PiperSetupResponse)
+def get_piper_status() -> dict:
+    return {
+        "ok": True,
+        "piper": piper_setup_payload(),
+        "message": None,
+    }
+
+
+@app.post("/voice/piper/autoconfigure", response_model=PiperSetupResponse)
+def autoconfigure_piper() -> dict:
+    ok, message = autoconfigure_piper_model()
+    return {
+        "ok": bool(ok),
+        "piper": piper_setup_payload(),
+        "message": message,
     }
 
 
@@ -170,6 +375,14 @@ def get_iot_status() -> dict:
     return {
         "ok": True,
         "iot": DEVICE_MANAGER.get_iot_status(),
+    }
+
+
+@app.get("/iot/validate", response_model=IoTValidationResponse)
+def get_iot_validation() -> dict:
+    return {
+        "ok": True,
+        "validation": validate_iot_config(test_connectivity=True),
     }
 
 
@@ -229,7 +442,40 @@ def iot_control(request: IoTControlRequest) -> dict:
     }
 
 
-@app.get("/status")
+@app.post("/iot/mock/{device_name}/{action}")
+def iot_mock_action(device_name: str, action: str) -> dict:
+    state = _load_local_json(IOT_MOCK_STATE_PATH)
+    devices = state.get("devices") if isinstance(state.get("devices"), dict) else {}
+    device_key = device_name.strip().lower()
+    action_key = action.strip().lower()
+    devices[device_key] = {
+        "state": action_key,
+        "updated_at": _utc_now(),
+    }
+    state["devices"] = devices
+    state["updated_at"] = _utc_now()
+    _save_local_json(IOT_MOCK_STATE_PATH, state)
+    return {
+        "ok": True,
+        "device": device_key,
+        "action": action_key,
+        "state": devices[device_key],
+        "message": f"{device_key} set to {action_key}.",
+    }
+
+
+@app.get("/iot/mock/status")
+def iot_mock_status() -> dict:
+    state = _load_local_json(IOT_MOCK_STATE_PATH)
+    devices = state.get("devices") if isinstance(state.get("devices"), dict) else {}
+    return {
+        "ok": True,
+        "updated_at": state.get("updated_at", ""),
+        "devices": devices,
+    }
+
+
+@app.get("/status", response_model=StatusResponse)
 def get_status() -> dict:
     return {
         "ok": True,
@@ -265,7 +511,7 @@ def search_memory_endpoint(request: SemanticMemorySearchRequest) -> dict:
     }
 
 
-@app.post("/ask")
+@app.post("/ask", response_model=AskResponse)
 def ask(request: AskRequest) -> dict:
     prompt = request.prompt.strip()
     if not prompt:

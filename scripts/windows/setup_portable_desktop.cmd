@@ -6,12 +6,16 @@ if /I "%~1"=="/?" goto :help
 if /I "%~1"=="-h" goto :help
 if /I "%~1"=="--help" goto :help
 
-set "APP_EXE=%ROOT%\frontend\release\Grandpa Assistant 0.1.0.exe"
 set "DESKTOP_SHORTCUT=%USERPROFILE%\Desktop\Grandpa Assistant.lnk"
 set "STARTUP_SHORTCUT=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Grandpa Assistant.lnk"
 set "ICON_FILE=%ROOT%\frontend\assets\app-icon.ico"
+set "APP_EXE="
 
-if not exist "%APP_EXE%" (
+for %%F in ("%ROOT%\frontend\release\Grandpa Assistant*.exe") do (
+  if not defined APP_EXE set "APP_EXE=%%~fF"
+)
+
+if not defined APP_EXE (
   echo Portable app not found.
   echo Build it first with: build_react_desktop.cmd
   exit /b 1
