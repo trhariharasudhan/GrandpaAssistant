@@ -16,6 +16,31 @@ The project is designed for a personal Windows machine and keeps the core assist
 - React/Electron frontend support
 - Tray/background mode for desktop usage
 
+## Architecture At A Glance
+
+The repo currently has three main runtime layers:
+
+- `backend/main.py` + `backend/app/core/assistant.py`
+  - legacy terminal and tray assistant loop
+  - voice mode, text mode, quick overlay, tray startup
+- `backend/app/api/web_api.py`
+  - main desktop/web/mobile API used by the React/Electron UI
+  - chat sessions, auth, UI state, mobile companion, voice status, command bridge
+- `backend/fastapi_chat.py` + `backend/app/api/chat_api.py`
+  - smaller chat-first FastAPI surface for offline multi-model requests and diagnostics
+
+The frontend has two shells on top of the desktop API:
+
+- `frontend/`
+  - React + Vite interface
+- `frontend/electron/`
+  - Electron wrapper that manages the backend process and desktop window/tray behavior
+
+There is also a separate mobile companion client:
+
+- `mobile/`
+  - Expo React Native app that talks to the desktop API for pairing, remote commands, and mobile chat
+
 ## Local AI Stack
 
 The repo now includes an offline FastAPI backend that routes requests by intent:
@@ -114,14 +139,22 @@ Expected core models:
 
 ### 7. Run the Backend
 
+For the desktop UI, Electron shell, and mobile companion API, run the desktop backend:
+
 ```powershell
-uvicorn main:app --host 127.0.0.1 --port 8000
+python backend\desktop_backend_entry.py
 ```
 
-If you prefer the legacy launcher:
+If you want the legacy assistant launcher with the terminal/tray workflow:
 
 ```powershell
 python main.py
+```
+
+If you want only the smaller chat-first FastAPI service from `backend/fastapi_chat.py`:
+
+```powershell
+uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
 ## Optional Manual Offline Setup
@@ -159,6 +192,37 @@ scripts\windows\start_react_electron.cmd
 scripts\windows\build_react_desktop.cmd
 ```
 
+Release and validation helpers:
+
+```powershell
+scripts\windows\check_assistant_health.cmd
+scripts\windows\final_release_check.cmd
+scripts\windows\export_release_manifest.cmd
+scripts\windows\watch_hardware_changes.cmd
+scripts\windows\validate_iot_setup.cmd
+```
+
+## App Authentication
+
+The desktop/web app now includes a built-in local account system backed by SQLite.
+
+- The first registered account becomes the `admin`
+- Sessions are stored locally in the app database
+- Chat archive and audit events are stored in SQLite
+
+New auth endpoints:
+
+- `GET /api/auth/bootstrap-status`
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `GET /api/auth/users`
+- `GET /api/auth/audit`
+- `GET /api/auth/chat-archive`
+
+On first UI launch, create the first account from the login screen. After that, sign in normally.
+
 ## Project Structure
 
 - [`main.py`](main.py) - root launcher and FastAPI app export
@@ -179,19 +243,27 @@ Detailed structure reference:
 ## Docs
 
 - [`docs/README.md`](docs/README.md)
+- [`docs/PRODUCTION_AI_ASSISTANT_BLUEPRINT.md`](docs/PRODUCTION_AI_ASSISTANT_BLUEPRINT.md)
+- [`docs/REAL_WORLD_VALIDATION_CHECKLIST.md`](docs/REAL_WORLD_VALIDATION_CHECKLIST.md)
 - [`docs/FUTURE_FEATURE_ROADMAP.md`](docs/FUTURE_FEATURE_ROADMAP.md)
 - [`docs/V1_SCOPE.md`](docs/V1_SCOPE.md)
 - [`docs/PROJECT_COMPLETION_CHECKLIST.md`](docs/PROJECT_COMPLETION_CHECKLIST.md)
 
 ## Common Commands
 
-Run the assistant:
+Run the legacy assistant launcher:
 
 ```powershell
 python main.py
 ```
 
-Run only the FastAPI backend:
+Run the desktop/web/mobile backend used by React, Electron, and mobile:
+
+```powershell
+python backend\desktop_backend_entry.py
+```
+
+Run only the smaller chat-first FastAPI backend:
 
 ```powershell
 uvicorn main:app --host 127.0.0.1 --port 8000
@@ -207,6 +279,21 @@ Verify Ollama:
 
 ```powershell
 ollama list
+```
+
+Run automated validation:
+
+```powershell
+python -m unittest discover -s tests -v
+python scripts\dev\productivity_smoke_check.py
+python scripts\dev\startup_smoke_check.py
+```
+
+Build the frontend:
+
+```powershell
+cd frontend
+npm run build
 ```
 
 ## Local Data and Privacy

@@ -10,6 +10,7 @@
    - `mqtt`: local MQTT broker publishing
 4. High-risk commands such as locks, doors, alarms, and disable actions should keep `requires_confirmation: true`.
 5. Run `scripts\windows\validate_iot_setup.cmd` to verify placeholders, required fields, and local connectivity.
+6. If you want to replace the local demo Smart Home config with your real template, run `scripts\windows\prepare_iot_config.ps1 -Force`. It will back up the current config first.
 
 Useful assistant commands:
 
@@ -37,6 +38,12 @@ Useful assistant commands:
 - `use piper model to <model-name>`
 - `use piper voice`
 - `tts backend status`
+
+## Release and Validation
+
+- `scripts\windows\final_release_check.cmd`
+- `scripts\windows\export_release_manifest.cmd`
+- `docs\REAL_WORLD_VALIDATION_CHECKLIST.md`
 
 ## Wake Word Tuning
 

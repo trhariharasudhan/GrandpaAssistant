@@ -8,8 +8,11 @@ import requests
 
 from brain.memory_engine import get_memory
 from brain.semantic_memory import get_semantic_memory_lines
+from cognition.hub import build_intelligence_prompt_boost
 from llm_client import generate_chat_reply, load_env_file
 from utils.config import get_setting
+from utils.emotion import build_emotion_prompt_context, detect_emotion
+from utils.mood_memory import build_mood_memory_context
 
 
 CHAT_HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "..", "chat_history.json")
@@ -54,30 +57,86 @@ conversation_history = load_history()
 
 PERSONA_INSTRUCTIONS = {
     "friendly": (
-        "Be warm, simple, and supportive in everyday English. "
-        "Sound like a caring personal assistant."
+        "Be warm, natural, and supportive in everyday English. "
+        "Sound like a real person having a kind conversation, not a robotic assistant."
     ),
     "casual": (
         "Be friendly, relaxed, and conversational in natural English. "
-        "Use short sentences and a light chat tone, like a helpful friend."
+        "Keep it human, easygoing, and short, like a smart friend chatting normally."
     ),
     "professional": (
-        "Be polished, clear, concise, and business-like. "
-        "Keep a respectful professional tone."
+        "Be polished, clear, and concise. "
+        "Stay natural and respectful without sounding stiff or robotic."
     ),
     "funny": (
-        "Be light, witty, and playful without becoming distracting. "
-        "Keep replies useful and easy to understand."
+        "Be light, witty, and playful without overdoing it. "
+        "Still sound natural and keep the reply useful."
     ),
 }
+
+INFO_REQUEST_PREFIXES = (
+    "what is",
+    "what are",
+    "who is",
+    "who was",
+    "when is",
+    "when was",
+    "where is",
+    "where was",
+    "why is",
+    "why are",
+    "how to",
+    "how do",
+    "how does",
+    "explain",
+    "write",
+    "generate",
+    "create",
+    "build",
+    "debug",
+    "fix",
+    "open",
+    "close",
+    "set ",
+    "add ",
+    "delete ",
+    "remove ",
+    "list ",
+)
+
+HUMAN_CHAT_SIGNALS = (
+    "i'm",
+    "i am",
+    "i feel",
+    "feeling",
+    "today was",
+    "i had",
+    "i'm bored",
+    "im bored",
+    "i'm sad",
+    "i am sad",
+    "i'm happy",
+    "i am happy",
+    "i'm angry",
+    "i am angry",
+    "frustrated",
+    "upset",
+    "low today",
+    "lonely",
+    "tired",
+    "stressed",
+)
 
 
 def _memory_context_lines():
     lines = []
+    forced_output_language = (
+        str(get_setting("assistant.output_language", "english") or "english").strip().lower()
+    )
     remembered_items = {
         "User name": get_memory("personal.identity.name"),
         "Preferred name": get_memory("personal.assistant.preferred_name_for_user"),
-        "Preferred language": get_memory("personal.assistant.preferred_response_language"),
+        "Preferred language": "English" if forced_output_language == "english" else get_memory("personal.assistant.preferred_response_language"),
         "Preferred tone": get_memory("personal.assistant.preferred_response_tone"),
         "Current job status": get_memory("professional.career_preferences.current_job_status"),
         "Preferred job role": get_memory("professional.career_preferences.preferred_job_role"),
@@ -103,23 +162,39 @@ def _build_prompt(prompt, compact=False):
         persona, PERSONA_INSTRUCTIONS["friendly"]
     )
     user_name = get_memory("personal.identity.name") or "Captain"
+    emotion_context = build_emotion_prompt_context(prompt)
+    mood_context = build_mood_memory_context()
+    intelligence_context = build_intelligence_prompt_boost(prompt, context="casual", emotion=detect_emotion(prompt))
 
     formatted_prompt = (
-        "You are Odin, a personal AI assistant. The user may affectionately call you Grandpa as a grandfather nickname.\n"
+        "You are Grandpa Assistant, and the user may affectionately call you Grandpa.\n"
         f"Current persona mode: {persona}.\n"
         f"Persona behavior: {persona_instruction}\n"
         f"The user's name is {user_name}.\n"
+        f"{emotion_context}\n"
+        f"{mood_context}\n"
+        f"{intelligence_context or ''}\n"
+        "Talk like a smart, friendly real person in casual conversation.\n"
+        "The user may write in Tanglish or mixed Tamil-English, but you must always reply in natural English only.\n"
+        "Do not reply in Tanglish, Tamil, or mixed slang unless the user explicitly asks for translation.\n"
         "Use remembered personal details when relevant.\n"
+        "Keep replies short in normal chat, usually 1 or 2 sentences unless the user asks for detail.\n"
+        "Use natural everyday language like hey, yeah, okay, or got it when it fits.\n"
+        "Avoid robotic phrasing, bullet lists, and structured formatting in normal conversation.\n"
+        "Match the user's mood: casual when casual, empathetic when sad, and slightly professional when serious.\n"
         "Give direct, natural answers.\n"
         "Do not use pet names like sweetie, dear, buddy, or honey.\n"
         "Do not mention knowledge cutoff or model limitations unless the user explicitly asks.\n"
+        "Do not say you are human, but do sound human.\n"
         "Avoid long disclaimers and avoid unnecessary follow-up questions.\n"
         "Keep spoken replies compact unless the user asks for detail.\n"
+        "For emotional conversation, do not give long counselor-style speeches. Use one warm line and at most one simple follow-up.\n"
+        "For everyday casual chat, avoid sounding like an article, teacher, or customer support bot.\n"
     )
     if persona == "casual":
         formatted_prompt += (
             "Keep the tone easy and human, like friendly chat. "
-            "You may use light phrases like 'hey', 'cool', or 'got it' occasionally.\n"
+            "You may use light phrases like 'hey', 'yeah', 'cool', or 'got it' occasionally.\n"
         )
     if compact:
         formatted_prompt += "Reply in 1 or 2 short sentences. Keep it easy to hear in voice mode.\n"
@@ -154,38 +229,48 @@ def _offline_fallback_response(prompt, compact=False):
         or "Captain"
     )
     now = datetime.datetime.now()
+    emotion = detect_emotion(text)
 
     if not text:
-        return "I am here." if compact else "I am here and ready."
+        return "I'm here." if compact else "I'm here and ready."
 
     if any(phrase in text for phrase in ["your name", "who are you"]):
-        return "My name is Odin. You can call me Grandpa."
+        return "I'm Grandpa Assistant. You can call me Grandpa."
 
     if any(phrase in text for phrase in ["who am i", "my name"]):
-        return f"You are {preferred_name}."
+        return f"You're {preferred_name}."
 
     if any(phrase in text for phrase in ["time now", "what is the time", "tell me the time"]):
-        return f"It is {now.strftime('%I:%M %p')}."
+        return f"It's {now.strftime('%I:%M %p')}."
 
     if any(phrase in text for phrase in ["today date", "what is the date", "what day is it"]):
         return now.strftime("Today is %A, %d %B %Y.")
 
     if text in {"hi", "hello", "hey", "hey odin", "hello odin", "hey grandpa"}:
-        return f"Hello {preferred_name}. I am ready."
+        return f"Hey {preferred_name}. What's up?"
 
     if "how are you" in text:
-        return "I am doing well and ready to help."
+        return "I'm doing good. What about you?"
+
+    if emotion == "happy":
+        return "That's awesome. What happened?" if compact else "That's awesome. What happened?"
+
+    if emotion == "sad":
+        return "Hey, that sounds tough. Want to talk about it?"
+
+    if emotion == "angry":
+        return "I get it. Want to tell me what's going on?"
 
     if any(phrase in text for phrase in ["what can you do", "help me", "offline help"]):
         return (
             "I can still help with local tasks, reminders, notes, contacts, OCR, code helpers, "
-            "and system actions even when the local AI model is unavailable."
+            "and system actions even if the local AI model is unavailable."
         )
 
     if compact:
-        return "My local AI model is unavailable right now. I can still help with offline commands and built-in assistant features."
+        return "My local AI model isn't available right now, but I can still help with offline commands and built-in features."
     return (
-        "My local AI model is unavailable right now. "
+        "My local AI model isn't available right now. "
         "I can still help with offline commands, reminders, contacts, notes, OCR, code helpers, and built-in assistant actions."
     )
 
@@ -193,47 +278,113 @@ def _offline_fallback_response(prompt, compact=False):
 def _local_conversation_fallback(prompt, compact=False):
     text = " ".join((prompt or "").strip().split())
     lowered = text.lower()
+    emotion = detect_emotion(text)
 
     if not lowered:
-        return "Hey, I am here. Tell me what you want to chat about."
+        return "Hey, I'm here. What's up?"
 
     if lowered in {"hi", "hello", "hey", "yo", "sup", "hola"} or lowered.startswith("hi "):
-        return "Hey! I am doing good. How are you?"
+        return "Hey! What's up?"
 
     if lowered in {"ok", "okay", "kk", "hmm", "hmmm", "hmm.", "fine"}:
-        return "Nice. Want to chat, ask something, or give me a task?"
+        return "Alright. What's on your mind?"
 
     if any(token in lowered for token in ["lol", "lmao", "haha", "hehe"]):
-        return "Haha nice. I am here, what next?"
+        return "Haha, nice. What happened?"
 
     if any(token in lowered for token in ["thanks", "thank you", "thx"]):
-        return "Anytime. I got you."
+        return "Yeah, anytime."
 
     if any(token in lowered for token in ["how are you", "how r u", "how you doing"]):
-        return "I am doing great. Ready to help with anything."
+        return "Doing good. What about you?"
 
     if lowered in {"bro", "macha", "machi", "da", "dei"}:
-        return "Yes da, I am here. Sollu, what do you need?"
+        return "Yeah, I'm here. What do you need?"
+
+    if emotion == "happy":
+        return "That's awesome. What happened?"
+
+    if emotion == "sad":
+        return "Hey, that sounds rough. Want to talk about it?"
+
+    if emotion == "angry":
+        return "Yeah, I get why you're upset. Want to tell me what happened?"
 
     if lowered.endswith("?"):
-        return (
-            "Good question. I will try my best with what I know right now. "
-            "If you want, ask with a bit more detail and I will give a sharper answer."
-        )
+        return "Yeah, ask it properly and I'll keep it simple."
 
     if compact:
-        return "Got it. I am here. Tell me what you want next."
+        return "Got it. Tell me what you need."
 
-    return (
-        "Got your message. I can chat casually too. "
-        "Ask me anything, or just say what you want to do and I will help."
+    return "Got it. Tell me what's up, and I'll help."
+
+
+def _sentence_chunks(text):
+    return [item.strip() for item in re.split(r"(?<=[.!?])\s+", str(text or "").strip()) if item.strip()]
+
+
+def _apply_human_contractions(text):
+    replacements = {
+        r"\bI am\b": "I'm",
+        r"\bI do not\b": "I don't",
+        r"\bI cannot\b": "I can't",
+        r"\bI will\b": "I'll",
+        r"\bIt is\b": "It's",
+        r"\bThat is\b": "That's",
+        r"\bDo not\b": "Don't",
+        r"\bCan not\b": "Can't",
+        r"\bYou are\b": "You're",
+        r"\bWe are\b": "We're",
+    }
+    updated = str(text or "")
+    for pattern, replacement in replacements.items():
+        updated = re.sub(pattern, replacement, updated)
+    return updated
+
+
+def _looks_like_information_request(prompt):
+    normalized = " ".join(str(prompt or "").lower().split())
+    if not normalized:
+        return False
+    if normalized.endswith("?") and normalized.startswith(("what", "who", "when", "where", "why", "how")):
+        return True
+    return any(normalized.startswith(prefix) for prefix in INFO_REQUEST_PREFIXES)
+
+
+def _is_human_chat_prompt(prompt):
+    normalized = " ".join(str(prompt or "").lower().split())
+    if not normalized:
+        return False
+    if _looks_like_information_request(normalized):
+        return False
+    if detect_emotion(normalized) != "neutral":
+        return True
+    if any(signal in normalized for signal in HUMAN_CHAT_SIGNALS):
+        return True
+    return len(normalized.split()) <= 14
+
+
+def _wants_detailed_reply(prompt):
+    normalized = " ".join(str(prompt or "").lower().split())
+    return any(
+        token in normalized
+        for token in (
+            "explain",
+            "in detail",
+            "details",
+            "step by step",
+            "full answer",
+            "tell me more",
+            "why",
+            "how",
+        )
     )
 
 
 def _sanitize_reply_text(reply):
     text = " ".join(str(reply or "").split()).strip()
     if not text:
-        return "I am ready to help."
+        return "I'm here if you need me."
 
     # Remove overly casual pet-name words.
     text = re.sub(r"\b(sweetie|sweety|honey|dear)\b", "friend", text, flags=re.IGNORECASE)
@@ -254,6 +405,59 @@ def _sanitize_reply_text(reply):
     return cleaned[:600]
 
 
+def _humanize_reply_for_chat(prompt, reply, compact=False):
+    cleaned = _sanitize_reply_text(reply)
+    if not cleaned:
+        return _local_conversation_fallback(prompt, compact=compact)
+
+    cleaned = _apply_human_contractions(cleaned)
+    emotion = detect_emotion(prompt)
+    prompt_is_human_chat = _is_human_chat_prompt(prompt)
+    detailed = _wants_detailed_reply(prompt)
+    sentences = _sentence_chunks(cleaned)
+
+    if prompt_is_human_chat and emotion in {"sad", "angry", "happy"} and not detailed:
+        if len(cleaned) > 180 or len(sentences) > 2:
+            return _local_conversation_fallback(prompt, compact=True)
+
+    if prompt_is_human_chat and not detailed and len(sentences) > 2:
+        cleaned = " ".join(sentences[:2]).strip()
+
+    lowered_cleaned = cleaned.lower()
+    if prompt_is_human_chat and any(
+        marker in lowered_cleaned
+        for marker in (
+            "ready to assist you",
+            "how may i help",
+            "whatever you need today",
+            "please let me know",
+            "i understand that you are",
+        )
+    ):
+        return _local_conversation_fallback(prompt, compact=compact)
+
+    cleaned = re.sub(
+        r"\bCan you tell me a bit more about what's got you so upset\??",
+        "Want to tell me what's going on?",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\bWould you like to\b",
+        "Want to",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\bSometimes talking it out can help clear the air and calm things down\.?",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    return cleaned or _local_conversation_fallback(prompt, compact=compact)
+
+
 def _provider_fallback_reply(prompt, compact=False):
     openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not openai_api_key:
@@ -270,14 +474,18 @@ def _provider_fallback_reply(prompt, compact=False):
         history = conversation_history[:-1] if conversation_history else []
         persona = get_setting("assistant.persona", "friendly").lower()
         persona_instruction = PERSONA_INSTRUCTIONS.get(persona, PERSONA_INSTRUCTIONS["friendly"])
+        emotion_context = build_emotion_prompt_context(prompt)
+        mood_context = build_mood_memory_context()
         system_prompt = (
-            "You are Odin, a practical desktop AI assistant. "
+            "You are Grandpa Assistant. Talk like a smart, friendly real person. "
             f"Persona mode is {persona}. Persona behavior: {persona_instruction}. "
-            "Give direct and useful answers in natural English. "
-            "Do not mention knowledge cutoff, do not use pet names, and avoid filler lines."
+            f"{emotion_context} "
+            f"{mood_context} "
+            "Reply in natural English only. Keep it short and human in normal chat, usually 1 or 2 sentences. "
+            "Avoid robotic phrasing, bullet lists, pet names, filler lines, and knowledge-cutoff talk."
         )
         if compact:
-            system_prompt += " Keep replies short."
+            system_prompt += " Keep replies especially short."
         return (generate_chat_reply(history, prompt, system_prompt=system_prompt) or "").strip()
     except Exception:
         return ""
@@ -304,14 +512,20 @@ def _generate_chatgpt_full_reply(prompt, compact=False):
     history = conversation_history[:-1] if conversation_history else []
     persona = get_setting("assistant.persona", "casual").lower()
     persona_instruction = PERSONA_INSTRUCTIONS.get(persona, PERSONA_INSTRUCTIONS["casual"])
+    emotion_context = build_emotion_prompt_context(prompt_text)
+    mood_context = build_mood_memory_context()
     system_prompt = (
-        "You are Odin in full ChatGPT-style conversation mode. "
+        "You are Grandpa Assistant in full conversation mode. "
         f"Persona mode is {persona}. Persona behavior: {persona_instruction}. "
-        "Reply like a natural, smart, friendly chat assistant in English. "
+        f"{emotion_context} "
+        f"{mood_context} "
+        "Reply like a natural, smart, friendly person in English. "
         "Always respond to every user message, including short casual messages. "
+        "Keep most replies to 1 or 2 sentences unless the user asks for more. "
         "Give direct answers first, then short helpful context. "
+        "Use natural language like hey, yeah, okay, or got it when it fits. "
         "Do not mention knowledge cutoff, policy, or model limitations unless asked directly. "
-        "Do not use pet names."
+        "Do not use pet names or robotic assistant phrasing."
     )
     if compact:
         system_prompt += " Keep replies short and clear."
@@ -383,7 +597,7 @@ def ask_ollama(prompt, stream_callback=None, compact=False):
             or _provider_fallback_reply(prompt_text, compact=compact)
             or _local_conversation_fallback(prompt_text, compact=compact)
         )
-        reply = _sanitize_reply_text(reply)
+        reply = _humanize_reply_for_chat(prompt_text, reply, compact=compact)
         conversation_history.append({"role": "assistant", "content": reply})
         conversation_history = conversation_history[-MAX_MESSAGES:]
         save_history()
@@ -460,7 +674,7 @@ def ask_ollama(prompt, stream_callback=None, compact=False):
     }:
         reply = _local_conversation_fallback(prompt, compact=compact)
 
-    reply = _sanitize_reply_text(reply)
+    reply = _humanize_reply_for_chat(prompt_text, reply, compact=compact)
     conversation_history.append({"role": "assistant", "content": reply})
     conversation_history = conversation_history[-MAX_MESSAGES:]
     save_history()

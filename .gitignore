@@ -9,6 +9,14 @@ __pycache__/
 backend/chat_history.json
 backend/logs/
 backend/data/memory.json
+backend/data/mood_memory.json
+backend/data/cognition_state.json
+backend/data/agent_runtime_state.json
+backend/data/security_state.json
+backend/data/security_activity.jsonl
+backend/data/security_voice_profile.json
+backend/data/security_fernet.key
+backend/data/plugin_registry.json
 backend/data/apps_cache.json
 backend/data/settings.json
 backend/data/notes.json
@@ -30,6 +38,7 @@ backend/data/assistant.db
 backend/data/*.db-shm
 backend/data/*.db-wal
 backend/data/chat_state.json
+backend/data/mobile_companion.json
 backend/data/hardware_devices.json
 backend/data/nextgen_features.json
 backend/data/tasks.json
@@ -41,9 +50,14 @@ backend/data/face_profile.json
 backend/data/piper/
 backend/data/tts_audio/
 backend/data/voices/
+backend/data/voice_profiles/
 models/piper/
 frontend/dist/
 frontend/release/
+build/
+dist/
+backend/build/
+backend/dist/
 /package-lock.json
 temp_*_report*.json
 temp_run_output*.txt

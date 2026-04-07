@@ -4,6 +4,7 @@ import os
 import re
 
 from brain.memory_engine import CONTACT_REFERENCE_ALIASES, load_memory
+from productivity_store import load_task_payload, save_task_payload
 from productivity.calendar_module import extract_specific_date, get_relative_base
 
 DATA_FILE = os.path.join(
@@ -17,7 +18,7 @@ def _default_data():
     return {"tasks": [], "reminders": []}
 
 
-def _load_data():
+def _load_legacy_data():
     if not os.path.exists(DATA_FILE):
         return _default_data()
 
@@ -35,14 +36,28 @@ def _load_data():
     return data
 
 
+def _load_data():
+    try:
+        return load_task_payload(default_factory=_default_data, legacy_loader=_load_legacy_data)
+    except Exception:
+        return _load_legacy_data()
+
+
 def get_task_data():
     return _load_data()
 
 
-def _save_data(data):
+def _save_legacy_data(data):
     os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
     with open(DATA_FILE, "w", encoding="utf-8") as file:
         json.dump(data, file, indent=4)
+
+
+def _save_data(data):
+    try:
+        save_task_payload(data, default_factory=_default_data)
+    except Exception:
+        _save_legacy_data(data)
 
 
 def _clean_text(value):

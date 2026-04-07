@@ -23,12 +23,25 @@ export default function SidebarPanels({
   setContactAliasTarget,
   startupState,
   updateStartupSettings,
+  authState,
+  accountProfile,
+  accountDraft,
+  setAccountDraft,
+  saveAccountProfile,
+  accountBusy,
 }) {
   const proactive = uiState.proactive || {};
   const proactiveSuggestions = proactive.suggestions || [];
   const hardware = uiState.integrations?.hardware || {};
   const smartHome = uiState.integrations?.smart_home || {};
   const faceSecurity = uiState.integrations?.face_security || {};
+  const plugins = uiState.integrations?.plugins || uiState.runtime?.plugins || {};
+  const runtime = uiState.runtime || {};
+  const runtimeState = runtime.runtime || {};
+  const mood = uiState.memory?.mood || {};
+  const agentCount = Object.keys(runtime.agents || {}).length;
+  const accountUser = accountProfile?.user || authState?.user || null;
+  const accountPreferences = accountProfile?.preferences || authState?.preferences || {};
 
   return (
     <aside className="sidebar">
@@ -159,6 +172,83 @@ export default function SidebarPanels({
             <li key={item}>{item}</li>
           ))}
         </ul>
+      </SectionCard>
+
+      <SectionCard title="Agent Runtime">
+        <ul className="mini-list compact-list">
+          <li>{runtime.running ? "Runtime active." : "Runtime offline."}</li>
+          <li>{`Thinking mode: ${runtimeState.thinking_mode || "adaptive"}`}</li>
+          <li>{`Context: ${runtimeState.current_context || "casual"}`}</li>
+          <li>{`Autonomous mode: ${runtimeState.autonomous_mode ? "On" : "Off"}`}</li>
+          <li>{`Mood: ${mood.last_mood || "neutral"} | Streak: ${mood.streak || 0}`}</li>
+          <li>{`Agents: ${agentCount} | Plugins: ${plugins.enabled || 0}/${plugins.total || 0}`}</li>
+        </ul>
+      </SectionCard>
+
+      <SectionCard title="Account">
+        {accountUser ? (
+          <>
+            <p>{`Signed in as ${accountUser.username} (${accountUser.role || "user"}).`}</p>
+            <div className="stack-form compact-gap">
+              <input
+                value={accountDraft.displayName}
+                onChange={(event) => setAccountDraft((current) => ({ ...current, displayName: event.target.value }))}
+                placeholder="Display name"
+              />
+              <select
+                value={accountDraft.preferredLanguage}
+                onChange={(event) => setAccountDraft((current) => ({ ...current, preferredLanguage: event.target.value }))}
+              >
+                <option value="en-US">English (US)</option>
+                <option value="en-IN">English (India)</option>
+                <option value="ta-IN">Tamil input aware</option>
+              </select>
+              <select
+                value={accountDraft.responseStyle}
+                onChange={(event) => setAccountDraft((current) => ({ ...current, responseStyle: event.target.value }))}
+              >
+                <option value="concise">Concise</option>
+                <option value="balanced">Balanced</option>
+                <option value="detailed">Detailed</option>
+              </select>
+              <select
+                value={accountDraft.tone}
+                onChange={(event) => setAccountDraft((current) => ({ ...current, tone: event.target.value }))}
+              >
+                <option value="friendly">Friendly</option>
+                <option value="professional">Professional</option>
+                <option value="empathetic">Empathetic</option>
+              </select>
+              <select
+                value={accountDraft.theme}
+                onChange={(event) => setAccountDraft((current) => ({ ...current, theme: event.target.value }))}
+              >
+                <option value="system">System</option>
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+              </select>
+              <label className="toggle-line">
+                <input
+                  type="checkbox"
+                  checked={Boolean(accountDraft.shortAnswers)}
+                  onChange={(event) => setAccountDraft((current) => ({ ...current, shortAnswers: event.target.checked }))}
+                />
+                <span>Prefer shorter answers</span>
+              </label>
+            </div>
+            <p>{`Current style: ${accountPreferences.response_style || "balanced"} | Tone: ${accountPreferences.tone || "friendly"}`}</p>
+            <div className="action-grid compact two-col">
+              <button className="action-button" onClick={saveAccountProfile} disabled={accountBusy}>
+                {accountBusy ? "Saving..." : "Save Profile"}
+              </button>
+              <button className="action-button" onClick={() => runCommand("what are my settings")}>
+                Profile Summary
+              </button>
+            </div>
+          </>
+        ) : (
+          <p>Sign in to manage your account profile.</p>
+        )}
       </SectionCard>
 
       <SectionCard title="Settings">

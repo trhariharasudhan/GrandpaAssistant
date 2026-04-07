@@ -57,6 +57,13 @@ def _item(key: str, status: str, title: str, detail: str, **extra: Any) -> dict[
     return payload
 
 
+def _module_is_available(module_name: str) -> bool:
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except (ImportError, ModuleNotFoundError, AttributeError, ValueError):
+        return False
+
+
 def _existing_python_runtime() -> tuple[bool, str]:
     candidates = [
         os.path.join(PROJECT_ROOT, ".python311", "python.exe"),
@@ -268,7 +275,7 @@ def _module_status() -> dict[str, Any]:
     missing = []
     available = []
     for module_name, label in optional_modules.items():
-        if importlib.util.find_spec(module_name) is None:
+        if not _module_is_available(module_name):
             missing.append(label)
         else:
             available.append(label)

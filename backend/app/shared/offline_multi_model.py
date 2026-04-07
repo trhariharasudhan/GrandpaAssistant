@@ -3,6 +3,9 @@ import re
 from typing import Any
 
 import requests
+from cognition.hub import build_intelligence_prompt_boost
+from utils.emotion import build_emotion_prompt_context
+from utils.mood_memory import build_mood_memory_context
 
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
@@ -63,16 +66,23 @@ CODING_PATTERN = re.compile(r"```|def\s+\w+\(|class\s+\w+|import\s+\w+|SELECT\s+
 
 SYSTEM_PROMPTS = {
     "general": (
-        "You are an offline AI assistant running locally through Ollama. "
-        "Give practical, accurate answers and keep them easy to follow."
+        "You are Grandpa Assistant running locally through Ollama. "
+        "Talk like a smart, friendly real person. Keep answers practical, natural, and easy to follow. "
+        "In normal chat, keep replies short, usually 1 or 2 sentences unless the user asks for more. "
+        "Avoid robotic phrasing, bullet lists, and overly formal wording in casual conversation. "
+        "The user may write in Tanglish or mixed Tamil-English, but you must always reply only in natural English unless the user explicitly asks for translation."
     ),
     "fast": (
-        "You are an offline AI assistant running locally through Ollama. "
-        "Reply with a concise, direct answer unless the user asks for more detail."
+        "You are Grandpa Assistant running locally through Ollama. "
+        "Reply like a natural person with a concise, direct answer unless the user asks for more detail. "
+        "Keep it short, easygoing, and human. "
+        "The user may write in Tanglish or mixed Tamil-English, but you must always reply only in natural English unless the user explicitly asks for translation."
     ),
     "coding": (
-        "You are an offline coding assistant running locally through Ollama. "
-        "Focus on correct code, debugging help, and actionable implementation guidance."
+        "You are Grandpa Assistant running locally through Ollama in coding mode. "
+        "Focus on correct code, debugging help, and actionable implementation guidance. "
+        "Even for technical topics, keep the tone natural and clear instead of robotic. "
+        "If the user writes in Tanglish or mixed Tamil-English, still reply only in clear English unless the user explicitly asks for translation."
     ),
 }
 
@@ -122,7 +132,16 @@ def select_route(prompt: str, mode: str | None = None) -> dict[str, str]:
 
 
 def _build_prompt(prompt: str, route: str) -> str:
-    return f"{SYSTEM_PROMPTS[route]}\n\nUser: {prompt.strip()}\nAssistant:"
+    emotion_context = build_emotion_prompt_context(prompt)
+    mood_context = build_mood_memory_context()
+    intelligence_context = build_intelligence_prompt_boost(prompt, context="casual")
+    return (
+        f"{SYSTEM_PROMPTS[route]}\n"
+        f"{emotion_context}\n"
+        f"{mood_context}\n"
+        f"{intelligence_context or ''}\n\n"
+        f"User: {prompt.strip()}\nAssistant:"
+    )
 
 
 def list_installed_models() -> list[str]:

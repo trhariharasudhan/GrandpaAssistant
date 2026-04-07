@@ -154,7 +154,7 @@ Acceptance:
 
 ## Immediate Next Actions
 
-1. Open/confirm release PR from `codex/stabilize-refactor-build` into `main`.
-2. Run one final manual sanity run (`python main.py` and `scripts\windows\start_react_desktop.cmd`).
-3. Merge PR and create release tag after review sign-off.
-4. Archive final summary using [`docs/RELEASE_CANDIDATE_NOTES.md`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\docs\RELEASE_CANDIDATE_NOTES.md).
+1. Run `scripts\windows\final_release_check.cmd`.
+2. Run the manual validation steps in `docs\REAL_WORLD_VALIDATION_CHECKLIST.md`.
+3. Export the desktop release manifest with `scripts\windows\export_release_manifest.cmd`.
+4. If needed, replace the local Smart Home demo config with your real local device config.

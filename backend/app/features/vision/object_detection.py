@@ -9,6 +9,19 @@ import pyautogui
 
 from utils.config import get_setting, update_setting
 
+
+def _prepare_ultralytics_config_dir():
+    if os.getenv("YOLO_CONFIG_DIR"):
+        return
+    backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    config_root = os.path.join(backend_root, "data", "runtime")
+    ultralytics_root = os.path.join(config_root, "ultralytics")
+    os.makedirs(ultralytics_root, exist_ok=True)
+    os.environ["YOLO_CONFIG_DIR"] = config_root
+
+
+_prepare_ultralytics_config_dir()
+
 try:
     from ultralytics import YOLO
     _IMPORT_ERROR = None

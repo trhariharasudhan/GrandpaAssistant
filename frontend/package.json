@@ -1,7 +1,7 @@
 {
   "name": "grandpa-assistant-ui",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "React and Electron desktop UI for Grandpa Assistant.",
   "author": "Hari Hara Sudhan",
   "type": "module",
@@ -13,8 +13,10 @@
     "preview": "vite preview",
     "electron": "electron .",
     "electron:dev": "electron .",
-    "desktop:build": "npm run icons:generate && npm run typescript:compat && vite build && electron-builder --win portable",
-    "desktop:dir": "npm run icons:generate && npm run typescript:compat && vite build && electron-builder --dir"
+    "desktop:portable": "npm run icons:generate && npm run typescript:compat && npm run build && electron-builder --win portable",
+    "desktop:installer": "npm run icons:generate && npm run typescript:compat && npm run build && electron-builder --win nsis",
+    "desktop:build": "npm run icons:generate && npm run typescript:compat && npm run build && electron-builder --win portable nsis",
+    "desktop:dir": "npm run icons:generate && npm run typescript:compat && npm run build && electron-builder --dir"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -40,6 +42,15 @@
       "electron/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "../backend/dist/GrandpaAssistantBackend",
+        "to": "backend/GrandpaAssistantBackend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "win": {
       "icon": "assets/app-icon.ico",
       "signAndEditExecutable": false,
@@ -49,8 +60,22 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
         }
       ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true
     }
   }
 }

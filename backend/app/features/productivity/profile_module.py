@@ -5,16 +5,8 @@ from brain.memory_engine import load_memory
 from brain.memory_engine import get_memory, set_memory
 from productivity.task_module import get_task_data
 from utils.config import get_setting
-
-
-EMOTION_KEYWORDS = {
-    "happy": ["happy", "good", "great", "excited", "awesome", "super"],
-    "sad": ["sad", "down", "upset", "hurt", "crying", "depressed"],
-    "stressed": ["stress", "stressed", "pressure", "overwhelmed", "anxious"],
-    "angry": ["angry", "mad", "annoyed", "irritated", "furious"],
-    "tired": ["tired", "sleepy", "exhausted", "drained", "low energy"],
-    "confused": ["confused", "lost", "stuck", "blank", "unclear"],
-}
+from utils.emotion import analyze_emotion, detect_emotion as detect_conversation_emotion
+from utils.mood_memory import record_mood_from_analysis
 
 
 def _safe_get(data, path, default=None):
@@ -97,38 +89,39 @@ def build_profile_summary():
 
 
 def detect_emotion(text):
-    normalized = " " + " ".join((text or "").lower().split()) + " "
-    for emotion, keywords in EMOTION_KEYWORDS.items():
-        for keyword in keywords:
-            if f" {keyword} " in normalized:
-                return emotion
-    return None
+    return detect_conversation_emotion(text)
 
 
 def remember_emotion_signal(text):
-    emotion = detect_emotion(text)
+    analysis = analyze_emotion(text)
+    emotion = analysis["emotion"]
     if not emotion:
         return None
+    if emotion == "neutral" and abs(float(analysis.get("compound", 0.0) or 0.0)) < 0.3:
+        return None
+    record_mood_from_analysis(text, analysis, source="command-router")
     set_memory("personal.assistant.last_detected_emotion", emotion)
+    set_memory("personal.assistant.last_detected_emotion_score", analysis["compound"])
     set_memory("personal.assistant.last_detected_emotion_at", datetime.datetime.now().isoformat())
     return emotion
 
 
 def build_emotion_snapshot():
     emotion = get_memory("personal.assistant.last_detected_emotion")
+    emotion_score = get_memory("personal.assistant.last_detected_emotion_score")
     detected_at = get_memory("personal.assistant.last_detected_emotion_at")
     if not emotion:
         return "I have not picked up a clear emotional signal from you yet."
 
     soft_map = {
-        "happy": "You seem to be in a positive mood.",
+        "happy": "You seem to be in a really positive mood.",
         "sad": "You seem a bit low right now.",
-        "stressed": "You seem under pressure right now.",
         "angry": "You sound frustrated right now.",
-        "tired": "You seem tired right now.",
-        "confused": "You seem a little stuck right now.",
+        "neutral": "You seem calm and steady right now.",
     }
     response = soft_map.get(emotion, f"You seem {emotion} right now.")
+    if emotion_score not in (None, ""):
+        response += f" Sentiment score: {emotion_score}."
     if detected_at:
         try:
             time_text = datetime.datetime.fromisoformat(detected_at).strftime("%I:%M %p")
@@ -359,19 +352,23 @@ def build_personalized_suggestion():
     study_time = _safe_get(memory, "personal.routine.study_time")
     current_focus = _safe_get(memory, "professional.learning_path.current_focus", [])
 
-    if emotion == "stressed":
+    if emotion == "angry":
         if pending_tasks:
             return (
-                f"{preferred_name}, keep it simple now. "
+                f"{preferred_name}, let's keep it simple for a minute. "
                 f"Finish one clear task first: {pending_tasks[0].get('title', 'your top task')}."
             )
-        return f"{preferred_name}, take one small step now and avoid overloading yourself."
+        return f"{preferred_name}, take a breath and handle one thing at a time."
 
-    if emotion == "tired":
+    if emotion == "sad":
         return (
             f"{preferred_name}, keep this session light. "
             "Use quick actions or finish one small pending item before taking a break."
         )
+
+    if emotion == "happy" and pending_tasks:
+        task_titles = _compact_list([task.get("title", "Untitled task") for task in pending_tasks], limit=2)
+        return f"{preferred_name}, your energy seems good right now. This is a nice time to finish {', '.join(task_titles)}."
 
     if pending_tasks:
         task_titles = _compact_list([task.get("title", "Untitled task") for task in pending_tasks], limit=2)

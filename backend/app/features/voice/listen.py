@@ -1,11 +1,17 @@
+import audioop
 import importlib
 import os
 import re
 import tempfile
 import threading
+import time
 from difflib import SequenceMatcher
 
 import speech_recognition as sr
+try:
+    import sounddevice
+except Exception:
+    sounddevice = None
 
 from brain.memory_engine import get_memory
 from utils.config import get_setting, update_setting
@@ -22,6 +28,9 @@ _whisper_model_error = ""
 _last_stt_backend_used = ""
 _last_stt_error = ""
 _whisper_lock = threading.Lock()
+_last_clap_wake_at = 0.0
+
+DOUBLE_CLAP_WAKE_TOKEN = "__double_clap_wake__"
 
 VOICE_PROFILES = {
     "normal": {
@@ -131,13 +140,17 @@ INTERRUPT_PHRASES = {
 _WAKE_ALIASES = (
     "hi grandpa",
     "hello grandpa",
+    "hi grand pa",
+    "hello grand pa",
     "hey grand pa",
     "hay grandpa",
     "a grandpa",
     "hey grampa",
     "hi grampa",
     "ok grandpa",
+    "ok grand pa",
     "okay grandpa",
+    "okay grand pa",
 )
 
 _FOLLOW_UP_FILLER_WORDS = {
@@ -407,6 +420,182 @@ def follow_up_keep_alive_seconds():
         return 12.0
 
 
+def clap_wake_enabled():
+    return bool(get_setting("voice.clap_wake_enabled", False))
+
+
+def set_clap_wake_enabled(enabled):
+    update_setting("voice.clap_wake_enabled", bool(enabled))
+    return True
+
+
+def is_clap_wake_token(command):
+    return normalize_phrase(command) == normalize_phrase(DOUBLE_CLAP_WAKE_TOKEN)
+
+
+def _sounddevice_ready():
+    return sounddevice is not None
+
+
+def _median_number(values):
+    ordered = sorted(float(value) for value in values)
+    if not ordered:
+        return 0.0
+    midpoint = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[midpoint]
+    return (ordered[midpoint - 1] + ordered[midpoint]) / 2.0
+
+
+def _capture_rms_frames(timeout_seconds, samplerate, blocksize):
+    if not _sounddevice_ready() or timeout_seconds <= 0:
+        return [], "sounddevice is not available"
+
+    rms_values = []
+    stream_error = {"message": ""}
+
+    def callback(indata, frames, time_info, status):
+        if status:
+            stream_error["message"] = str(status)
+        try:
+            rms_values.append(audioop.rms(bytes(indata), 2))
+        except Exception as error:
+            stream_error["message"] = str(error)
+
+    try:
+        with sounddevice.RawInputStream(
+            samplerate=int(samplerate),
+            blocksize=int(blocksize),
+            channels=1,
+            dtype="int16",
+            callback=callback,
+        ):
+            time.sleep(float(timeout_seconds))
+    except Exception as error:
+        return rms_values, str(error)
+
+    return rms_values, stream_error["message"]
+
+
+def _energy_segments(rms_values, threshold):
+    segments = []
+    active = None
+
+    for index, value in enumerate(rms_values):
+        if value >= threshold:
+            if active is None:
+                active = {"start": index, "end": index, "peak": value}
+            else:
+                active["end"] = index
+                active["peak"] = max(active["peak"], value)
+            continue
+
+        if active is not None:
+            segments.append(active)
+            active = None
+
+    if active is not None:
+        segments.append(active)
+
+    return segments
+
+
+def _double_clap_detected_from_rms(rms_values, settings):
+    if len(rms_values) < 3:
+        return False
+
+    samplerate = max(8000, int(settings.get("clap_samplerate", 16000) or 16000))
+    blocksize = max(128, int(settings.get("clap_blocksize", 512) or 512))
+    frame_ms = (float(blocksize) / float(samplerate)) * 1000.0
+
+    positive_values = [int(value) for value in rms_values if int(value) > 0]
+    ambient_rms = max(1.0, _median_number(positive_values))
+    threshold_multiplier = max(1.5, float(settings.get("clap_peak_threshold_multiplier", 3.2) or 3.2))
+    peak_floor = max(500, int(settings.get("clap_peak_min_rms", 2500) or 2500))
+    threshold = max(peak_floor, int(ambient_rms * threshold_multiplier))
+
+    max_duration_frames = max(1, int(round(float(settings.get("clap_max_duration_ms", 120) or 120) / frame_ms)))
+    min_gap_frames = max(1, int(round(float(settings.get("clap_min_gap_ms", 180) or 180) / frame_ms)))
+    max_gap_frames = max(min_gap_frames, int(round(float(settings.get("clap_max_gap_ms", 550) or 550) / frame_ms)))
+    required_count = max(2, int(settings.get("clap_required_count", 2) or 2))
+
+    candidate_segments = []
+    for segment in _energy_segments(rms_values, threshold):
+        duration_frames = (segment["end"] - segment["start"]) + 1
+        if duration_frames > max_duration_frames:
+            continue
+        if segment["peak"] < threshold:
+            continue
+        candidate_segments.append(segment)
+
+    if len(candidate_segments) < required_count:
+        return False
+
+    for start_index in range(len(candidate_segments) - required_count + 1):
+        window = candidate_segments[start_index:start_index + required_count]
+        valid = True
+        for index in range(len(window) - 1):
+            gap_frames = window[index + 1]["start"] - window[index]["end"] - 1
+            if gap_frames < min_gap_frames or gap_frames > max_gap_frames:
+                valid = False
+                break
+        if valid:
+            return True
+
+    return False
+
+
+def _double_clap_on_cooldown(settings):
+    global _last_clap_wake_at
+
+    try:
+        cooldown = max(0.0, float(settings.get("clap_cooldown_seconds", 2.5) or 2.5))
+    except Exception:
+        cooldown = 2.5
+
+    if cooldown <= 0 or not _last_clap_wake_at:
+        return False
+    return (time.monotonic() - _last_clap_wake_at) < cooldown
+
+
+def _mark_double_clap_detected():
+    global _last_clap_wake_at
+    _last_clap_wake_at = time.monotonic()
+
+
+def detect_double_clap_wake(settings=None):
+    settings = settings or _active_voice_settings()
+    if not clap_wake_enabled() or not _sounddevice_ready():
+        return False
+    if _double_clap_on_cooldown(settings):
+        return False
+
+    timeout_seconds = max(0.25, float(settings.get("clap_wake_window_seconds", 0.85) or 0.85))
+    samplerate = max(8000, int(settings.get("clap_samplerate", 16000) or 16000))
+    blocksize = max(128, int(settings.get("clap_blocksize", 512) or 512))
+    rms_values, _error = _capture_rms_frames(timeout_seconds, samplerate, blocksize)
+
+    if _double_clap_detected_from_rms(rms_values, settings):
+        _mark_double_clap_detected()
+        return True
+    return False
+
+
+def clap_wake_status_summary():
+    settings = _active_voice_settings()
+    enabled = clap_wake_enabled()
+    ready = _sounddevice_ready()
+    if not enabled:
+        return "Double clap wake is off."
+    if not ready:
+        return "Double clap wake is enabled in settings, but sounddevice is not available on this machine."
+    return (
+        f"Double clap wake is on. "
+        f"It listens for {int(settings['clap_required_count'])} claps within about "
+        f"{float(settings['clap_min_gap_ms']):.0f} to {float(settings['clap_max_gap_ms']):.0f} milliseconds."
+    )
+
+
 def current_stt_backend():
     backend = str(get_setting("voice.stt_backend", "auto") or "auto").strip().lower()
     return backend if backend in {"auto", "google", "whisper"} else "auto"
@@ -519,6 +708,17 @@ def _active_voice_settings():
         "direct_fallback_min_words": get_setting("voice.direct_fallback_min_words", 2),
         "duplicate_command_window_seconds": get_setting("voice.duplicate_command_window_seconds", 4.0),
         "wake_ack_cooldown_seconds": get_setting("voice.wake_ack_cooldown_seconds", 2.5),
+        "clap_wake_enabled": bool(get_setting("voice.clap_wake_enabled", False)),
+        "clap_required_count": get_setting("voice.clap_required_count", 2),
+        "clap_wake_window_seconds": get_setting("voice.clap_wake_window_seconds", 0.85),
+        "clap_min_gap_ms": get_setting("voice.clap_min_gap_ms", 180),
+        "clap_max_gap_ms": get_setting("voice.clap_max_gap_ms", 550),
+        "clap_max_duration_ms": get_setting("voice.clap_max_duration_ms", 120),
+        "clap_peak_threshold_multiplier": get_setting("voice.clap_peak_threshold_multiplier", 3.2),
+        "clap_peak_min_rms": get_setting("voice.clap_peak_min_rms", 2500),
+        "clap_cooldown_seconds": get_setting("voice.clap_cooldown_seconds", 2.5),
+        "clap_samplerate": get_setting("voice.clap_samplerate", 16000),
+        "clap_blocksize": get_setting("voice.clap_blocksize", 512),
         "error_recovery_backoff_seconds": get_setting("voice.error_recovery_backoff_seconds", 0.8),
         "interrupt_follow_up_seconds": get_setting("voice.interrupt_follow_up_seconds", 5),
         "desktop_popup_enabled": get_setting("voice.desktop_popup_enabled", True),
@@ -542,6 +742,15 @@ def apply_voice_profile(profile_name):
     update_setting("voice.mode", profile_name)
     for key, value in profile.items():
         update_setting(f"voice.{key}", value)
+    return True
+
+
+def enable_easy_wake_mode():
+    apply_voice_profile("ultra_sensitive")
+    update_setting("voice.wake_match_threshold", 0.58)
+    update_setting("voice.wake_requires_prefix", False)
+    update_setting("voice.wake_max_prefix_words", 2)
+    update_setting("voice.wake_retry_window_seconds", 8)
     return True
 
 
@@ -605,6 +814,7 @@ def voice_status_summary():
         f"Strict wake detection is {'on' if settings['wake_requires_prefix'] else 'off'}. "
         f"Follow up window is {settings['follow_up_timeout_seconds']} seconds. "
         f"Continuous conversation is {'on' if settings['continuous_conversation_enabled'] else 'off'}. "
+        f"Double clap wake is {'on' if settings['clap_wake_enabled'] else 'off'}. "
         f"Duplicate command guard is {settings['duplicate_command_window_seconds']} seconds. "
         f"Wake reply cooldown is {settings['wake_ack_cooldown_seconds']} seconds. "
         f"Whisper model is {settings['whisper_model']}. "
@@ -672,6 +882,14 @@ def listen(for_wake_word=False, for_follow_up=False):
     global _last_stt_backend_used, _last_stt_error
     settings = _active_voice_settings()
 
+    clap_window_seconds = 0.0
+    if for_wake_word and detect_double_clap_wake(settings):
+        _last_stt_backend_used = "double_clap"
+        _last_stt_error = ""
+        return DOUBLE_CLAP_WAKE_TOKEN
+    if for_wake_word and clap_wake_enabled():
+        clap_window_seconds = max(0.0, float(settings.get("clap_wake_window_seconds", 0.85) or 0.85))
+
     recognizer.dynamic_energy_threshold = settings["dynamic_energy_threshold"]
     recognizer.energy_threshold = settings["energy_threshold"]
     recognizer.dynamic_energy_adjustment_ratio = settings[
@@ -693,6 +911,8 @@ def listen(for_wake_word=False, for_follow_up=False):
                 if for_wake_word
                 else (settings["follow_up_listen_timeout"] if for_follow_up else settings["listen_timeout"])
             )
+            if for_wake_word and clap_window_seconds:
+                listen_timeout = max(0.75, float(listen_timeout) - min(clap_window_seconds, max(0.0, float(listen_timeout) - 0.75)))
             phrase_limit = (
                 settings["wake_phrase_time_limit"]
                 if for_wake_word

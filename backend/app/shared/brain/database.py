@@ -3,6 +3,14 @@ import json
 import os
 import sqlite3
 
+from security.encryption_utils import (
+    protect_db_text,
+    read_encrypted_json,
+    remember_protected_target,
+    unprotect_db_text,
+    write_encrypted_json,
+)
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "assistant.db")
@@ -70,8 +78,9 @@ def migrate_legacy_memory():
         if row["count"] > 0:
             return
 
-        with open(LEGACY_MEMORY_PATH, "r", encoding="utf-8") as file:
-            legacy_data = json.load(file)
+        legacy_data = read_encrypted_json(LEGACY_MEMORY_PATH, {})
+        if not isinstance(legacy_data, dict):
+            legacy_data = {}
 
         flattened = _flatten_dict(legacy_data)
         now = datetime.datetime.now().isoformat()
@@ -82,10 +91,12 @@ def migrate_legacy_memory():
                 INSERT OR REPLACE INTO memory_entries (path, value_json, updated_at)
                 VALUES (?, ?, ?)
                 """,
-                (path, json.dumps(value), now),
+                (path, protect_db_text(json.dumps(value)), now),
             )
 
         connection.commit()
+        write_encrypted_json(LEGACY_MEMORY_PATH, legacy_data, protect=True)
+        remember_protected_target(LEGACY_MEMORY_PATH)
     except Exception:
         return
     finally:
@@ -103,9 +114,10 @@ def set_memory_value(path, value):
             INSERT OR REPLACE INTO memory_entries (path, value_json, updated_at)
             VALUES (?, ?, ?)
             """,
-            (path, json.dumps(value), datetime.datetime.now().isoformat()),
+            (path, protect_db_text(json.dumps(value)), datetime.datetime.now().isoformat()),
         )
         connection.commit()
+        remember_protected_target(DB_PATH)
     finally:
         connection.close()
 
@@ -125,7 +137,7 @@ def get_memory_value(path):
     if not row:
         return None
 
-    return json.loads(row["value_json"])
+    return json.loads(unprotect_db_text(row["value_json"]))
 
 
 def get_all_memory_entries():
@@ -140,7 +152,7 @@ def get_all_memory_entries():
     finally:
         connection.close()
 
-    return {row["path"]: json.loads(row["value_json"]) for row in rows}
+    return {row["path"]: json.loads(unprotect_db_text(row["value_json"])) for row in rows}
 
 
 def get_memory_rows():
@@ -164,7 +176,7 @@ def get_memory_rows():
         items.append(
             {
                 "path": row["path"],
-                "value": json.loads(row["value_json"]),
+                "value": json.loads(unprotect_db_text(row["value_json"])),
                 "updated_at": row["updated_at"],
             }
         )

@@ -21,7 +21,6 @@ from core.quick_overlay import (
 )
 from core.tray_manager import set_tray_exit_callback, set_tray_open_callbacks, start_tray, stop_tray
 from modules.app_scan_module import get_all_apps
-from modules.briefing_module import build_daily_brief, build_due_reminder_alert
 from modules.dictation_module import handle_dictation_text, is_dictation_active, stop_dictation
 from modules.event_module import get_event_data
 from modules.notification_module import (
@@ -47,8 +46,10 @@ from utils.sound import play_sound
 from vision.hand_mouse_control import run_hand_mouse
 from vision.screen_reader import register_region_hotkey, unregister_region_hotkey
 from voice.listen import (
+    clap_wake_enabled,
     continuous_conversation_enabled,
     follow_up_keep_alive_seconds,
+    is_clap_wake_token,
     is_follow_up_keepalive_phrase,
     is_interrupt_phrase,
     is_wake_only_phrase,
@@ -86,45 +87,21 @@ STATUS_LINE_WIDTH = 96
 
 
 def _build_compact_startup_messages():
-    data = get_task_data()
-    pending_count = sum(1 for task in data.get("tasks", []) if not task.get("completed"))
-    overdue_count = 0
-    upcoming_count = 0
     now = datetime.datetime.now()
-    today = now.date()
-    time_of_day = "morning" if now.hour < 12 else "afternoon" if now.hour < 17 else "evening"
+    if now.hour < 12:
+        time_of_day = "morning"
+    elif now.hour < 17:
+        time_of_day = "afternoon"
+    elif now.hour < 21:
+        time_of_day = "evening"
+    else:
+        time_of_day = "night"
 
-    for reminder in data.get("reminders", []):
-        due_at = reminder.get("due_at")
-        due_date = reminder.get("due_date")
-        due_datetime = None
-        if due_at:
-            try:
-                due_datetime = datetime.datetime.fromisoformat(due_at)
-            except ValueError:
-                due_datetime = None
-        if due_datetime is None and due_date:
-            try:
-                due_datetime = datetime.datetime.combine(
-                    datetime.date.fromisoformat(due_date),
-                    datetime.time(hour=9, minute=0),
-                )
-            except ValueError:
-                due_datetime = None
-        if due_datetime is None:
-            continue
-        if due_datetime < now:
-            overdue_count += 1
-        elif due_datetime.date() == today:
-            upcoming_count += 1
-
-    summary = (
-        f"Good {time_of_day}. "
-        f"You have {pending_count} pending tasks, {overdue_count} overdue reminders, and {upcoming_count} reminders due today."
-    )
     return [
-        "Hello Grandchild!",
-        summary,
+        (
+            f"Hello Grandchild, good {time_of_day}. "
+            "What is your plan for today? If you want, tell me your schedule, reminders, or anything you need help with."
+        ),
     ]
 
 
@@ -461,8 +438,11 @@ def _prompt_for_input_mode():
 
     while True:
         try:
-            print("\nChoose to enter input mode (1 - Voice / 2 - Text / 3 - UI): ", end="")
+            print("\nChoose to enter input mode (1 - Voice / 2 - Text / 3 - UI): ", end="", flush=True)
             selected = input().strip()
+        except EOFError:
+            print("\nNo interactive console input detected. Switching to text mode.")
+            return "text"
         except KeyboardInterrupt:
             print("\nExiting Grandpa Assistant...")
             speak("Goodbye Captain!")
@@ -585,10 +565,12 @@ def main(start_in_tray=False, start_in_ui=False, forced_input_mode=None):
     if terminal_input_mode not in {"voice", "text"}:
         terminal_input_mode = "text"
     terminal_only_mode = interface_mode == "terminal" and not start_in_ui
-    show_startup_doctor = get_setting("startup.print_diagnostics_on_boot", True)
+    show_startup_doctor = bool(get_setting("startup.print_diagnostics_on_boot", False)) and bool(
+        get_setting("assistant.developer_mode_enabled", False)
+    )
     show_ready_checks = get_setting("startup.print_ready_diagnostics_on_boot", False)
 
-    INSTALLED_APPS = get_all_apps(refresh=True)
+    INSTALLED_APPS = get_all_apps(refresh=False)
     startup_diagnostics = collect_startup_diagnostics(use_cache=False, allow_create_dirs=True)
     start_web_api(INSTALLED_APPS)
     refresh_startup_auto_launch()
@@ -603,9 +585,6 @@ def main(start_in_tray=False, start_in_ui=False, forced_input_mode=None):
         print("==================================\n")
 
     startup_messages = _build_compact_startup_messages()
-    urgent_alert = build_due_reminder_alert()
-    if urgent_alert != "No urgent reminders right now.":
-        startup_messages.append(urgent_alert)
 
     if start_in_ui:
         show_startup_notifications()
@@ -641,6 +620,10 @@ def main(start_in_tray=False, start_in_ui=False, forced_input_mode=None):
     if get_setting("startup.show_installed_apps_on_boot", False):
         print("\n========= INSTALLED APPLICATIONS =========")
         print("Total apps found:", len(INSTALLED_APPS))
+
+    startup_voice_enabled = bool(forced_input_mode == "voice" or start_in_tray)
+    if not startup_voice_enabled:
+        set_response_mode("text")
 
     for startup_message in startup_messages:
         speak(startup_message)
@@ -715,7 +698,10 @@ def stop_hand_mouse():
 
 
 def voice_mode():
-    speak("Voice mode with wake word activated.")
+    if clap_wake_enabled():
+        speak("Voice mode activated. Say the wake word or clap twice to wake me.")
+    else:
+        speak("Voice mode with wake word activated.")
     time.sleep(0.3)
     print()
 
@@ -781,6 +767,18 @@ def voice_mode():
                     _wait_for_thread(anim_thread)
 
                 command = command.lower().strip()
+
+                if is_clap_wake_token(command):
+                    play_sound("start")
+                    wake_retry_until = time.time() + WAKE_RETRY_WINDOW
+                    _clear_status_line(newline=True)
+                    if _should_ack_wake():
+                        speak("Yes Captain?")
+                    time.sleep(POST_WAKE_PAUSE)
+                    active_mode = True
+                    last_active_time = time.time()
+                    current_timeout = INITIAL_TIMEOUT
+                    continue
 
                 if is_interrupt_phrase(command):
                     stop_speaking()
@@ -956,6 +954,7 @@ def text_mode():
                     speak("Opening mode selection.")
                 elif mode_switch == "voice":
                     speak("Switching to voice mode.")
+                    print()
                 elif mode_switch == "ui":
                     speak("Switching to UI mode.")
                 else:
@@ -977,6 +976,12 @@ def text_mode():
         except KeyboardInterrupt:
             print()
             speak("Goodbye Captain!")
+            stop_dictation()
+            stop_tray()
+            return None
+        except EOFError:
+            print("\nStandard input closed. Exiting text mode.")
+            speak("Console input closed.")
             stop_dictation()
             stop_tray()
             return None

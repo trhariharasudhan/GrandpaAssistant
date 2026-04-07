@@ -1,20 +1,23 @@
-export const API_BASE = "http://127.0.0.1:8765";
+const desktopBridge = typeof window !== "undefined" ? window.grandpaDesktop : undefined;
+
+export const API_BASE = desktopBridge?.apiBase || "http://127.0.0.1:8765";
 export const CHAT_API_BASE = API_BASE;
 
 export const initialMessages = [];
 
 export const initialChatSettings = {
   llm_provider: "ollama",
-  model: "gpt-4.1-mini",
-  ollama_model: "llama3:8b",
+  model: "mistral:7b",
+  ollama_model: "mistral:7b",
   system_prompt: "You are Grandpa Assistant, a warm, practical AI desktop assistant.",
   tone: "friendly",
   response_style: "balanced",
   tool_mode: true,
+  active_model: "mistral:7b",
   llm_status: {
-    provider: "openai-compatible",
-    model: "gpt-4.1-mini",
-    base_url: "https://api.openai.com/v1",
+    provider: "ollama",
+    model: "mistral:7b",
+    base_url: "http://127.0.0.1:11434",
     api_key_configured: false,
     ready: false,
   },
@@ -80,6 +83,18 @@ export const initialUiState = {
   memory: {
     preferred_language: "Loading...",
     favorite_contact: "Loading...",
+    mood: {
+      last_mood: "neutral",
+      previous_mood: "neutral",
+      previous_distinct_mood: "neutral",
+      last_compound: 0,
+      last_updated_at: "",
+      history_count: 0,
+      recent_moods: [],
+      recent_history: [],
+      counts: {},
+      streak: 0,
+    },
   },
   integrations: {
     hardware: {
@@ -90,6 +105,23 @@ export const initialUiState = {
       capabilities: {
         summary: "Loading...",
       },
+    },
+    mobile: {
+      enabled: true,
+      pairing: {
+        active: false,
+        code: "",
+        requested_name: "",
+        expires_in_seconds: 0,
+        lan_addresses: [],
+      },
+      paired_devices: [],
+      paired_count: 0,
+      active_connections: 0,
+      event_history_count: 0,
+      notification_count: 0,
+      lan_addresses: [],
+      summary: "Loading...",
     },
     smart_home: {
       configured: false,
@@ -114,6 +146,61 @@ export const initialUiState = {
       embedding_ready: false,
       updated_at: "",
       summary: "Loading...",
+    },
+    plugins: {
+      plugin_dir: "",
+      total: 0,
+      enabled: 0,
+      disabled: 0,
+      plugins: [],
+    },
+  },
+  auth: {
+    authenticated: false,
+    user: null,
+    preferences: {
+      preferred_language: "en-US",
+      response_style: "balanced",
+      tone: "friendly",
+      theme: "system",
+      short_answers: false,
+    },
+    bootstrap: {
+      enabled: true,
+      has_users: false,
+      user_count: 0,
+      session_ttl_hours: 168,
+      roles: ["admin", "user"],
+    },
+  },
+  runtime: {
+    running: false,
+    runtime: {
+      started_at: "",
+      last_updated_at: "",
+      autonomous_mode: true,
+      thinking_mode: "adaptive",
+      current_context: "casual",
+      last_user_message: "",
+      last_assistant_reply: "",
+    },
+    conversation: {
+      recent_messages: [],
+      last_emotion: "neutral",
+      last_mood: "neutral",
+    },
+    goals: [],
+    plugins: {
+      total: 0,
+      enabled: 0,
+      disabled: 0,
+      plugins: [],
+    },
+    agents: {},
+    bus: {
+      subscriber_count: 0,
+      event_count: 0,
+      history_limit: 0,
     },
   },
   object_watch: {

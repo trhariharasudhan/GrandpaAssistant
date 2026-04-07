@@ -130,14 +130,14 @@ export default function ChatSurface({
           <section className="chat-settings-panel">
             {!chatSettingsDraft?.llm_status?.ready ? (
               <div className="llm-status-card">
-                <strong>AI Setup Needed</strong>
-                <span>Set `OPENAI_API_KEY` in the project root `.env` file, then restart the app.</span>
-                <small>{`Provider: ${chatSettingsDraft?.llm_status?.provider || "openai-compatible"} | Model: ${chatSettingsDraft?.llm_status?.model || chatSettingsDraft.model}`}</small>
+                <strong>AI Backend Needs Attention</strong>
+                <span>Start Ollama and make sure your selected local model is installed, then restart the app if needed.</span>
+                <small>{`Provider: ${chatSettingsDraft?.llm_status?.provider || "ollama"} | Model: ${chatSettingsDraft?.active_model || chatSettingsDraft?.ollama_model || chatSettingsDraft.model}`}</small>
               </div>
             ) : null}
             <div className="llm-status-card compact">
               <strong>{`Active Provider: ${chatSettingsDraft?.llm_status?.provider || chatSettingsDraft?.llm_provider || "ollama"}`}</strong>
-              <span>{`Current model: ${chatSettingsDraft?.llm_status?.model || chatSettingsDraft?.ollama_model || chatSettingsDraft?.model}`}</span>
+              <span>{`Current model: ${chatSettingsDraft?.active_model || chatSettingsDraft?.llm_status?.model || chatSettingsDraft?.ollama_model || chatSettingsDraft?.model}`}</span>
               <small>{`Fallback ready: ${chatSettingsDraft?.llm_status?.fallback_available ? "Yes" : "No"}`}</small>
             </div>
             <div className="chat-settings-grid">
@@ -157,17 +157,18 @@ export default function ChatSurface({
                 <input
                   value={chatSettingsDraft.model}
                   onChange={(event) => setChatSettingsDraft((current) => ({ ...current, model: event.target.value }))}
-                  placeholder="gpt-4.1-mini"
+                  placeholder="Optional online fallback model"
                 />
               </label>
               <label>
                 <span>Ollama Model</span>
                 <select
-                  value={chatSettingsDraft.ollama_model || "llama3:8b"}
+                  value={chatSettingsDraft.ollama_model || "mistral:7b"}
                   onChange={(event) => setChatSettingsDraft((current) => ({ ...current, ollama_model: event.target.value }))}
                 >
-                  <option value="llama3:8b">llama3:8b</option>
-                  <option value="phi3:latest">phi3:latest</option>
+                  <option value="mistral:7b">mistral:7b</option>
+                  <option value="phi3:mini">phi3:mini</option>
+                  <option value="deepseek-coder:6.7b">deepseek-coder:6.7b</option>
                 </select>
               </label>
               <label>

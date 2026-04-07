@@ -10,9 +10,8 @@ set "DESKTOP_SHORTCUT=%USERPROFILE%\Desktop\Grandpa Assistant.lnk"
 set "STARTUP_SHORTCUT=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Grandpa Assistant.lnk"
 set "ICON_FILE=%ROOT%\frontend\assets\app-icon.ico"
 set "APP_EXE="
-
-for %%F in ("%ROOT%\frontend\release\Grandpa Assistant*.exe") do (
-  if not defined APP_EXE set "APP_EXE=%%~fF"
+for /f "usebackq delims=" %%V in (`powershell -NoProfile -Command "$pkg = Get-Content -Path '%ROOT%\frontend\package.json' -Raw | ConvertFrom-Json; $expected = Join-Path '%ROOT%\frontend\release' ('Grandpa Assistant ' + $pkg.version + '.exe'); if (Test-Path $expected) { Write-Output $expected } else { Get-ChildItem -Path '%ROOT%\frontend\release' -Filter 'Grandpa Assistant*.exe' | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName }"`) do (
+  set "APP_EXE=%%V"
 )
 
 if not defined APP_EXE (

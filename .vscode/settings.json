@@ -11,5 +11,8 @@
     "search.exclude": {
         "**/__pycache__": true,
         ".venv": true
-    }
+    },
+    "python.defaultInterpreterPath": "${workspaceFolder}\\.python311\\python.exe",
+    "python.terminal.activateEnvironment": false,
+    "terminal.integrated.defaultProfile.windows": "Command Prompt"
 }

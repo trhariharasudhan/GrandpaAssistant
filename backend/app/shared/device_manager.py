@@ -265,8 +265,8 @@ class DeviceManager:
 
         return self.get_status()
 
-    def get_devices(self) -> list[dict[str, Any]]:
-        if not self._initial_scan_completed and not self._monitoring:
+    def get_devices(self, allow_refresh: bool = True) -> list[dict[str, Any]]:
+        if allow_refresh and not self._initial_scan_completed and not self._monitoring:
             self._ensure_initial_scan()
         with self._lock:
             devices = [dict(item) for item in self._devices.values()]

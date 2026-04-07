@@ -1,7 +1,9 @@
 import datetime
-import json
 import os
 import re
+
+from productivity_store import load_notes_payload, save_notes_payload
+from security.encryption_utils import read_encrypted_json, remember_protected_target, write_encrypted_json
 
 
 DATA_FILE = os.path.join(
@@ -15,14 +17,9 @@ def _default_data():
     return {"notes": []}
 
 
-def _load_data():
-    if not os.path.exists(DATA_FILE):
-        return _default_data()
-
-    try:
-        with open(DATA_FILE, "r", encoding="utf-8") as file:
-            data = json.load(file)
-    except Exception:
+def _load_legacy_data():
+    data = read_encrypted_json(DATA_FILE, _default_data())
+    if not isinstance(data, dict):
         return _default_data()
 
     if "notes" not in data:
@@ -31,10 +28,24 @@ def _load_data():
     return data
 
 
-def _save_data(data):
+def _load_data():
+    try:
+        return load_notes_payload(default_factory=_default_data, legacy_loader=_load_legacy_data)
+    except Exception:
+        return _load_legacy_data()
+
+
+def _save_legacy_data(data):
     os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-    with open(DATA_FILE, "w", encoding="utf-8") as file:
-        json.dump(data, file, indent=4)
+    write_encrypted_json(DATA_FILE, data, protect=True)
+    remember_protected_target(DATA_FILE)
+
+
+def _save_data(data):
+    try:
+        save_notes_payload(data, default_factory=_default_data)
+    except Exception:
+        _save_legacy_data(data)
 
 
 def _clean_text(value):

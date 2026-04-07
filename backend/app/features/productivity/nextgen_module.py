@@ -5,6 +5,7 @@ import re
 import threading
 import uuid
 
+from mobile_companion import MOBILE_COMPANION
 from productivity.event_module import get_event_data
 from productivity.task_module import get_task_data
 from utils.config import get_setting, update_setting
@@ -698,6 +699,9 @@ def set_language_mode(mode):
     clean_mode = _clean_text(mode).lower()
     if clean_mode not in {"auto", "english", "tamil"}:
         return "Use language mode auto, english, or tamil."
+    if clean_mode == "tamil":
+        update_setting("assistant.auto_language_mode", "auto")
+        return "Tamil and Tanglish input are supported, but assistant replies are locked to English."
     update_setting("assistant.auto_language_mode", clean_mode)
     return f"Language mode updated to {clean_mode}."
 
@@ -721,13 +725,13 @@ def preview_language_response(text):
     mode = get_language_mode()
     predicted = _predict_language(text) if mode == "auto" else mode
     if predicted == "tamil":
-        return "Language preview: Tamil response mode selected."
-    return "Language preview: English response mode selected."
+        return "Language preview: Tamil or Tanglish input detected. The assistant will still reply in English."
+    return "Language preview: English input detected. The assistant will reply in English."
 
 
 def language_mode_status():
     mode = get_language_mode()
-    return f"Language mode is {mode}. Use preview language switch <text> to test auto detection."
+    return f"Input language detection mode is {mode}. Assistant replies are locked to English."
 
 
 def _extract_action_items(text):
@@ -929,7 +933,7 @@ def setup_mobile_companion(device_name):
     mobile["device_name"] = clean_name
     mobile.setdefault("history", [])
     _save_data(data)
-    return f"Mobile companion connected as {clean_name}."
+    return MOBILE_COMPANION.pairing_summary(clean_name)
 
 
 def send_mobile_update(message):
@@ -952,19 +956,11 @@ def send_mobile_update(message):
     if len(history) > 40:
         del history[:-40]
     _save_data(data)
-    return f"Mobile update queued for {mobile.get('device_name', 'device')}: {clean_message}."
+    return MOBILE_COMPANION.queue_update(clean_message)
 
 
 def mobile_companion_status():
-    mobile = _load_data()["mobile_companion"]
-    if not mobile.get("enabled"):
-        return "Mobile companion is not enabled."
-    history = mobile.get("history") or []
-    last = history[-1]["message"] if history else "No updates yet."
-    return (
-        f"Mobile companion active as {mobile.get('device_name', 'device')}. "
-        f"Queued updates: {len(history)}. Last: {last}"
-    )
+    return MOBILE_COMPANION.status_payload().get("summary", "Mobile companion status unavailable.")
 
 
 def nextgen_status_snapshot():
@@ -998,6 +994,11 @@ def nextgen_status_snapshot():
     day_plan_summary = _clean_text(day_plan.get("summary")) or "No AI day plan generated yet."
     mobile_enabled = bool(mobile.get("enabled"))
     mobile_device = _clean_text(mobile.get("device_name"))
+    mobile_status = MOBILE_COMPANION.status_payload()
+    paired_devices = mobile_status.get("paired_devices") or []
+    if paired_devices:
+        mobile_enabled = True
+        mobile_device = _clean_text(paired_devices[0].get("name")) or mobile_device
 
     highlights = [
         f"Habits: {len(habits)} tracked",

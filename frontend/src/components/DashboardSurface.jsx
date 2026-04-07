@@ -9,6 +9,13 @@ export default function DashboardSurface({
   voiceStatus,
   activity,
   handleModeChange,
+  setThinkingMode,
+  setAutonomousMode,
+  createRuntimeGoal,
+  reloadPluginRegistry,
+  togglePluginEnabled,
+  resetMoodMemory,
+  reloadWorkspace,
 }) {
   const proactive = uiState.proactive || {};
   const proactiveSuggestions = proactive.suggestions || [];
@@ -32,6 +39,16 @@ export default function DashboardSurface({
   const objectAlertCooldown = uiState.object_detection?.watch_alert_cooldown_seconds ?? 8;
   const nextgen = uiState.nextgen || {};
   const automationTick = uiState.automation || {};
+  const mood = uiState.memory?.mood || {};
+  const runtime = uiState.runtime || {};
+  const runtimeState = runtime.runtime || {};
+  const runtimeConversation = runtime.conversation || {};
+  const runtimeGoals = runtime.goals || [];
+  const runtimeAgents = runtime.agents || {};
+  const agentEntries = Object.entries(runtimeAgents);
+  const pluginState = uiState.integrations?.plugins || runtime.plugins || {};
+  const pluginItems = pluginState.plugins || [];
+  const recentMoodPattern = (mood.recent_moods || []).slice(-4).join(" -> ");
   const nextgenHighlights = (uiState.dashboard?.nextgen_highlights || []).length
     ? uiState.dashboard?.nextgen_highlights || []
     : nextgen.highlights || [];
@@ -188,6 +205,37 @@ export default function DashboardSurface({
 
         <section className="dashboard-card">
           <div className="dashboard-card-head">
+            <h3>Agent Runtime</h3>
+            <button className="ghost-button" onClick={reloadWorkspace}>
+              Refresh
+            </button>
+          </div>
+          <p>{runtime.running ? "Runtime is active and coordinating the agent stack." : "Runtime is currently offline."}</p>
+          <p>{`Thinking: ${runtimeState.thinking_mode || "adaptive"} | Context: ${runtimeState.current_context || "casual"} | Autonomous: ${runtimeState.autonomous_mode ? "On" : "Off"}`}</p>
+          <p>{`Mood: ${mood.last_mood || "neutral"} | Emotion: ${runtimeConversation.last_emotion || "neutral"} | Streak: ${mood.streak || 0}`}</p>
+          <p>{recentMoodPattern ? `Recent mood pattern: ${recentMoodPattern}` : "No mood pattern recorded yet."}</p>
+          <p>{`Agents: ${agentEntries.length} | Subscribers: ${runtime.bus?.subscriber_count || 0} | Bus events: ${runtime.bus?.event_count || 0}`}</p>
+          {agentEntries.length ? (
+            <ul className="mini-list compact-list">
+              {agentEntries.slice(0, 5).map(([agentId, agent]) => (
+                <li key={agentId}>{`${agent.name || agentId}: ${agent.ready ? "ready" : "attention needed"}`}</li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="action-grid compact two-col">
+            <button className="action-button" onClick={() => setThinkingMode("fast")}>Fast Mode</button>
+            <button className="action-button" onClick={() => setThinkingMode("adaptive")}>Adaptive Mode</button>
+            <button className="action-button" onClick={() => setThinkingMode("deep")}>Deep Mode</button>
+            <button className="action-button" onClick={() => setAutonomousMode(!runtimeState.autonomous_mode)}>
+              {runtimeState.autonomous_mode ? "Disable Auto" : "Enable Auto"}
+            </button>
+            <button className="action-button" onClick={createRuntimeGoal}>Create Goal</button>
+            <button className="action-button" onClick={resetMoodMemory}>Reset Mood</button>
+          </div>
+        </section>
+
+        <section className="dashboard-card">
+          <div className="dashboard-card-head">
             <h3>Hardware & IoT</h3>
             <button className="ghost-button" onClick={() => runCommand("iot inventory")}>
               Refresh
@@ -225,6 +273,46 @@ export default function DashboardSurface({
             <button className="action-button" onClick={() => runCommand("piper setup status")}>Piper Setup</button>
             <button className="action-button" onClick={() => runCommand("use piper voice")}>Use Piper Voice</button>
             <button className="action-button" onClick={() => runCommand("voice diagnostics")}>Voice Diagnostics</button>
+          </div>
+        </section>
+
+        <section className="dashboard-card">
+          <div className="dashboard-card-head">
+            <h3>Goals & Plugins</h3>
+            <button className="ghost-button" onClick={reloadPluginRegistry}>
+              Reload
+            </button>
+          </div>
+          <p>{runtimeGoals.length ? `Active goals: ${runtimeGoals.length}` : "No active runtime goals yet."}</p>
+          {runtimeGoals.length ? (
+            <ul className="mini-list compact-list">
+              {runtimeGoals.slice(0, 3).map((goal) => (
+                <li key={goal.id}>{`${goal.title} (${(goal.steps || []).length} steps)`}</li>
+              ))}
+            </ul>
+          ) : null}
+          <p>{`Plugins: ${pluginState.enabled || 0} enabled / ${pluginState.total || 0} total`}</p>
+          {pluginItems.length ? (
+            <ul className="mini-list compact-list">
+              {pluginItems.slice(0, 4).map((plugin) => (
+                <li key={plugin.name}>
+                  <button
+                    className="inline-select"
+                    onClick={() => togglePluginEnabled(plugin.name, !plugin.enabled)}
+                  >
+                    {`${plugin.name} (${plugin.enabled ? "enabled" : "disabled"})`}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No plugins discovered yet.</p>
+          )}
+          <div className="action-grid compact two-col">
+            <button className="action-button" onClick={reloadPluginRegistry}>Reload Plugins</button>
+            <button className="action-button" onClick={createRuntimeGoal}>Plan Goal</button>
+            <button className="action-button" onClick={() => runCommand("nextgen status")}>NextGen Status</button>
+            <button className="action-button" onClick={() => runCommand("goal board")}>Goal Board</button>
           </div>
         </section>
 

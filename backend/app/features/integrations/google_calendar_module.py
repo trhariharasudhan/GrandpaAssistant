@@ -204,6 +204,14 @@ def _event_start_datetime(event):
         return None
 
 
+def _all_day_end_date(date_value):
+    try:
+        start_date = datetime.date.fromisoformat(date_value)
+    except Exception:
+        return date_value
+    return (start_date + datetime.timedelta(days=1)).isoformat()
+
+
 def _conflict_summary(service, target_start, skip_event_id=None):
     if not target_start:
         return None
@@ -410,7 +418,7 @@ def reschedule_latest_google_calendar_event(command):
         return reply
 
     event["start"] = {"date": date_value}
-    event["end"] = {"date": date_value}
+    event["end"] = {"date": _all_day_end_date(date_value)}
     service.events().update(calendarId="primary", eventId=event["id"], body=event).execute()
     return f"Rescheduled latest Google Calendar event to {datetime.date.fromisoformat(date_value).strftime('%d %B %Y')}."
 
@@ -456,7 +464,7 @@ def reschedule_google_calendar_event_by_title(command):
         return reply
 
     event["start"] = {"date": date_value}
-    event["end"] = {"date": date_value}
+    event["end"] = {"date": _all_day_end_date(date_value)}
     service.events().update(calendarId="primary", eventId=event["id"], body=event).execute()
     return f"Rescheduled Google Calendar event {title_query} to {datetime.date.fromisoformat(date_value).strftime('%d %B %Y')}."
 
@@ -503,7 +511,7 @@ def add_google_calendar_event(command):
         event_body = {
             "summary": title,
             "start": {"date": date_value},
-            "end": {"date": date_value},
+            "end": {"date": _all_day_end_date(date_value)},
         }
         service.events().insert(calendarId="primary", body=event_body).execute()
         return f"Google Calendar event added for {datetime.date.fromisoformat(date_value).strftime('%d %B %Y')}: {title}."

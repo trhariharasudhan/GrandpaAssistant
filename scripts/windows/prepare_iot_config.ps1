@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $ExamplePath = Join-Path $ProjectRoot "backend\data\iot_credentials.example.json"
 $TargetPath = Join-Path $ProjectRoot "backend\data\iot_credentials.json"
+$BackupPath = Join-Path $ProjectRoot "backend\data\iot_credentials.demo.backup.json"
 
 if (-not (Test-Path $ExamplePath)) {
     throw "IoT example config not found at $ExamplePath"
@@ -16,6 +17,11 @@ if ((Test-Path $TargetPath) -and -not $Force) {
     Write-Host "IoT config already exists at $TargetPath"
     Write-Host "Use -Force if you want to overwrite it with the example template."
     exit 0
+}
+
+if (Test-Path $TargetPath) {
+    Copy-Item -LiteralPath $TargetPath -Destination $BackupPath -Force
+    Write-Host "Backed up the current IoT config to $BackupPath"
 }
 
 Copy-Item -LiteralPath $ExamplePath -Destination $TargetPath -Force

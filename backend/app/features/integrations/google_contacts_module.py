@@ -7,6 +7,7 @@ from difflib import SequenceMatcher
 from datetime import datetime
 
 from brain.database import LEGACY_MEMORY_PATH
+from security.encryption_utils import read_encrypted_json, remember_protected_target, write_encrypted_json
 from utils.config import get_setting
 
 
@@ -54,98 +55,68 @@ def _normalize_name(text):
 
 
 def _load_cache():
-    if not os.path.exists(CACHE_PATH):
-        return []
-    try:
-        with open(CACHE_PATH, "r", encoding="utf-8") as file:
-            data = json.load(file)
-        if isinstance(data, list):
-            return data
-    except Exception:
-        pass
+    data = read_encrypted_json(CACHE_PATH, [])
+    if isinstance(data, list):
+        return data
     return []
 
 
 def _save_cache(contacts):
     _ensure_data_dir()
-    with open(CACHE_PATH, "w", encoding="utf-8") as file:
-        json.dump(contacts, file, indent=4, ensure_ascii=False)
+    write_encrypted_json(CACHE_PATH, contacts, protect=True)
+    remember_protected_target(CACHE_PATH)
 
 
 def _load_aliases():
-    if not os.path.exists(ALIAS_PATH):
-        return {}
-    try:
-        with open(ALIAS_PATH, "r", encoding="utf-8") as file:
-            data = json.load(file)
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        pass
+    data = read_encrypted_json(ALIAS_PATH, {})
+    if isinstance(data, dict):
+        return data
     return {}
 
 
 def _save_aliases(aliases):
     _ensure_data_dir()
-    with open(ALIAS_PATH, "w", encoding="utf-8") as file:
-        json.dump(aliases, file, indent=4, ensure_ascii=False)
+    write_encrypted_json(ALIAS_PATH, aliases, protect=True)
+    remember_protected_target(ALIAS_PATH)
 
 
 def _load_meta():
-    if not os.path.exists(META_PATH):
-        return {}
-    try:
-        with open(META_PATH, "r", encoding="utf-8") as file:
-            data = json.load(file)
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        pass
+    data = read_encrypted_json(META_PATH, {})
+    if isinstance(data, dict):
+        return data
     return {}
 
 
 def _save_meta(meta):
     _ensure_data_dir()
-    with open(META_PATH, "w", encoding="utf-8") as file:
-        json.dump(meta, file, indent=4, ensure_ascii=False)
+    write_encrypted_json(META_PATH, meta, protect=True)
+    remember_protected_target(META_PATH)
 
 
 def _load_change_log():
-    if not os.path.exists(CHANGE_LOG_PATH):
-        return []
-    try:
-        with open(CHANGE_LOG_PATH, "r", encoding="utf-8") as file:
-            data = json.load(file)
-        if isinstance(data, list):
-            return data
-    except Exception:
-        pass
+    data = read_encrypted_json(CHANGE_LOG_PATH, [])
+    if isinstance(data, list):
+        return data
     return []
 
 
 def _save_change_log(entries):
     _ensure_data_dir()
-    with open(CHANGE_LOG_PATH, "w", encoding="utf-8") as file:
-        json.dump(entries[:100], file, indent=4, ensure_ascii=False)
+    write_encrypted_json(CHANGE_LOG_PATH, entries[:100], protect=True)
+    remember_protected_target(CHANGE_LOG_PATH)
 
 
 def _load_favorites():
-    if not os.path.exists(FAVORITES_PATH):
-        return []
-    try:
-        with open(FAVORITES_PATH, "r", encoding="utf-8") as file:
-            data = json.load(file)
-        if isinstance(data, list):
-            return [str(item).strip() for item in data if str(item).strip()]
-    except Exception:
-        pass
+    data = read_encrypted_json(FAVORITES_PATH, [])
+    if isinstance(data, list):
+        return [str(item).strip() for item in data if str(item).strip()]
     return []
 
 
 def _save_favorites(favorites):
     _ensure_data_dir()
-    with open(FAVORITES_PATH, "w", encoding="utf-8") as file:
-        json.dump(favorites, file, indent=4, ensure_ascii=False)
+    write_encrypted_json(FAVORITES_PATH, favorites, protect=True)
+    remember_protected_target(FAVORITES_PATH)
 
 
 def _cache_age_seconds():
@@ -157,10 +128,13 @@ def _cache_age_seconds():
 
 
 def _contact_identity_key(contact):
+    phone = str(contact.get("phone") or "").strip()
+    email = str(contact.get("email") or "").strip()
+    display_name = _normalize_name(contact.get("display_name"))
     return (
-        contact.get("phone") or "",
-        contact.get("email") or "",
-        _normalize_name(contact.get("display_name")),
+        phone,
+        email,
+        "" if phone or email else display_name,
     )
 
 
@@ -262,6 +236,76 @@ def _save_memory_file(memory):
 def _get_contact_bucket(memory):
     personal = memory.setdefault("personal", {})
     return personal.setdefault("synced_google_contacts", [])
+
+
+def _contact_memory_identity(contact):
+    return (
+        str(contact.get("phone") or "").strip(),
+        str(contact.get("email") or "").strip(),
+    )
+
+
+def _contact_memory_entry(contact):
+    return {
+        "name": contact.get("display_name"),
+        "phone": contact.get("phone"),
+        "email": contact.get("email"),
+        "aliases": contact.get("aliases", []),
+    }
+
+
+def _sync_cached_contacts_into_memory(contacts):
+    memory = _load_memory_file()
+    bucket = _get_contact_bucket(memory)
+
+    identity_index = {}
+    name_index = {}
+    for index, item in enumerate(bucket):
+        if not isinstance(item, dict):
+            continue
+        identity = _contact_memory_identity(item)
+        if identity != ("", ""):
+            identity_index[identity] = index
+        normalized_name = _normalize_name(item.get("name"))
+        if normalized_name and normalized_name not in name_index:
+            name_index[normalized_name] = index
+
+    changed = False
+    for contact in contacts:
+        entry = _contact_memory_entry(contact)
+        normalized_name = _normalize_name(entry.get("name"))
+        identity = _contact_memory_identity(entry)
+
+        match_index = None
+        if identity != ("", ""):
+            match_index = identity_index.get(identity)
+        if match_index is None and normalized_name:
+            match_index = name_index.get(normalized_name)
+
+        if match_index is None:
+            bucket.append(entry)
+            changed = True
+            new_index = len(bucket) - 1
+            if identity != ("", ""):
+                identity_index[identity] = new_index
+            if normalized_name:
+                name_index[normalized_name] = new_index
+            continue
+
+        current = bucket[match_index] if isinstance(bucket[match_index], dict) else {}
+        if (
+            current.get("name") != entry.get("name")
+            or str(current.get("phone") or "").strip() != str(entry.get("phone") or "").strip()
+            or str(current.get("email") or "").strip() != str(entry.get("email") or "").strip()
+            or list(current.get("aliases") or []) != list(entry.get("aliases") or [])
+        ):
+            bucket[match_index] = {**current, **entry}
+            changed = True
+
+    if changed:
+        _save_memory_file(memory)
+
+    return changed
 
 
 def _build_contact_entry(person):
@@ -398,6 +442,7 @@ def sync_google_contacts():
     added, updated, removed = _summarize_contact_changes(previous_contacts, deduped)
     _record_contact_changes(added, updated, removed)
     _save_meta({"last_synced_at": time.time(), "contact_count": len(deduped)})
+    _sync_cached_contacts_into_memory(deduped)
     return True, f"Google Contacts synced. I cached {len(deduped)} contacts."
 
 
@@ -482,6 +527,26 @@ def _candidate_queries(contact_name):
     return candidates
 
 
+def _get_exact_alias_matches(contact_name, contacts, favorites):
+    normalized_query = _normalize_name(contact_name)
+    if not normalized_query:
+        return []
+
+    matches = []
+    for contact in contacts:
+        normalized_aliases = contact.get("normalized_aliases", [])
+        if normalized_query not in normalized_aliases:
+            continue
+
+        score = 1.25
+        if _normalize_name(contact.get("display_name")) in favorites:
+            score += 0.1
+        matches.append((contact, score))
+
+    matches.sort(key=lambda item: item[1], reverse=True)
+    return matches
+
+
 def get_google_contact_matches(contact_name, limit=3):
     ensure_google_contacts_fresh()
     contacts = _load_cache()
@@ -497,6 +562,10 @@ def get_google_contact_matches(contact_name, limit=3):
         for contact in contacts:
             if _normalize_name(contact.get("display_name")) == _normalize_name(aliased_target):
                 return [(contact, 1.0)]
+
+    exact_alias_matches = _get_exact_alias_matches(contact_name, contacts, favorites)
+    if exact_alias_matches:
+        return exact_alias_matches[:limit]
 
     for contact in contacts:
         raw_candidates = [contact.get("display_name", "")] + list(contact.get("aliases", []))

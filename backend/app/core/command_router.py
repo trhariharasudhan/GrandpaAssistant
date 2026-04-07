@@ -11,7 +11,14 @@ import webbrowser
 import keyboard
 from brain.ai_engine import ask_ollama, clear_memory
 from brain.database import get_recent_commands, log_command
-from core.followup_memory import get_best_followup_text, set_last_result
+from core.followup_memory import (
+    get_best_followup_text,
+    get_last_interaction_id,
+    get_last_user_input,
+    set_last_interaction_id,
+    set_last_result,
+    set_last_user_input,
+)
 from brain.memory_engine import (
     get_memory,
     get_named_contact_field,
@@ -205,6 +212,23 @@ from features.productivity.task_module import (
 )
 from features.security.emergency_dispatch import trigger_dual_emergency_protocol
 from features.security.face_verification import enroll_user_face, verify_user_face, is_face_enrolled
+from cognition.hub import record_assistant_turn, submit_response_feedback
+from cognition.learning_engine import learning_status_payload
+from security.auth_manager import (
+    admin_mode_active,
+    auth_status_payload,
+    disable_admin_mode,
+    disable_lockdown,
+    enable_admin_mode,
+    enable_lockdown,
+    enroll_user_voice,
+    set_security_pin,
+    verify_face_identity,
+    verify_security_pin,
+    verify_user_voice,
+)
+from security.device_monitor import device_security_status_payload, trust_device
+from security.hub import security_logs_payload, security_status_payload, validate_command
 from features.integrations.iot_module import dispatch_iot_command, recent_iot_actions, resolve_iot_command, run_iot_command
 from iot_registry import validate_iot_config
 from vision.hand_mouse_control import run_hand_mouse
@@ -255,22 +279,34 @@ from vision.screen_reader import (
 )
 from voice.listen import (
     apply_voice_profile,
+    clap_wake_status_summary,
     continuous_conversation_enabled,
     current_voice_mode,
+    enable_easy_wake_mode,
+    set_clap_wake_enabled,
     set_stt_backend,
     stt_backend_status_summary,
     voice_status_summary,
 )
 from voice.speak import (
+    accept_custom_voice_license,
     autoconfigure_piper_model,
     append_streaming_reply,
+    autoconfigure_custom_voice_sample,
+    choose_custom_voice_sample_summary,
     choose_piper_model_summary,
     clear_piper_config_path,
     clear_piper_model_path,
+    clear_custom_voice_sample_path,
+    custom_voice_license_status_summary,
+    custom_voice_status_summary,
     end_streaming_reply,
+    list_custom_voice_samples_summary,
     list_piper_models_summary,
     piper_setup_status_summary,
+    prefer_custom_voice_backend,
     prefer_piper_backend,
+    set_custom_voice_sample_path,
     set_piper_config_path,
     set_piper_model_path,
     set_tts_backend,
@@ -286,6 +322,7 @@ object_detection_stop_event = None
 object_detection_stop_requested_by_command = False
 pending_confirmation = None
 last_contact_context = {"name": "", "action": ""}
+security_bypass_context = {"command": "", "expires_at": 0.0}
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 IOT_CREDENTIALS_PATH = os.path.join(BACKEND_DIR, "data", "iot_credentials.json")
 IOT_EXAMPLE_PATH = os.path.join(BACKEND_DIR, "data", "iot_credentials.example.json")
@@ -321,6 +358,63 @@ def _offline_quick_help():
         "developer shortcuts, and saved memory should work best. Cloud sync, Telegram, Google services, and "
         "internet-dependent messaging checks may stay limited."
     )
+
+
+def _security_status_summary():
+    payload = security_status_payload(DEVICE_MANAGER)
+    auth = payload.get("auth", {})
+    threats = payload.get("threats", {})
+    devices = payload.get("devices", {})
+    encryption = payload.get("encryption", {})
+    session = "active" if auth.get("session_active") else "inactive"
+    admin = "active" if auth.get("admin_mode_active") else "inactive"
+    lockdown = "on" if auth.get("lockdown") else "off"
+    return (
+        f"Security status: session is {session}. "
+        f"Admin mode is {admin}. "
+        f"Lockdown is {lockdown}. "
+        f"Failed attempts are {auth.get('failed_attempts', 0)}. "
+        f"Unknown devices: {devices.get('unknown_device_count', 0)}. "
+        f"Blocked security events: {threats.get('blocked_count', 0)}. "
+        f"Encrypted data protection is {'ready' if encryption.get('available') else 'not ready'}."
+    )
+
+
+def _security_alerts_summary():
+    payload = device_security_status_payload()
+    alerts = payload.get("recent_alerts") or []
+    if not alerts:
+        return "No recent security alerts were recorded."
+    return "Recent security alerts: " + " | ".join(item.get("message", "Security alert") for item in alerts[:6])
+
+
+def _security_logs_summary():
+    items = security_logs_payload(limit=6).get("items") or []
+    if not items:
+        return "No security activity has been recorded yet."
+    return "Recent security log entries: " + " | ".join(
+        f"{item.get('event_type', 'event')}: {item.get('message', '')}" for item in items[:6]
+    )
+
+
+def _set_security_bypass(command, seconds=8.0):
+    security_bypass_context["command"] = " ".join((command or "").lower().strip().split())
+    security_bypass_context["expires_at"] = time.time() + max(1.0, float(seconds))
+
+
+def _consume_security_bypass(command):
+    normalized = " ".join((command or "").lower().strip().split())
+    if not normalized:
+        return False
+    if security_bypass_context.get("command") != normalized:
+        return False
+    if time.time() > float(security_bypass_context.get("expires_at", 0.0) or 0.0):
+        security_bypass_context["command"] = ""
+        security_bypass_context["expires_at"] = 0.0
+        return False
+    security_bypass_context["command"] = ""
+    security_bypass_context["expires_at"] = 0.0
+    return True
 
 
 def _developer_mode_summary():
@@ -671,6 +765,10 @@ def _piper_setup_summary():
     return piper_setup_status_summary()
 
 
+def _custom_voice_setup_summary():
+    return custom_voice_status_summary()
+
+
 def _face_security_status_summary():
     enrolled = is_face_enrolled()
     if not enrolled:
@@ -750,6 +848,161 @@ def _assistant_doctor_summary(include_ready=False):
     diagnostics = collect_startup_diagnostics(use_cache=False, allow_create_dirs=False)
     lines = format_startup_diagnostics_report(diagnostics, include_ready=include_ready)
     return " ".join(lines)
+
+
+def _learning_context_for_text(text):
+    lowered = " ".join(str(text or "").lower().split())
+    if any(token in lowered for token in ("project", "code", "bug", "meeting", "email", "deadline", "task", "deploy", "server")):
+        return "work"
+    return "casual"
+
+
+def _looks_like_explicit_date_query(text):
+    normalized = " ".join(str(text or "").lower().split())
+    if not normalized:
+        return False
+
+    explicit_phrases = (
+        "what is the date",
+        "what's the date",
+        "today date",
+        "today's date",
+        "what day is it",
+        "tell me the date",
+        "date today",
+        "current date",
+        "week number",
+        "which day is today",
+    )
+    if any(phrase in normalized for phrase in explicit_phrases):
+        return True
+
+    if re.fullmatch(
+        r"(today|tomorrow|yesterday|day after tomorrow|next week|next month|next year|this weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday)",
+        normalized,
+    ):
+        return True
+
+    if re.fullmatch(r"\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?", normalized):
+        return True
+
+    if re.search(r"\b(date|day|calendar|week|month|year)\b", normalized):
+        return True
+
+    return False
+
+
+def _remember_terminal_learning_turn(user_text, reply_text, route="terminal-ai", model="assistant"):
+    user_text = " ".join(str(user_text or "").split()).strip()
+    reply_text = " ".join(str(reply_text or "").split()).strip()
+    if not user_text or not reply_text:
+        return ""
+    interaction = record_assistant_turn(
+        user_text,
+        reply_text,
+        context=_learning_context_for_text(user_text),
+        emotion="neutral",
+        mood="neutral",
+        source="terminal",
+        route=route,
+        model=model,
+    )
+    interaction_id = (interaction or {}).get("id", "")
+    if interaction_id:
+        set_last_interaction_id(interaction_id)
+    return interaction_id
+
+
+def _learning_status_summary():
+    status = learning_status_payload()
+    preferences = status.get("user_preferences", {})
+    response_memory = status.get("response_memory", {})
+    behavior = status.get("behavior_learning", {})
+    return (
+        f"Learning status: {status.get('interaction_count', 0)} interaction(s), "
+        f"{status.get('feedback_count', 0)} feedback item(s), and {status.get('success_rate', 0)} percent positive feedback. "
+        f"Preferred style is {preferences.get('response_length', 'adaptive')} and {preferences.get('tone', 'adaptive')}. "
+        f"Best response memory has {response_memory.get('best_response_count', 0)} example(s), "
+        f"failed response memory has {response_memory.get('failed_response_count', 0)} example(s), "
+        f"and the most active time window is {behavior.get('active_time_window', 'unknown')}."
+    )
+
+
+def _handle_learning_feedback_command(command, input_mode="text"):
+    normalized = " ".join(str(command or "").lower().split())
+    positive_commands = {
+        "good response",
+        "good answer",
+        "that was good",
+        "that was helpful",
+        "helpful response",
+        "correct answer",
+        "correct response",
+        "nice answer",
+    }
+    negative_commands = {
+        "bad response",
+        "bad answer",
+        "that was bad",
+        "that was wrong",
+        "that is wrong",
+        "wrong answer",
+        "wrong response",
+        "incorrect answer",
+        "incorrect response",
+        "not useful",
+        "not helpful",
+    }
+
+    if normalized in {"learning status", "self learning status", "self improvement status", "what have you learned"}:
+        speak(_learning_status_summary())
+        return True
+
+    if normalized not in positive_commands and normalized not in negative_commands:
+        return False
+
+    last_interaction_id = get_last_interaction_id()
+    previous_user_text = get_last_user_input()
+    previous_reply = get_best_followup_text()
+    if not last_interaction_id and previous_user_text and previous_reply:
+        last_interaction_id = _remember_terminal_learning_turn(
+            previous_user_text,
+            previous_reply,
+            route="terminal-retroactive-learning",
+            model="assistant",
+        )
+    if not last_interaction_id:
+        speak("I do not have a recent learnable reply to rate yet.")
+        return True
+
+    if normalized in positive_commands:
+        submit_response_feedback(last_interaction_id, "good", note=normalized, source="terminal")
+        speak("Got it. I will treat that last reply as a good example.")
+        return True
+
+    submit_response_feedback(last_interaction_id, "bad", note=normalized, source="terminal")
+    if not previous_user_text or not previous_reply:
+        speak("Got it. I marked that last reply as unhelpful.")
+        return True
+
+    compact_reply = input_mode == "voice" and get_setting("assistant.compact_voice_replies", True)
+    correction_prompt = (
+        f"The user previously asked: {previous_user_text}\n"
+        f"Your previous reply was: {previous_reply}\n"
+        f"The user said that reply was wrong or not useful.\n"
+        "Correct yourself now in natural English. Start with 'Let me correct that.' "
+        "Answer the original user message directly. Do not mention earlier conversation history unless the user asked for it. "
+        "Keep it accurate, calm, and concise."
+    )
+    try:
+        corrected_reply = ask_ollama(correction_prompt, compact=compact_reply)
+    except Exception:
+        corrected_reply = "Let me correct that. I will avoid that reply pattern and try to answer more clearly next time."
+
+    speak(corrected_reply)
+    set_last_result(corrected_reply)
+    _remember_terminal_learning_turn(previous_user_text, corrected_reply, route="terminal-self-correction", model="assistant")
+    return True
 
 
 def _semantic_memory_summary():
@@ -1123,6 +1376,15 @@ def _is_negative_confirmation(command):
     )
 
 
+def _resume_secured_command(state, INSTALLED_APPS, input_mode):
+    original_command = state.get("command", "")
+    if not original_command:
+        speak("I could not find the secured command to continue.")
+        return
+    _set_security_bypass(original_command)
+    process_command(original_command, INSTALLED_APPS, input_mode=state.get("input_mode", input_mode))
+
+
 def _handle_memory_edit_command(command):
     named_contact_remove = re.match(
         r"^(?:remove|delete|clear)\s+(.+?)\s+(email|mail|phone|mobile|number|whatsapp)$",
@@ -1204,7 +1466,10 @@ def _extract_contact_suggestions(reply):
     return [item.strip() for item in match.group(1).split("|") if item.strip()]
 
 
-def _best_contact_display_name(target_text):
+def _best_contact_display_name(target_text, force_refresh=False):
+    if force_refresh:
+        with contextlib.suppress(Exception):
+            ensure_google_contacts_fresh(force=True)
     ranked = get_google_contact_matches(target_text, limit=1)
     if ranked:
         return ranked[0][0].get("display_name") or target_text
@@ -1462,12 +1727,14 @@ def _handle_contact_action_command(command):
     call_match = re.match(r"^call\s+(.+)$", command)
     if call_match:
         target = call_match.group(1).strip()
+        with contextlib.suppress(Exception):
+            ensure_google_contacts_fresh(force=True)
         if _should_confirm_contact_action("call"):
             global pending_confirmation
             pending_confirmation = {
                 "type": "contact_action_confirm",
                 "kind": "call",
-                "message": f"Should I call {_best_contact_display_name(target)}?",
+                "message": f"Should I call {_best_contact_display_name(target, force_refresh=False)}?",
                 "action": lambda: _execute_contact_choice({"kind": "call"}, target),
             }
             return pending_confirmation["message"]
@@ -2660,6 +2927,32 @@ def _handle_config_command(command):
         )
 
     if command in [
+        "enable easy wake mode",
+        "turn on easy wake mode",
+        "easy wake mode",
+        "make wake easier",
+        "make wake word easier",
+    ]:
+        enable_easy_wake_mode()
+        return (
+            "Easy wake mode enabled. Wake detection should be easier now. "
+            "It may react a little more often to nearby speech."
+        )
+
+    if command in [
+        "disable easy wake mode",
+        "turn off easy wake mode",
+        "normal wake mode",
+        "make wake stricter",
+    ]:
+        apply_voice_profile("sensitive")
+        update_setting("voice.wake_match_threshold", 0.64)
+        update_setting("voice.wake_requires_prefix", True)
+        update_setting("voice.wake_max_prefix_words", 2)
+        update_setting("voice.wake_retry_window_seconds", 6)
+        return "Easy wake mode disabled. Wake detection is back to the normal stricter profile."
+
+    if command in [
         "set voice mode to normal",
         "enable normal voice mode",
         "turn on normal voice mode",
@@ -2686,8 +2979,33 @@ def _handle_config_command(command):
     ]:
         return stt_backend_status_summary()
 
+    if command in [
+        "enable clap wake",
+        "turn on clap wake",
+        "enable double clap wake",
+        "turn on double clap wake",
+    ]:
+        set_clap_wake_enabled(True)
+        return "Double clap wake enabled. Clap twice to wake the assistant."
+
+    if command in [
+        "disable clap wake",
+        "turn off clap wake",
+        "disable double clap wake",
+        "turn off double clap wake",
+    ]:
+        set_clap_wake_enabled(False)
+        return "Double clap wake disabled."
+
+    if command in [
+        "clap wake status",
+        "double clap status",
+        "double clap wake status",
+    ]:
+        return clap_wake_status_summary()
+
     tts_backend_match = re.match(
-        r"^(?:set|change|use|switch\s+to)\s+(?:voice|speech|tts)(?:\s+output)?\s*(?:backend|engine|mode)?\s*(?:to\s+)?(auto|sapi|pyttsx3|piper)$",
+        r"^(?:set|change|use|switch\s+to)\s+(?:voice|speech|tts)(?:\s+output)?\s*(?:backend|engine|mode)?\s*(?:to\s+)?(auto|sapi|pyttsx3|piper|coqui)$",
         command,
     )
     if tts_backend_match:
@@ -2704,6 +3022,80 @@ def _handle_config_command(command):
         "voice output backend",
     ]:
         return tts_backend_status_summary()
+
+    custom_voice_sample_match = re.match(
+        r"^(?:set|change|update|use)\s+(?:my|own|custom|cloned)\s+voice\s+sample\s+(?:path\s+)?(?:to\s+)?(.+)$",
+        command,
+    )
+    if custom_voice_sample_match:
+        return set_custom_voice_sample_path(custom_voice_sample_match.group(1).strip())[1]
+
+    if command in [
+        "clear my voice sample",
+        "remove my voice sample",
+        "reset my voice sample",
+        "clear custom voice sample",
+    ]:
+        return clear_custom_voice_sample_path()[1]
+
+    if command in [
+        "my voice status",
+        "own voice status",
+        "custom voice status",
+        "voice clone status",
+        "cloned voice status",
+    ]:
+        return custom_voice_status_summary()
+
+    if command in [
+        "my voice license status",
+        "custom voice license status",
+        "voice license status",
+        "coqui license status",
+    ]:
+        return custom_voice_license_status_summary()
+
+    if command in [
+        "list my voice samples",
+        "list custom voice samples",
+        "show custom voice samples",
+        "available custom voice samples",
+    ]:
+        return list_custom_voice_samples_summary()
+
+    choose_custom_voice_match = re.match(
+        r"^(?:use|choose|select|set)\s+(?:my|own|custom|cloned)\s+voice\s+sample\s+(?:to\s+)?(.+)$",
+        command,
+    )
+    if choose_custom_voice_match:
+        return choose_custom_voice_sample_summary(choose_custom_voice_match.group(1).strip())
+
+    if command in [
+        "auto configure my voice",
+        "autoconfigure my voice",
+        "detect my voice sample",
+        "auto configure custom voice",
+    ]:
+        return autoconfigure_custom_voice_sample()[1]
+
+    if command in [
+        "use my voice",
+        "switch to my voice",
+        "use own voice",
+        "use custom voice",
+        "switch to custom voice",
+        "use cloned voice",
+    ]:
+        return prefer_custom_voice_backend()[1]
+
+    if command in [
+        "accept my voice license",
+        "accept custom voice license",
+        "accept coqui license",
+        "agree to my voice license",
+        "agree to coqui license",
+    ]:
+        return accept_custom_voice_license()[1]
 
     piper_model_match = re.match(
         r"^(?:set|change|update)\s+piper\s+(?:voice\s+)?model\s+(?:path\s+)?to\s+(.+)$",
@@ -2738,7 +3130,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     command = _apply_contact_context(command)
     if not pending_confirmation and _maybe_run_multi_action_chain(command, INSTALLED_APPS, input_mode):
         return
+    if command and _handle_learning_feedback_command(command, input_mode=input_mode):
+        return
     if command:
+        set_last_user_input(command)
         remember_emotion_signal(command)
         log_command(command, source=input_mode)
 
@@ -2780,6 +3175,61 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         if _is_negative_confirmation(command):
             pending_confirmation = None
             speak("Cancelled.")
+            return
+
+    if pending_confirmation and pending_confirmation.get("type") == "security_confirmation":
+        if _is_positive_confirmation(command):
+            confirmation_state = pending_confirmation
+            pending_confirmation = None
+            _resume_secured_command(confirmation_state, INSTALLED_APPS, input_mode)
+            return
+        if _is_negative_confirmation(command):
+            pending_confirmation = None
+            speak("Cancelled.")
+            return
+
+    if pending_confirmation and pending_confirmation.get("type") == "security_auth":
+        if _is_negative_confirmation(command):
+            pending_confirmation = None
+            speak("Cancelled.")
+            return
+
+        pin_auth_match = re.match(r"^(?:security\s+pin|pin|verify\s+pin|unlock\s+with\s+pin)\s+(.+)$", command)
+        if pin_auth_match:
+            auth_state = pending_confirmation
+            success, reply = verify_security_pin(pin_auth_match.group(1).strip(), admin=bool(auth_state.get("admin")))
+            if success:
+                pending_confirmation = None
+                speak(reply)
+                _resume_secured_command(auth_state, INSTALLED_APPS, input_mode)
+            else:
+                speak(reply)
+            return
+
+    if command and not _consume_security_bypass(command):
+        security_decision = validate_command(command, source=f"command-{input_mode}")
+        if not security_decision.get("allowed", True):
+            action = security_decision.get("action", "block")
+            if action == "confirm":
+                pending_confirmation = {
+                    "type": "security_confirmation",
+                    "message": security_decision.get("message", "Please confirm."),
+                    "command": command,
+                    "input_mode": input_mode,
+                }
+                speak(pending_confirmation["message"])
+                return
+            if action == "authenticate":
+                pending_confirmation = {
+                    "type": "security_auth",
+                    "message": security_decision.get("message", "Authentication required."),
+                    "command": command,
+                    "input_mode": input_mode,
+                    "admin": bool(security_decision.get("permission", {}).get("requires_admin_mode")),
+                }
+                speak(pending_confirmation["message"])
+                return
+            speak(security_decision.get("message", "That command was blocked for security reasons."))
             return
 
     pin_match = re.match(r"^pin command\s+(.+)$", command)
@@ -3310,6 +3760,72 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(_piper_setup_summary())
         return
 
+    if command in [
+        "my voice setup",
+        "my voice setup status",
+        "own voice setup",
+        "custom voice setup",
+        "voice clone setup",
+    ]:
+        speak(_custom_voice_setup_summary())
+        return
+
+    if command in [
+        "my voice license status",
+        "custom voice license status",
+        "voice license status",
+        "coqui license status",
+    ]:
+        speak(custom_voice_license_status_summary())
+        return
+
+    if command in [
+        "list my voice samples",
+        "list custom voice samples",
+        "show custom voice samples",
+        "available custom voice samples",
+    ]:
+        speak(list_custom_voice_samples_summary())
+        return
+
+    choose_custom_voice_match = re.match(
+        r"^(?:use|choose|select|set)\s+(?:my|own|custom|cloned)\s+voice\s+sample\s+(?:to\s+)?(.+)$",
+        command,
+    )
+    if choose_custom_voice_match:
+        speak(choose_custom_voice_sample_summary(choose_custom_voice_match.group(1).strip()))
+        return
+
+    if command in [
+        "auto configure my voice",
+        "autoconfigure my voice",
+        "detect my voice sample",
+        "auto configure custom voice",
+    ]:
+        speak(autoconfigure_custom_voice_sample()[1])
+        return
+
+    if command in [
+        "use my voice",
+        "switch to my voice",
+        "use own voice",
+        "use custom voice",
+        "switch to custom voice",
+        "use cloned voice",
+    ]:
+        speak(prefer_custom_voice_backend()[1])
+        return
+
+    if command in [
+        "accept my voice license",
+        "accept custom voice license",
+        "accept coqui license",
+        "agree to my voice license",
+        "agree to coqui license",
+    ]:
+        speak(accept_custom_voice_license()[1])
+        return
+
     if command in ["list piper models", "show piper models", "available piper models"]:
         speak(list_piper_models_summary())
         return
@@ -3328,6 +3844,124 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
 
     if command in ["use piper voice", "prefer piper voice", "switch to piper voice"]:
         speak(prefer_piper_backend()[1])
+        return
+
+    if command in [
+        "security status",
+        "assistant security status",
+        "system security status",
+    ]:
+        speak(_security_status_summary())
+        return
+
+    if command in [
+        "security alerts",
+        "show security alerts",
+        "security warnings",
+    ]:
+        speak(_security_alerts_summary())
+        return
+
+    if command in [
+        "security logs",
+        "show security logs",
+        "recent security logs",
+    ]:
+        speak(_security_logs_summary())
+        return
+
+    trust_device_match = re.match(r"^(?:trust|approve)\s+device\s+(.+)$", command)
+    if trust_device_match:
+        security_status_payload(DEVICE_MANAGER)
+        speak(trust_device(trust_device_match.group(1).strip())[1])
+        return
+
+    if command in [
+        "my voice auth status",
+        "voice authentication status",
+        "voice auth status",
+    ]:
+        auth = auth_status_payload()
+        if auth.get("voice_profile_enrolled"):
+            speak("Voice authentication is enrolled and ready.")
+        else:
+            speak("Voice authentication is not enrolled yet. Say enroll my voice auth.")
+        return
+
+    if command in ["enroll my voice auth", "register my voice", "save my voice auth"]:
+        speak("Listening to your voice for security enrollment.")
+        success, msg = enroll_user_voice()
+        speak(msg)
+        return
+
+    if command in ["verify my voice", "recognize my voice", "authenticate my voice"]:
+        success, msg, _score = verify_user_voice()
+        if success:
+            speak(msg)
+            if pending_confirmation and pending_confirmation.get("type") == "security_auth":
+                auth_state = pending_confirmation
+                pending_confirmation = None
+                if auth_state.get("admin"):
+                    enable_admin_mode()
+                _resume_secured_command(auth_state, INSTALLED_APPS, input_mode)
+            return
+        speak(msg)
+        return
+
+    set_security_pin_match = re.match(r"^(?:set|create|change|update)\s+security\s+pin(?:\s+to)?\s+(.+)$", command)
+    if set_security_pin_match:
+        speak(set_security_pin(set_security_pin_match.group(1).strip())[1])
+        return
+
+    verify_pin_match = re.match(r"^(?:security\s+pin|pin|verify\s+pin|unlock\s+with\s+pin)\s+(.+)$", command)
+    if verify_pin_match:
+        success, msg = verify_security_pin(verify_pin_match.group(1).strip())
+        speak(msg)
+        return
+
+    if command in ["enable security admin mode", "security admin mode on", "security admin mode"]:
+        success, msg = enable_admin_mode()
+        if not success:
+            pending_confirmation = {
+                "type": "security_auth",
+                "message": "Authentication is required for security admin mode. Verify your face, verify your voice, or use your security PIN.",
+                "command": "enable security admin mode",
+                "input_mode": input_mode,
+                "admin": True,
+            }
+            speak(pending_confirmation["message"])
+            return
+        speak(msg)
+        return
+
+    if command in ["disable security admin mode", "security admin mode off"]:
+        speak(disable_admin_mode()[1])
+        return
+
+    if command in ["security admin status", "is security admin mode on"]:
+        speak("Security admin mode is active." if admin_mode_active() else "Security admin mode is not active.")
+        return
+
+    if command in ["unlock assistant", "disable assistant lockdown", "assistant lockdown off"]:
+        if not auth_status_payload().get("session_active"):
+            pending_confirmation = {
+                "type": "security_auth",
+                "message": "Authentication is required before I can unlock the assistant.",
+                "command": "disable assistant lockdown",
+                "input_mode": input_mode,
+                "admin": False,
+            }
+            speak(pending_confirmation["message"])
+            return
+        speak(disable_lockdown()[1])
+        return
+
+    if command in ["assistant lockdown", "security lockdown", "emergency", "emergency lockdown", "lock system"]:
+        enable_lockdown("emergency request")
+        lock_system()
+        if get_setting("assistant.emergency_mode_enabled", False):
+            speak(_send_emergency_alert())
+        speak("Emergency lockdown enabled.")
         return
 
     if command in [
@@ -3460,9 +4094,15 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
 
     if command in ["verify my face", "recognize my face", "who am i"]:
         speak("Verifying...")
-        success, msg = verify_user_face()
+        success, msg = verify_face_identity()
         if success:
             speak("Identity verified! Hello there.")
+            if pending_confirmation and pending_confirmation.get("type") == "security_auth":
+                auth_state = pending_confirmation
+                pending_confirmation = None
+                if auth_state.get("admin"):
+                    enable_admin_mode()
+                _resume_secured_command(auth_state, INSTALLED_APPS, input_mode)
         else:
             speak(f"Verification failed: {msg}")
         return
@@ -4716,7 +5356,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
 
     date_obj = get_relative_base(command) or extract_specific_date(command)
-    if date_obj:
+    if date_obj and _looks_like_explicit_date_query(command):
         speak(generate_full_info(date_obj))
         return
 
@@ -4922,6 +5562,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
                 end_streaming_reply()
         speak(response, already_printed=stream_output and streamed_any)
         set_last_result(response)
+        _remember_terminal_learning_turn(command, response, route="terminal-followup-ai", model="assistant")
         return
 
     # -------- GENERAL AI RESPONSE --------
@@ -4951,6 +5592,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         if response:
             speak(response, already_printed=stream_output and streamed_any)
             set_last_result(response)
+            _remember_terminal_learning_turn(command, response, route="terminal-general-ai", model="assistant")
         else:
             speak("I did not get a proper response.")
 

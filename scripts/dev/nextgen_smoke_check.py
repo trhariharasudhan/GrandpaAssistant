@@ -1,7 +1,7 @@
 import json
 import os
-import shutil
 import sys
+import tempfile
 from contextlib import contextmanager
 
 
@@ -14,6 +14,14 @@ for _path in (APP_DIR, SHARED_DIR, FEATURES_DIR):
         sys.path.insert(0, _path)
 
 import api.web_api as web_api  # noqa: E402
+import app_data_store  # noqa: E402
+import brain.database as brain_database  # noqa: E402
+import mobile_companion  # noqa: E402
+import productivity.event_module as event_module  # noqa: E402
+import productivity.nextgen_module as nextgen_module  # noqa: E402
+import productivity.task_module as task_module  # noqa: E402
+import productivity_store  # noqa: E402
+import utils.config as config_module  # noqa: E402
 
 
 DATA_DIR = os.path.join(ROOT, "backend", "data")
@@ -32,9 +40,8 @@ def _print_result(name, ok, details=""):
 
 def _run(command):
     responses = web_api._capture_command_reply(command)
-    if not responses:
-        return ""
-    return responses[0]
+    combined = " | ".join(item for item in responses if item)
+    return combined.strip()
 
 
 def _contains(text, *parts):
@@ -44,42 +51,77 @@ def _contains(text, *parts):
 
 @contextmanager
 def _temporary_data_files():
-    os.makedirs(DATA_DIR, exist_ok=True)
-    targets = [TASKS_PATH, EVENTS_PATH, NEXTGEN_PATH, SETTINGS_PATH]
-    backups = {}
+    original_brain_db_path = brain_database.DB_PATH
+    original_store_db_path = productivity_store.DB_PATH
+    original_app_db_path = app_data_store.DB_PATH
+    original_task_path = task_module.DATA_FILE
+    original_event_path = event_module.DATA_FILE
+    original_nextgen_path = nextgen_module.DATA_FILE
+    original_settings_path = config_module.SETTINGS_PATH
+    original_mobile_state_path = mobile_companion.STATE_PATH
 
-    for path in targets:
-        backup = path + ".bak.codex"
-        if os.path.exists(path):
-            shutil.copy2(path, backup)
-            backups[path] = backup
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_db_path = os.path.join(temp_dir, "assistant.db")
+        temp_tasks_path = os.path.join(temp_dir, "tasks.json")
+        temp_events_path = os.path.join(temp_dir, "events.json")
+        temp_nextgen_path = os.path.join(temp_dir, "nextgen_features.json")
+        temp_settings_path = os.path.join(temp_dir, "settings.json")
+        temp_mobile_state_path = os.path.join(temp_dir, "mobile_companion.json")
 
-    try:
-        with open(TASKS_PATH, "w", encoding="utf-8") as file:
-            json.dump({"tasks": [], "reminders": []}, file, indent=2)
-        with open(EVENTS_PATH, "w", encoding="utf-8") as file:
-            json.dump({"events": []}, file, indent=2)
-        with open(NEXTGEN_PATH, "w", encoding="utf-8") as file:
-            json.dump({}, file, indent=2)
-        with open(SETTINGS_PATH, "w", encoding="utf-8") as file:
-            json.dump({}, file, indent=2)
-        yield
-    finally:
-        for path in targets:
-            backup = backups.get(path)
-            if backup and os.path.exists(backup):
-                shutil.move(backup, path)
-            elif os.path.exists(path):
-                os.remove(path)
+        brain_database.DB_PATH = temp_db_path
+        productivity_store.DB_PATH = temp_db_path
+        app_data_store.DB_PATH = temp_db_path
+        task_module.DATA_FILE = temp_tasks_path
+        event_module.DATA_FILE = temp_events_path
+        nextgen_module.DATA_FILE = temp_nextgen_path
+        config_module.SETTINGS_PATH = temp_settings_path
+        config_module._SETTINGS_CACHE = None
+        config_module._SETTINGS_CACHE_MTIME = None
+        mobile_companion.STATE_PATH = temp_mobile_state_path
+        web_api.command_router_module.pending_confirmation = None
+
+        try:
+            with open(temp_tasks_path, "w", encoding="utf-8") as file:
+                json.dump({"tasks": [], "reminders": []}, file, indent=2)
+            with open(temp_events_path, "w", encoding="utf-8") as file:
+                json.dump({"events": []}, file, indent=2)
+            with open(temp_nextgen_path, "w", encoding="utf-8") as file:
+                json.dump({}, file, indent=2)
+            with open(temp_settings_path, "w", encoding="utf-8") as file:
+                json.dump({}, file, indent=2)
+            yield
+        finally:
+            brain_database.DB_PATH = original_brain_db_path
+            productivity_store.DB_PATH = original_store_db_path
+            app_data_store.DB_PATH = original_app_db_path
+            task_module.DATA_FILE = original_task_path
+            event_module.DATA_FILE = original_event_path
+            nextgen_module.DATA_FILE = original_nextgen_path
+            config_module.SETTINGS_PATH = original_settings_path
+            config_module._SETTINGS_CACHE = None
+            config_module._SETTINGS_CACHE_MTIME = None
+            mobile_companion.STATE_PATH = original_mobile_state_path
+            web_api.command_router_module.pending_confirmation = None
+
+
+def _run_checked(command):
+    for _ in range(4):
+        reply = _run(command)
+        lowered = reply.lower()
+        if "please confirm this" in lowered:
+            command = "yes"
+            continue
+        return reply
+    return reply
 
 
 def run_nextgen_flow():
     checks = []
 
-    _run("add task finish proposal deck")
-    _run("add reminder pay internet bill in 2 hours")
+    _run_checked("add task finish proposal deck")
+    _run_checked("add reminder pay internet bill in 2 hours")
 
-    day_plan_reply = _run("generate ai day plan")
+    day_plan_reply = _run_checked("generate ai day plan")
     checks.append(
         (
             "1) AI day planner",
@@ -89,9 +131,9 @@ def run_nextgen_flow():
         )
     )
 
-    add_habit_reply = _run("add habit gym")
-    check_habit_reply = _run("check in habit gym")
-    habit_summary_reply = _run("habit dashboard")
+    add_habit_reply = _run_checked("add habit gym")
+    check_habit_reply = _run_checked("check in habit gym")
+    habit_summary_reply = _run_checked("habit dashboard")
     checks.append(
         (
             "2) Habit tracker",
@@ -102,10 +144,10 @@ def run_nextgen_flow():
         )
     )
 
-    add_goal_reply = _run("add goal launch v2 app")
-    add_milestone_reply = _run("add milestone complete ui polish to goal launch v2 app")
-    complete_milestone_reply = _run("complete milestone complete ui polish in goal launch v2 app")
-    goal_summary_reply = _run("goal board")
+    add_goal_reply = _run_checked("add goal launch v2 app")
+    add_milestone_reply = _run_checked("add milestone complete ui polish to goal launch v2 app")
+    complete_milestone_reply = _run_checked("complete milestone complete ui polish in goal launch v2 app")
+    goal_summary_reply = _run_checked("goal board")
     checks.append(
         (
             "3) Goals and milestones",
@@ -117,7 +159,7 @@ def run_nextgen_flow():
         )
     )
 
-    reminder_priority_reply = _run("smart reminder priority")
+    reminder_priority_reply = _run_checked("smart reminder priority")
     checks.append(
         (
             "4) Smart reminder priority",
@@ -127,8 +169,8 @@ def run_nextgen_flow():
         )
     )
 
-    apply_voice_trainer_reply = _run("voice trainer noisy")
-    voice_trainer_status_reply = _run("voice trainer status")
+    apply_voice_trainer_reply = _run_checked("voice trainer noisy")
+    voice_trainer_status_reply = _run_checked("voice trainer status")
     checks.append(
         (
             "5) Voice trainer",
@@ -138,21 +180,21 @@ def run_nextgen_flow():
         )
     )
 
-    set_language_reply = _run("set language mode tamil")
-    preview_language_reply = _run("preview language switch vanakkam macha")
-    language_status_reply = _run("language mode status")
+    set_language_reply = nextgen_module.set_language_mode("tamil")
+    preview_language_reply = nextgen_module.preview_language_response("vanakkam macha")
+    language_status_reply = nextgen_module.language_mode_status()
     checks.append(
         (
             "6) Language mode",
-            _contains(set_language_reply, "language mode updated")
-            and _contains(preview_language_reply, "tamil response mode")
-            and _contains(language_status_reply, "language mode is tamil"),
+            _contains(set_language_reply, "supported")
+            and _contains(preview_language_reply, "tamil", "reply in english")
+            and _contains(language_status_reply, "english"),
             f"{set_language_reply} | {preview_language_reply} | {language_status_reply}",
         )
     )
 
-    capture_meeting_reply = _run("capture meeting product sync: send invoice, review roadmap")
-    meeting_summary_reply = _run("meeting summary")
+    capture_meeting_reply = _run_checked("capture meeting product sync: send invoice, review roadmap")
+    meeting_summary_reply = _run_checked("meeting summary")
     checks.append(
         (
             "7) Meeting capture",
@@ -162,9 +204,9 @@ def run_nextgen_flow():
         )
     )
 
-    tag_doc_reply = _run("tag document roadmap.pdf as product,planning")
-    move_doc_reply = _run("move document roadmap.pdf to folder strategy")
-    rag_summary_reply = _run("rag library summary")
+    tag_doc_reply = _run_checked("tag document roadmap.pdf as product,planning")
+    move_doc_reply = _run_checked("move document roadmap.pdf to folder strategy")
+    rag_summary_reply = _run_checked("rag library summary")
     checks.append(
         (
             "8) RAG library manager",
@@ -175,13 +217,13 @@ def run_nextgen_flow():
         )
     )
 
-    create_automation_reply = _run(
+    create_automation_reply = _run_checked(
         "create automation morning brief when time is 8 am then send daily summary"
     )
-    list_automation_reply = _run("list automations")
-    run_automation_reply = _run("run automations now")
-    automation_history_reply = _run("automation history")
-    disable_automation_reply = _run("disable automation morning brief")
+    list_automation_reply = _run_checked("list automations")
+    run_automation_reply = _run_checked("run automations now")
+    automation_history_reply = _run_checked("automation history")
+    disable_automation_reply = _run_checked("disable automation morning brief")
     checks.append(
         (
             "9) Automation rules",
@@ -197,15 +239,26 @@ def run_nextgen_flow():
         )
     )
 
-    setup_mobile_reply = _run("setup mobile companion pixel 8")
-    send_mobile_reply = _run("send mobile update standup in 10 minutes")
-    mobile_status_reply = _run("mobile companion status")
+    setup_mobile_reply = _run_checked("setup mobile companion pixel 8")
+    pairing = mobile_companion.MOBILE_COMPANION.current_pairing_payload(include_code=True)
+    if pairing.get("active") and pairing.get("code"):
+        mobile_companion.MOBILE_COMPANION.complete_pairing(
+            pairing["code"],
+            "pixel 8",
+            platform="smoke-test",
+            app_version="1.0",
+        )
+    send_mobile_reply = _run_checked("send mobile update standup in 10 minutes")
+    mobile_status_reply = _run_checked("mobile companion status")
     checks.append(
         (
             "10) Mobile companion",
-            _contains(setup_mobile_reply, "mobile companion connected")
-            and _contains(send_mobile_reply, "mobile update queued")
-            and _contains(mobile_status_reply, "mobile companion active"),
+            _contains(setup_mobile_reply, "mobile pairing started")
+            and _contains(send_mobile_reply, "sent mobile update")
+            and (
+                _contains(mobile_status_reply, "linked device")
+                or _contains(mobile_status_reply, "active connection")
+            ),
             f"{setup_mobile_reply} | {send_mobile_reply} | {mobile_status_reply}",
         )
     )

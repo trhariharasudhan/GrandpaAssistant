@@ -1,5 +1,8 @@
 import os
 import sys
+import tempfile
+import uuid
+from contextlib import contextmanager
 
 from fastapi.testclient import TestClient
 
@@ -13,6 +16,8 @@ for _path in (APP_DIR, SHARED_DIR, FEATURES_DIR):
         sys.path.insert(0, _path)
 
 import api.web_api as web_api  # noqa: E402
+import app_data_store  # noqa: E402
+import brain.database as brain_database  # noqa: E402
 
 
 CHECKS = [
@@ -45,24 +50,83 @@ def _strip_tts_noise(text):
     return cleaned
 
 
-def run_check():
-    client = TestClient(web_api.app)
-    failed = []
+@contextmanager
+def _temporary_database():
+    original_brain_db_path = brain_database.DB_PATH
+    original_app_db_path = app_data_store.DB_PATH
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_db_path = os.path.join(temp_dir, "assistant.db")
+        brain_database.DB_PATH = temp_db_path
+        app_data_store.DB_PATH = temp_db_path
+        try:
+            yield
+        finally:
+            brain_database.DB_PATH = original_brain_db_path
+            app_data_store.DB_PATH = original_app_db_path
 
-    for command, expected_tokens in CHECKS:
-        response = client.post("/api/command", json={"command": command})
+
+def _auth_headers(client):
+    username = f"smoke_{uuid.uuid4().hex[:10]}"
+    password = "SmokePass123!"
+    response = client.post(
+        "/api/auth/register",
+        json={
+            "username": username,
+            "password": password,
+            "display_name": "System Controls Smoke",
+            "device_name": "system-controls-smoke",
+        },
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f"Could not create smoke-test user: {response.status_code} {response.text}")
+    token = response.json().get("token", "")
+    if not token:
+        raise RuntimeError("Smoke-test authentication did not return a session token.")
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _run_command(client, headers, command):
+    response = client.post("/api/command", json={"command": command}, headers=headers)
+    payload = response.json() if response.status_code == 200 else {}
+
+    if payload.get("requires_confirmation") and payload.get("confirmation_id"):
+        response = client.post(
+            "/api/command",
+            json={"command": command, "confirmation_id": payload["confirmation_id"]},
+            headers=headers,
+        )
+        payload = response.json() if response.status_code == 200 else {}
+
+    messages = payload.get("messages") or []
+    combined = _strip_tts_noise(" | ".join(messages))
+
+    if response.status_code == 200 and "please confirm this" in combined.lower():
+        response = client.post("/api/command", json={"command": "yes"}, headers=headers)
         payload = response.json() if response.status_code == 200 else {}
         messages = payload.get("messages") or []
         combined = _strip_tts_noise(" | ".join(messages))
-        lowered = combined.lower()
-        ok = response.status_code == 200 and bool(combined) and any(
-            token in lowered for token in expected_tokens
-        )
-        print(f"[{'PASS' if ok else 'FAIL'}] {command}")
-        print(f"  -> status={response.status_code}")
-        print(f"  -> reply={combined[:260]}")
-        if not ok:
-            failed.append((command, response.status_code, combined))
+
+    return response, combined
+
+
+def run_check():
+    failed = []
+
+    with _temporary_database():
+        client = TestClient(web_api.app)
+        headers = _auth_headers(client)
+
+        for command, expected_tokens in CHECKS:
+            response, combined = _run_command(client, headers, command)
+            lowered = combined.lower()
+            ok = response.status_code == 200 and bool(combined) and any(
+                token in lowered for token in expected_tokens
+            )
+            print(f"[{'PASS' if ok else 'FAIL'}] {command}")
+            print(f"  -> status={response.status_code}")
+            print(f"  -> reply={combined[:260]}")
+            if not ok:
+                failed.append((command, response.status_code, combined))
 
     if failed:
         print(f"\n[FAIL] system_controls_smoke_check ({len(failed)} failed)")

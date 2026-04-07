@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import datetime
 import importlib.util
@@ -5,19 +6,30 @@ import io
 import json
 import os
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
 import zipfile
+import atexit
+from typing import Any
 from xml.etree import ElementTree
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pypdf import PdfReader
 from pydantic import BaseModel
 import uvicorn
 
+from agents.runtime import ASSISTANT_RUNTIME
+from cognition.hub import (
+    build_intelligence_prompt_boost,
+    intelligence_status_payload,
+    observe_user_turn,
+    record_assistant_turn,
+)
+from cognition.recovery_engine import record_system_error
 import core.command_router as command_router_module
 from brain.database import get_recent_commands
 from brain.memory_engine import get_memory
@@ -30,6 +42,7 @@ from device_manager import DEVICE_MANAGER
 from iot_control import get_iot_action_history
 from iot_registry import summarize_iot_config
 from core.command_router import process_command
+from security.hub import security_status_payload, validate_prompt_text
 from llm_client import (
     DEFAULT_LLM_PROVIDER,
     DEFAULT_OPENAI_MODEL,
@@ -42,6 +55,30 @@ from llm_client import (
     get_llm_status,
     load_env_file,
     stream_chat_reply,
+)
+from mobile_companion import MOBILE_COMPANION
+from productivity_store import (
+    get_user_preferences,
+    load_chat_state_payload,
+    save_chat_state_payload,
+    update_user_preferences,
+)
+from app_auth import (
+    authenticate_app_token,
+    auth_bootstrap_status,
+    auth_status_payload as app_auth_status_payload,
+    login_app_user,
+    logout_app_token,
+    register_app_user,
+    require_admin,
+)
+from app_data_store import (
+    append_chat_message,
+    get_audit_log as get_app_audit_log,
+    list_chat_archive,
+    log_audit_event,
+    update_user_profile,
+    upsert_chat_session,
 )
 from startup_diagnostics import collect_startup_diagnostics
 from modules.event_module import get_event_data
@@ -62,6 +99,9 @@ from modules.startup_module import (
 from modules.task_module import get_planner_focus_snapshot, get_task_data
 from modules.weather_module import get_weather_report
 from utils.config import get_setting, update_setting
+from utils.emotion import analyze_emotion, build_emotion_prompt_context
+from utils.mood_memory import build_mood_memory_context, mood_status_payload, record_mood_from_analysis
+from plugin_system import plugin_status_payload
 from vision.object_detection import (
     get_detection_history,
     get_latest_detection_summary,
@@ -80,6 +120,8 @@ from features.productivity.proactive_suggestion_engine import (
 )
 from voice.listen import (
     _active_voice_settings,
+    _get_whisper_model,
+    _resolved_whisper_language,
     continuous_conversation_enabled,
     current_voice_mode,
     follow_up_keep_alive_seconds,
@@ -95,6 +137,7 @@ from voice.listen import (
     wake_word_detected,
 )
 import voice.speak as voice_speak_module
+from voice.speak import synthesize_speech_base64
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -163,8 +206,8 @@ _chat_settings = {
     "model": os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL),
     "ollama_model": os.getenv(OLLAMA_MODEL_ENV, DEFAULT_OLLAMA_MODEL),
     "system_prompt": SYSTEM_PROMPT,
-    "tone": "friendly",
-    "response_style": "balanced",
+    "tone": "casual",
+    "response_style": "natural",
     "tool_mode": True,
 }
 
@@ -180,6 +223,9 @@ _RAG_STOPWORDS = {
 _RAG_CHUNK_TOKEN_CACHE = {}
 _RAG_CONTEXT_CACHE = {}
 _RAG_CONTEXT_CACHE_LIMIT = 120
+_chat_state_save_lock = threading.Lock()
+_chat_state_save_timer = None
+_CHAT_STATE_SAVE_DELAY_SECONDS = 0.35
 
 
 class StartupSettingsRequest(BaseModel):
@@ -233,6 +279,60 @@ class RemoveDocumentRequest(BaseModel):
     filename: str
 
 
+class MobilePairStartRequest(BaseModel):
+    device_name: str | None = None
+
+
+class MobilePairCompleteRequest(BaseModel):
+    pair_code: str
+    device_name: str
+    platform: str | None = None
+    app_version: str | None = None
+
+
+class MobileTokenAuthRequest(BaseModel):
+    token: str
+
+
+class MobileCommandRequest(BaseModel):
+    command: str
+    confirmation_id: str | None = None
+    include_state: bool = True
+
+
+class MobileChatRequest(BaseModel):
+    message: str
+    session_id: str | None = None
+    include_audio: bool = False
+
+
+class MobileRevokeDeviceRequest(BaseModel):
+    device_id: str
+
+
+class AuthRegisterRequest(BaseModel):
+    username: str
+    password: str
+    display_name: str | None = None
+    role: str | None = "user"
+    device_name: str | None = None
+
+
+class AuthLoginRequest(BaseModel):
+    username: str
+    password: str
+    device_name: str | None = None
+
+
+class AuthProfileUpdateRequest(BaseModel):
+    display_name: str | None = None
+    preferred_language: str | None = None
+    response_style: str | None = None
+    tone: str | None = None
+    theme: str | None = None
+    short_answers: bool | None = None
+
+
 def _compact_text(value):
     return " ".join(str(value or "").split()).strip()
 
@@ -241,18 +341,243 @@ def _ensure_data_dir():
     os.makedirs(DATA_DIR, exist_ok=True)
 
 
-def _save_chat_state():
-    _ensure_data_dir()
-    payload = {
-        "settings": _chat_settings,
-        "session_order": _session_order,
-        "sessions": _chat_sessions,
-    }
-    try:
-        with open(CHAT_STATE_PATH, "w", encoding="utf-8") as file:
-            json.dump(payload, file, ensure_ascii=False, indent=2)
-    except Exception:
+def _is_local_host(host: str) -> bool:
+    value = _compact_text(host).lower()
+    return value in {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def _require_local_request(request: Request) -> None:
+    client = getattr(request, "client", None)
+    host = getattr(client, "host", "")
+    if _is_local_host(host):
         return
+    raise HTTPException(status_code=403, detail="This action is only allowed from the desktop device.")
+
+
+def _extract_bearer_token(authorization_value: str) -> str:
+    value = _compact_text(authorization_value)
+    if value.lower().startswith("bearer "):
+        return value[7:].strip()
+    return value
+
+
+def _authenticated_app_context(request: Request | None, *, required: bool = False) -> dict | None:
+    if request is None:
+        if required:
+            raise HTTPException(status_code=401, detail="Authentication required.")
+        return None
+    token = _extract_bearer_token(request.headers.get("authorization", ""))
+    if not token:
+        if required:
+            raise HTTPException(status_code=401, detail="Authentication required.")
+        return None
+    payload = authenticate_app_token(token)
+    if not payload:
+        if required:
+            raise HTTPException(status_code=401, detail="Invalid or expired session.")
+        return None
+    return payload
+
+
+def _authenticated_app_user(request: Request | None, *, required: bool = False) -> dict | None:
+    payload = _authenticated_app_context(request, required=required)
+    return (payload or {}).get("user") if payload else None
+
+
+def _authenticated_user_id(request: Request | None) -> int | None:
+    user = _authenticated_app_user(request, required=False)
+    try:
+        return int(user.get("id")) if user and user.get("id") is not None else None
+    except Exception:
+        return None
+
+
+def _normalize_profile_preferences(payload: AuthProfileUpdateRequest) -> dict[str, Any]:
+    preferences = {}
+    if payload.preferred_language is not None:
+        preferences["preferred_language"] = _compact_text(payload.preferred_language) or "en-US"
+    if payload.response_style is not None:
+        preferences["response_style"] = _compact_text(payload.response_style) or "balanced"
+    if payload.tone is not None:
+        preferences["tone"] = _compact_text(payload.tone) or "friendly"
+    if payload.theme is not None:
+        preferences["theme"] = _compact_text(payload.theme) or "system"
+    if payload.short_answers is not None:
+        preferences["short_answers"] = bool(payload.short_answers)
+    return preferences
+
+
+def _account_profile_payload(context: dict | None) -> dict[str, Any]:
+    user = (context or {}).get("user") if isinstance(context, dict) else None
+    user_id = None
+    try:
+        user_id = int(user.get("id")) if user and user.get("id") is not None else None
+    except Exception:
+        user_id = None
+    preferences = get_user_preferences(user_id) if user_id is not None else {}
+    return {
+        "user": user,
+        "preferences": preferences,
+    }
+
+
+def _web_ui_auth_required() -> bool:
+    return bool(get_setting("auth.enabled", True) and get_setting("auth.ui_login_required", True))
+
+
+def _enforce_app_auth(request: Request | None) -> dict | None:
+    if request is None:
+        return None
+    return _authenticated_app_context(request, required=_web_ui_auth_required())
+
+
+def _mobile_device_from_request(request: Request) -> dict:
+    token = _extract_bearer_token(request.headers.get("authorization", ""))
+    device = MOBILE_COMPANION.authenticate_token(token)
+    if device:
+        return device
+    raise HTTPException(status_code=401, detail="Mobile authentication failed.")
+
+
+def _mobile_device_from_token(token: str) -> dict:
+    device = MOBILE_COMPANION.authenticate_token(token)
+    if device:
+        return device
+    raise HTTPException(status_code=401, detail="Mobile authentication failed.")
+
+
+def _mobile_runtime_snapshot() -> dict:
+    try:
+        import psutil  # type: ignore
+
+        cpu_percent = round(float(psutil.cpu_percent(interval=0.05)), 1)
+        memory = psutil.virtual_memory()
+        ram_percent = round(float(memory.percent), 1)
+        ram_used_mb = round(float(memory.used) / (1024 * 1024), 1)
+        ram_total_mb = round(float(memory.total) / (1024 * 1024), 1)
+    except Exception:
+        cpu_percent = 0.0
+        ram_percent = 0.0
+        ram_used_mb = 0.0
+        ram_total_mb = 0.0
+    return {
+        "assistant_state": "active" if _voice_enabled else "idle",
+        "cpu_percent": cpu_percent,
+        "ram_percent": ram_percent,
+        "ram_used_mb": ram_used_mb,
+        "ram_total_mb": ram_total_mb,
+        "voice": _voice_status_payload(),
+        "runtime": ASSISTANT_RUNTIME.status_payload(),
+    }
+
+
+def _mobile_dashboard_payload(device: dict | None = None) -> dict:
+    task_data = _safe_call(get_task_data, {"tasks": [], "reminders": []})
+    tasks = task_data.get("tasks") or []
+    reminders = task_data.get("reminders") or []
+    ui_state = _build_ui_state()
+    return {
+        "device": device or {},
+        "status": _mobile_runtime_snapshot(),
+        "tasks": {
+            "pending_count": sum(1 for item in tasks if not item.get("completed")),
+            "items": tasks[:12],
+        },
+        "reminders": {
+            "count": len(reminders),
+            "items": reminders[:12],
+        },
+        "memory": {
+            "mood": mood_status_payload(),
+            "semantic": semantic_memory_status(prewarm=False),
+        },
+        "hardware": ui_state.get("integrations", {}).get("hardware", {}),
+        "smart_home": ui_state.get("integrations", {}).get("smart_home", {}),
+        "nextgen": ui_state.get("nextgen", {}),
+        "overview": ui_state.get("overview", {}),
+    }
+
+
+def _mobile_audio_reply(text: str, include_audio: bool) -> dict:
+    if not include_audio:
+        return {}
+    try:
+        audio_payload = synthesize_speech_base64(text, preferred_backend="coqui")
+        return audio_payload
+    except Exception:
+        try:
+            return synthesize_speech_base64(text, preferred_backend="piper")
+        except Exception:
+            return {}
+
+
+def _transcribe_mobile_audio_file(file_path: str, preferred_language: str = "en-US") -> str:
+    settings = _active_voice_settings("normal")
+    model = _get_whisper_model(settings["whisper_model"])
+    whisper_language = _resolved_whisper_language(preferred_language=preferred_language)
+    result = model.transcribe(
+        file_path,
+        language=whisper_language,
+        fp16=bool(settings["whisper_fp16"]),
+        condition_on_previous_text=bool(settings["whisper_condition_on_previous_text"]),
+        task="transcribe",
+    )
+    text = _compact_text((result or {}).get("text"))
+    if not text:
+        raise ValueError("Whisper returned an empty transcription.")
+    return text
+
+
+def _save_chat_state():
+    global _chat_state_save_timer
+    with _chat_state_save_lock:
+        timer = _chat_state_save_timer
+        if timer is not None and timer.is_alive():
+            return
+        _chat_state_save_timer = threading.Timer(_CHAT_STATE_SAVE_DELAY_SECONDS, _flush_chat_state)
+        _chat_state_save_timer.daemon = True
+        _chat_state_save_timer.start()
+
+
+def _default_chat_state_payload():
+    return {
+        "settings": dict(_chat_settings),
+        "session_order": list(_session_order),
+        "sessions": dict(_chat_sessions),
+    }
+
+
+def _load_legacy_chat_state_payload():
+    _ensure_data_dir()
+    if not os.path.exists(CHAT_STATE_PATH):
+        return _default_chat_state_payload()
+    try:
+        with open(CHAT_STATE_PATH, "r", encoding="utf-8") as file:
+            payload = json.load(file)
+    except Exception:
+        return _default_chat_state_payload()
+    return payload if isinstance(payload, dict) else _default_chat_state_payload()
+
+
+def _flush_chat_state():
+    global _chat_state_save_timer
+    _ensure_data_dir()
+    payload = _default_chat_state_payload()
+    with _chat_state_save_lock:
+        timer = _chat_state_save_timer
+        _chat_state_save_timer = None
+        if timer is not None and timer.is_alive():
+            timer.cancel()
+        try:
+            save_chat_state_payload(payload, default_factory=_default_chat_state_payload)
+        except Exception:
+            try:
+                temp_path = f"{CHAT_STATE_PATH}.tmp"
+                with open(temp_path, "w", encoding="utf-8") as file:
+                    json.dump(payload, file, ensure_ascii=False, indent=2)
+                os.replace(temp_path, CHAT_STATE_PATH)
+            except Exception:
+                return
 
 
 def _apply_runtime_chat_settings():
@@ -263,14 +588,13 @@ def _apply_runtime_chat_settings():
 
 def _load_chat_state():
     global _chat_settings, _chat_sessions, _session_order
-    _ensure_data_dir()
-    if not os.path.exists(CHAT_STATE_PATH):
-        return
     try:
-        with open(CHAT_STATE_PATH, "r", encoding="utf-8") as file:
-            payload = json.load(file)
+        payload = load_chat_state_payload(
+            default_factory=_default_chat_state_payload,
+            legacy_loader=_load_legacy_chat_state_payload,
+        )
     except Exception:
-        return
+        payload = _load_legacy_chat_state_payload()
 
     saved_settings = payload.get("settings") or {}
     saved_sessions = payload.get("sessions") or {}
@@ -295,6 +619,7 @@ def _load_chat_state():
     if isinstance(saved_order, list):
         _session_order = [item for item in saved_order if item in _chat_sessions]
 
+
     if not _session_order and _chat_sessions:
         _session_order = list(_chat_sessions.keys())
 
@@ -305,6 +630,9 @@ def _load_chat_state():
         session.setdefault("updated_at", _utc_now())
         session.setdefault("title", "New chat")
         session.setdefault("id", str(uuid.uuid4()))
+
+
+atexit.register(_flush_chat_state)
 
 
 def _safe_call(callback, fallback):
@@ -811,6 +1139,7 @@ def _ensure_session(session_id=None, title=None, create_new=False):
     _chat_sessions[new_id] = session
     remaining = [item for item in _session_order if item != new_id]
     _session_order = [new_id, *remaining]
+    upsert_chat_session(new_id, title=session["title"], source="web-ui")
     _save_chat_state()
     return session
 
@@ -888,9 +1217,39 @@ def _tool_prompt():
     )
 
 
-def _effective_system_prompt():
+def _active_chat_model() -> str:
+    provider = _compact_text(_chat_settings.get("llm_provider")).lower() or DEFAULT_LLM_PROVIDER
+    if provider == "ollama":
+        return _compact_text(_chat_settings.get("ollama_model")) or DEFAULT_OLLAMA_MODEL
+    return _compact_text(_chat_settings.get("model")) or DEFAULT_OPENAI_MODEL
+
+
+def _effective_system_prompt(user_message="", mood_snapshot=None, context="casual"):
     provider = _compact_text(_chat_settings.get("llm_provider")).lower() or DEFAULT_LLM_PROVIDER
     provider_guidance = ""
+    language_guidance = (
+        "Understand Tanglish or mixed Tamil-English input, but always reply only in natural English unless the user explicitly asks for translation. "
+    )
+    emotion_guidance = (
+        f"{build_emotion_prompt_context(user_message)} "
+        if _compact_text(user_message)
+        else ""
+    )
+    mood_guidance = (
+        f"{build_mood_memory_context(mood_snapshot)} "
+        if mood_snapshot or _compact_text(user_message)
+        else ""
+    )
+    intelligence_guidance = (
+        f"{build_intelligence_prompt_boost(user_message, context=context, emotion=(mood_snapshot or {}).get('last_mood', 'neutral'), mood=mood_snapshot) or ''} "
+        if _compact_text(user_message)
+        else ""
+    )
+    conversation_guidance = (
+        "Talk like a smart, friendly real person. In normal chat, keep replies short, usually 1 or 2 sentences unless the user asks for more. "
+        "Use natural language like hey, yeah, okay, or got it when it fits. Avoid robotic phrasing, bullet lists, and overly structured formatting in casual conversation. "
+        "Match the user's mood and keep the flow natural. "
+    )
     if provider == "ollama":
         provider_guidance = (
             "When the user asks a normal question, answer directly in plain language. "
@@ -901,16 +1260,29 @@ def _effective_system_prompt():
     return (
         f"{_chat_settings['system_prompt']} "
         f"Tone: {_chat_settings['tone']}. Response style: {_chat_settings['response_style']}. "
+        f"{conversation_guidance}"
+        f"{language_guidance}"
+        f"{emotion_guidance}"
+        f"{mood_guidance}"
+        f"{intelligence_guidance}"
         f"{provider_guidance} "
         f"{_tool_prompt() if _chat_settings.get('tool_mode') else ''}"
     ).strip()
 
 
-def _build_chat_input(session, user_message):
+def _build_chat_input(session, user_message, mood_snapshot=None, context="casual"):
     memory_context = build_semantic_memory_context(user_message)
     document_context = _session_document_context(session, user_message)
+    emotion_context = build_emotion_prompt_context(user_message)
+    mood_context = build_mood_memory_context(mood_snapshot)
+    intelligence_context = build_intelligence_prompt_boost(
+        user_message,
+        context=context,
+        emotion=(mood_snapshot or {}).get("last_mood", "neutral"),
+        mood=mood_snapshot,
+    )
     if not memory_context and not document_context:
-        return user_message
+        return f"{emotion_context}\n{mood_context}\n{intelligence_context or ''}\nUser question: {user_message}"
 
     sections = []
     if memory_context:
@@ -920,13 +1292,16 @@ def _build_chat_input(session, user_message):
     combined_context = "\n\n".join(sections)
 
     guidance = (
-        "Answer clearly using the provided context when relevant. "
+        "Answer clearly using the provided context when relevant. Keep it natural and easy to read. "
         "If the attached document does not contain the answer, say that briefly."
         if document_context
-        else "Answer clearly and use the saved memory only when it helps the user."
+        else "Answer clearly, keep it natural, and use the saved memory only when it helps the user."
     )
     return (
         f"{combined_context}\n\n"
+        f"{emotion_context}\n"
+        f"{mood_context}\n"
+        f"{intelligence_context or ''}\n"
         f"User question: {user_message}\n"
         f"{guidance}"
     )
@@ -1045,6 +1420,9 @@ def _looks_like_direct_action_input(message):
         "latest note",
         "voice status",
         "voice diagnostics",
+        "security status",
+        "security alerts",
+        "security logs",
         "admin status",
         "administrator status",
         "full control status",
@@ -1095,6 +1473,9 @@ def _looks_like_direct_action_input(message):
         "watch ",
         "sync ",
         "use ",
+        "verify ",
+        "trust ",
+        "unlock ",
         "save ",
         "rename ",
         "reschedule ",
@@ -1169,16 +1550,18 @@ def _execute_tool_command_for_chat(command, source="chat-tool"):
     return " ".join(tool_messages), command, tool_messages, None
 
 
-def _run_tool_aware_reply(history, user_message):
-    if _looks_like_direct_action_input(user_message):
-        command = _compact_text(user_message)
+def _run_tool_aware_reply(history, user_message, raw_user_message=None, mood_snapshot=None, context="casual"):
+    source_message = _compact_text(raw_user_message or user_message)
+    model_name = _active_chat_model()
+    if _looks_like_direct_action_input(source_message):
+        command = source_message
         return _execute_tool_command_for_chat(command, source="chat-direct")
 
     first_pass = generate_chat_reply(
         history,
         user_message,
-        model=_chat_settings["model"],
-        system_prompt=_effective_system_prompt(),
+        model=model_name,
+        system_prompt=_effective_system_prompt(source_message, mood_snapshot=mood_snapshot, context=context),
     )
     if _chat_settings.get("tool_mode") and first_pass.startswith("TOOL:"):
         command = _compact_text(first_pass.replace("TOOL:", "", 1))
@@ -1200,8 +1583,8 @@ def _run_tool_aware_reply(history, user_message):
         final_reply = generate_chat_reply(
             history,
             bridge_message,
-            model=_chat_settings["model"],
-            system_prompt=_chat_settings["system_prompt"],
+            model=model_name,
+            system_prompt=_effective_system_prompt(source_message, mood_snapshot=mood_snapshot, context=context),
         )
         return final_reply, command, tool_messages, None
     return first_pass, None, [], None
@@ -1475,7 +1858,9 @@ def stop_voice_api_mode():
     return _voice_status_payload()
 
 
-def _build_ui_state():
+def _build_ui_state(auth_context: dict | None = None):
+    if not ASSISTANT_RUNTIME.status_payload().get("running"):
+        ASSISTANT_RUNTIME.start()
     task_data = _safe_call(get_task_data, {"tasks": [], "reminders": []})
     event_data = _safe_call(get_event_data, {"events": []})
     tasks = task_data.get("tasks", [])
@@ -1613,6 +1998,11 @@ def _build_ui_state():
     )
     doctor_state = collect_startup_diagnostics()
     semantic_memory_state = semantic_memory_status(prewarm=False)
+    runtime_state = ASSISTANT_RUNTIME.status_payload()
+    intelligence_state = intelligence_status_payload(runtime_state)
+    proactive_conversation = intelligence_state.get("proactive_conversation", {})
+    if proactive_conversation.get("suggestion") and not focus_mode:
+        notifications.append({"level": "suggestion", "text": proactive_conversation["suggestion"]})
     hardware_state = _safe_call(
         DEVICE_MANAGER.get_status,
         {
@@ -1623,6 +2013,32 @@ def _build_ui_state():
             "capabilities": {"summary": "Hardware status unavailable."},
         },
     )
+    mobile_state = _safe_call(
+        MOBILE_COMPANION.status_payload,
+        {
+            "enabled": True,
+            "pairing": {"active": False, "code": "", "requested_name": "", "expires_in_seconds": 0, "lan_addresses": []},
+            "paired_devices": [],
+            "paired_count": 0,
+            "active_connections": 0,
+            "event_history_count": 0,
+            "notification_count": 0,
+            "lan_addresses": [],
+            "summary": "Mobile companion status unavailable.",
+        },
+    )
+    if mobile_state.get("paired_count", 0) > 0:
+        nextgen_state["mobile_enabled"] = True
+        if not nextgen_state.get("mobile_device"):
+            first_device = (mobile_state.get("paired_devices") or [{}])[0]
+            nextgen_state["mobile_device"] = _compact_text(first_device.get("name"))
+    auth_user = (auth_context or {}).get("user") if isinstance(auth_context, dict) else None
+    auth_user_id = None
+    try:
+        auth_user_id = int(auth_user.get("id")) if auth_user and auth_user.get("id") is not None else None
+    except Exception:
+        auth_user_id = None
+    auth_preferences = get_user_preferences(auth_user_id) if auth_user_id is not None else {}
 
     return {
         "overview": {
@@ -1654,7 +2070,9 @@ def _build_ui_state():
             "preferred_language": preferred_language,
             "favorite_contact": favorite_contact,
             "semantic": semantic_memory_state,
+            "mood": mood_status_payload(),
         },
+        "intelligence": intelligence_state,
         "settings": {
             "wake_word": wake_word,
             "voice_profile": voice_profile,
@@ -1675,9 +2093,19 @@ def _build_ui_state():
         },
         "integrations": {
             "hardware": hardware_state,
+            "mobile": mobile_state,
             "smart_home": _smart_home_status_payload(),
             "face_security": _face_security_payload(),
+            "security": security_status_payload(DEVICE_MANAGER),
+            "plugins": plugin_status_payload(),
         },
+        "auth": {
+            "authenticated": bool(auth_user),
+            "user": auth_user,
+            "bootstrap": auth_bootstrap_status(),
+            "preferences": auth_preferences,
+        },
+        "runtime": runtime_state,
         "emergency": {
             "location": _safe_call(lambda: get_memory("personal.contact.address"), None)
             or _safe_call(lambda: get_memory("personal.location.current_location.city"), None)
@@ -1717,9 +2145,12 @@ def _build_ui_state():
 
 @app.get("/api/health")
 def api_health():
+    if not ASSISTANT_RUNTIME.status_payload().get("running"):
+        ASSISTANT_RUNTIME.start()
     return {
         "ok": True,
         "service": "grandpa-assistant-api",
+        "runtime": ASSISTANT_RUNTIME.status_payload(),
         "semantic_memory": semantic_memory_status(prewarm=False),
         "doctor": collect_startup_diagnostics(),
     }
@@ -1734,8 +2165,159 @@ def api_doctor():
 
 
 @app.get("/api/ui-state")
-def api_ui_state():
-    return {"ok": True, "state": _build_ui_state()}
+def api_ui_state(request: Request):
+    auth_context = _authenticated_app_context(request, required=False)
+    if _web_ui_auth_required() and not auth_context:
+        return {
+            "ok": True,
+            "state": {
+                "auth": {
+                    "authenticated": False,
+                    "user": None,
+                    "bootstrap": auth_bootstrap_status(),
+                }
+            },
+        }
+    return {"ok": True, "state": _build_ui_state(auth_context)}
+
+
+@app.get("/api/auth/bootstrap-status")
+def api_auth_bootstrap_status():
+    return {"ok": True, "auth": auth_bootstrap_status()}
+
+
+@app.get("/api/auth/status")
+def api_auth_status(request: Request):
+    context = _authenticated_app_context(request, required=False)
+    return {
+        "ok": True,
+        "auth": app_auth_status_payload(),
+        "current": context,
+    }
+
+
+@app.post("/api/auth/register")
+def api_auth_register(request: Request, payload: AuthRegisterRequest):
+    try:
+        created = register_app_user(
+            payload.username,
+            payload.password,
+            display_name=_compact_text(payload.display_name) or _compact_text(payload.username),
+            role=_compact_text(payload.role) or "user",
+        )
+        session = login_app_user(
+            payload.username,
+            payload.password,
+            user_agent=request.headers.get("user-agent", ""),
+            device_name=_compact_text(payload.device_name) or "desktop-ui",
+        )
+        return {"ok": True, **created, **session}
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/auth/login")
+def api_auth_login(request: Request, payload: AuthLoginRequest):
+    try:
+        result = login_app_user(
+            payload.username,
+            payload.password,
+            user_agent=request.headers.get("user-agent", ""),
+            device_name=_compact_text(payload.device_name) or "desktop-ui",
+        )
+        return {"ok": True, **result, "bootstrap": auth_bootstrap_status()}
+    except ValueError as error:
+        raise HTTPException(status_code=401, detail=str(error)) from error
+
+
+@app.post("/api/auth/logout")
+def api_auth_logout(request: Request):
+    token = _extract_bearer_token(request.headers.get("authorization", ""))
+    if not token:
+        raise HTTPException(status_code=400, detail="Authorization token is required.")
+    logout_app_token(token)
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def api_auth_me(request: Request):
+    context = _authenticated_app_context(request, required=True)
+    return {"ok": True, **context}
+
+
+@app.get("/api/auth/profile")
+def api_auth_profile(request: Request):
+    context = _authenticated_app_context(request, required=True)
+    return {"ok": True, **_account_profile_payload(context)}
+
+
+@app.post("/api/auth/profile")
+def api_auth_update_profile(request: Request, payload: AuthProfileUpdateRequest):
+    context = _authenticated_app_context(request, required=True)
+    user = context.get("user") if context else None
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    user_id = int(user["id"])
+    resolved_display_name = _compact_text(payload.display_name) or user.get("display_name") or user.get("username")
+    updated_row = update_user_profile(user_id, display_name=resolved_display_name)
+    current_preferences = get_user_preferences(user_id)
+    current_preferences.update(_normalize_profile_preferences(payload))
+    saved_preferences = update_user_preferences(user_id, current_preferences)
+    updated_user = (
+        {
+            "id": updated_row.get("id"),
+            "username": updated_row.get("username"),
+            "display_name": updated_row.get("display_name"),
+            "role": updated_row.get("role", "user"),
+            "is_active": bool(updated_row.get("is_active", 1)),
+            "created_at": updated_row.get("created_at", ""),
+            "updated_at": updated_row.get("updated_at", ""),
+            "last_login_at": updated_row.get("last_login_at", ""),
+        }
+        if updated_row
+        else user
+    )
+    log_audit_event(
+        "auth",
+        "profile_updated",
+        user_id=user_id,
+        payload={"preferences": saved_preferences},
+    )
+    return {"ok": True, "user": updated_user, "preferences": saved_preferences}
+
+
+@app.get("/api/auth/users")
+def api_auth_users(request: Request):
+    context = _authenticated_app_context(request, required=True)
+    try:
+        require_admin(context)
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    return {"ok": True, "users": app_auth_status_payload().get("users", [])}
+
+
+@app.get("/api/auth/audit")
+def api_auth_audit(request: Request, limit: int = 80):
+    context = _authenticated_app_context(request, required=True)
+    try:
+        user = require_admin(context)
+        return {"ok": True, "items": get_app_audit_log(limit=limit), "user": user}
+    except PermissionError:
+        user = context.get("user") if context else None
+        user_id = int(user.get("id")) if user and user.get("id") is not None else None
+        return {"ok": True, "items": get_app_audit_log(user_id=user_id, limit=limit), "user": user}
+
+
+@app.get("/api/auth/chat-archive")
+def api_auth_chat_archive(request: Request, session_id: str | None = None, limit: int = 120):
+    context = _authenticated_app_context(request, required=True)
+    user = context.get("user") if context else None
+    user_id = int(user.get("id")) if user and user.get("id") is not None else None
+    return {
+        "ok": True,
+        "items": list_chat_archive(session_id=session_id, user_id=user_id, limit=limit),
+    }
 
 
 @app.get("/api/memory/status")
@@ -1846,8 +2428,10 @@ def api_portable_setup(request: PortableSetupRequest):
 
 
 @app.post("/api/command")
-def api_command(request: CommandRequest):
+def api_command(request: CommandRequest, http_request: Request = None):
+    _enforce_app_auth(http_request)
     command = _compact_text(request.command)
+    user_id = _authenticated_user_id(http_request)
     if request.confirmation_id:
         pending = _pending_confirmations.pop(request.confirmation_id, None)
         if not pending:
@@ -1863,22 +2447,269 @@ def api_command(request: CommandRequest):
             "confirmation_id": confirmation_id,
             "command": command,
             "messages": [f"Please confirm before I run: {command}"],
-            "state": _build_ui_state(),
+            "state": _build_ui_state(_authenticated_app_context(http_request, required=False)),
         }
     try:
         messages = _capture_command_reply(command)
-        return {"ok": True, "command": command, "messages": messages, "state": _build_ui_state()}
+        log_audit_event(
+            "command",
+            "executed",
+            user_id=user_id,
+            payload={"command": command, "message_count": len(messages)},
+        )
+        MOBILE_COMPANION.record_command_result(command, messages, source="desktop-api")
+        return {
+            "ok": True,
+            "command": command,
+            "messages": messages,
+            "state": _build_ui_state(_authenticated_app_context(http_request, required=False)),
+        }
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Assistant error: {error}") from error
 
 
+@app.get("/api/mobile/status")
+def api_mobile_status(request: Request):
+    _require_local_request(request)
+    return {"ok": True, "mobile": MOBILE_COMPANION.status_payload()}
+
+
+@app.post("/api/mobile/pairing/start")
+def api_mobile_pairing_start(request: Request, payload: MobilePairStartRequest):
+    _require_local_request(request)
+    pairing = MOBILE_COMPANION.start_pairing(_compact_text(payload.device_name) or "Grandpa Mobile")
+    return {"ok": True, "mobile": MOBILE_COMPANION.status_payload(), "pairing": pairing}
+
+
+@app.post("/api/mobile/devices/revoke")
+def api_mobile_revoke_device(request: Request, payload: MobileRevokeDeviceRequest):
+    _require_local_request(request)
+    ok, message = MOBILE_COMPANION.revoke_device(payload.device_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=message)
+    return {"ok": True, "message": message, "mobile": MOBILE_COMPANION.status_payload()}
+
+
+@app.post("/mobile/pairing/complete")
+def mobile_pairing_complete(request: MobilePairCompleteRequest):
+    try:
+        result = MOBILE_COMPANION.complete_pairing(
+            request.pair_code,
+            request.device_name,
+            platform=request.platform or "",
+            app_version=request.app_version or "",
+        )
+        return {"ok": True, **result, "mobile": MOBILE_COMPANION.status_payload()}
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/mobile/auth/token")
+def mobile_auth_token(request: MobileTokenAuthRequest):
+    device = _mobile_device_from_token(request.token)
+    return {"ok": True, "device": device, "mobile": MOBILE_COMPANION.status_payload()}
+
+
+@app.get("/mobile/me")
+def mobile_me(request: Request):
+    device = _mobile_device_from_request(request)
+    return {"ok": True, "device": device}
+
+
+@app.get("/mobile/status")
+def mobile_status(request: Request):
+    device = _mobile_device_from_request(request)
+    return {
+        "ok": True,
+        "device": device,
+        "mobile": MOBILE_COMPANION.status_payload(),
+        "status": _mobile_runtime_snapshot(),
+    }
+
+
+@app.get("/mobile/dashboard")
+def mobile_dashboard(request: Request):
+    device = _mobile_device_from_request(request)
+    return {"ok": True, "dashboard": _mobile_dashboard_payload(device)}
+
+
+@app.get("/mobile/notifications")
+def mobile_notifications(request: Request, limit: int = 20):
+    device = _mobile_device_from_request(request)
+    return {
+        "ok": True,
+        "device": device,
+        "items": MOBILE_COMPANION.notifications(limit=limit, device_id=device.get("device_id", "")),
+    }
+
+
+@app.get("/mobile/chat/sessions")
+def mobile_chat_sessions(request: Request):
+    _mobile_device_from_request(request)
+    return {"ok": True, "sessions": _ordered_sessions()}
+
+
+@app.post("/mobile/chat")
+def mobile_chat(request: Request, payload: MobileChatRequest):
+    device = _mobile_device_from_request(request)
+    result = chat_reply(ChatRequest(message=payload.message, session_id=payload.session_id))
+    response = {"ok": True, "device": device, **result}
+    response.update(_mobile_audio_reply(result.get("reply", ""), payload.include_audio))
+    return response
+
+
+@app.post("/mobile/command")
+def mobile_command(request: Request, payload: MobileCommandRequest):
+    device = _mobile_device_from_request(request)
+    MOBILE_COMPANION.note_command(device.get("device_id", ""), payload.command)
+    result = api_command(CommandRequest(command=payload.command, confirmation_id=payload.confirmation_id))
+    if result.get("messages"):
+        MOBILE_COMPANION.record_command_result(
+            payload.command,
+            result.get("messages") or [],
+            source=device.get("name", "mobile"),
+            target_device_ids=[device.get("device_id", "")],
+        )
+    if not payload.include_state:
+        result = {key: value for key, value in result.items() if key != "state"}
+    return {"ok": True, "device": device, **result}
+
+
+@app.post("/mobile/voice/transcribe")
+async def mobile_voice_transcribe(
+    request: Request,
+    file: UploadFile = File(...),
+):
+    _mobile_device_from_request(request)
+    suffix = os.path.splitext(_compact_text(file.filename) or "voice.wav")[1] or ".wav"
+    fd, temp_path = tempfile.mkstemp(prefix="mobile_voice_", suffix=suffix, dir=DATA_DIR)
+    os.close(fd)
+    try:
+        with open(temp_path, "wb") as handle:
+            handle.write(await file.read())
+        transcript = _transcribe_mobile_audio_file(temp_path)
+        return {"ok": True, "transcript": transcript}
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"Could not transcribe audio: {error}") from error
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(temp_path)
+
+
+@app.post("/mobile/voice/chat")
+async def mobile_voice_chat(
+    request: Request,
+    file: UploadFile = File(...),
+    session_id: str | None = Form(default=None),
+    include_audio: bool = Form(default=True),
+):
+    device = _mobile_device_from_request(request)
+    suffix = os.path.splitext(_compact_text(file.filename) or "voice.wav")[1] or ".wav"
+    fd, temp_path = tempfile.mkstemp(prefix="mobile_voice_chat_", suffix=suffix, dir=DATA_DIR)
+    os.close(fd)
+    try:
+        with open(temp_path, "wb") as handle:
+            handle.write(await file.read())
+        transcript = _transcribe_mobile_audio_file(temp_path)
+        result = chat_reply(ChatRequest(message=transcript, session_id=session_id))
+        response = {
+            "ok": True,
+            "device": device,
+            "transcript": transcript,
+            **result,
+        }
+        response.update(_mobile_audio_reply(result.get("reply", ""), include_audio))
+        return response
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"Could not process mobile voice chat: {error}") from error
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(temp_path)
+
+
+@app.websocket("/mobile/ws")
+async def mobile_websocket(websocket: WebSocket):
+    token = _extract_bearer_token(websocket.query_params.get("token", ""))
+    device = MOBILE_COMPANION.authenticate_token(token)
+    if not device:
+        await websocket.close(code=4401)
+        return
+
+    await websocket.accept()
+    device_id = device.get("device_id", "")
+    MOBILE_COMPANION.note_connection(device_id, True)
+    last_seq = 0
+    await websocket.send_json(
+        {
+            "type": "ready",
+            "device": device,
+            "mobile": MOBILE_COMPANION.status_payload(),
+            "dashboard": _mobile_dashboard_payload(device),
+        }
+    )
+
+    try:
+        while True:
+            try:
+                incoming = await asyncio.wait_for(websocket.receive_json(), timeout=0.8)
+            except asyncio.TimeoutError:
+                incoming = None
+
+            if incoming:
+                message_type = _compact_text(incoming.get("type")).lower()
+                if message_type == "ping":
+                    await websocket.send_json({"type": "pong", "timestamp": _utc_now()})
+                elif message_type == "status":
+                    await websocket.send_json({"type": "status", "dashboard": _mobile_dashboard_payload(device)})
+                elif message_type == "chat":
+                    payload = MobileChatRequest(
+                        message=_compact_text(incoming.get("message")),
+                        session_id=_compact_text(incoming.get("session_id")) or None,
+                        include_audio=bool(incoming.get("include_audio", False)),
+                    )
+                    result = chat_reply(ChatRequest(message=payload.message, session_id=payload.session_id))
+                    if payload.include_audio:
+                        result = {**result, **_mobile_audio_reply(result.get("reply", ""), True)}
+                    await websocket.send_json({"type": "chat.result", "result": result})
+                elif message_type == "command":
+                    payload = MobileCommandRequest(
+                        command=_compact_text(incoming.get("command")),
+                        confirmation_id=_compact_text(incoming.get("confirmation_id")) or None,
+                        include_state=bool(incoming.get("include_state", True)),
+                    )
+                    MOBILE_COMPANION.note_command(device_id, payload.command)
+                    result = api_command(CommandRequest(command=payload.command, confirmation_id=payload.confirmation_id))
+                    if result.get("messages"):
+                        MOBILE_COMPANION.record_command_result(
+                            payload.command,
+                            result.get("messages") or [],
+                            source=device.get("name", "mobile"),
+                            target_device_ids=[device_id],
+                        )
+                    if not payload.include_state:
+                        result = {key: value for key, value in result.items() if key != "state"}
+                    await websocket.send_json({"type": "command.result", "result": result})
+
+            for event in MOBILE_COMPANION.events_since(last_seq, device_id=device_id):
+                await websocket.send_json({"type": "event", "event": event})
+                last_seq = max(last_seq, int(event.get("seq", 0) or 0))
+    except WebSocketDisconnect:
+        pass
+    finally:
+        MOBILE_COMPANION.note_connection(device_id, False)
+
+
 @app.get("/chat/settings")
-def get_chat_settings():
-    return {"ok": True, "settings": {**_chat_settings, "llm_status": get_llm_status()}}
+def get_chat_settings(request: Request):
+    _enforce_app_auth(request)
+    return {"ok": True, "settings": {**_chat_settings, "active_model": _active_chat_model(), "llm_status": get_llm_status()}}
 
 
 @app.post("/chat/settings")
-def update_chat_settings(request: ChatSettingsRequest):
+def update_chat_settings(request: ChatSettingsRequest, http_request: Request):
+    _enforce_app_auth(http_request)
     if request.llm_provider is not None:
         provider = _compact_text(request.llm_provider).lower()
         _chat_settings["llm_provider"] = provider if provider in {"auto", "openai", "ollama"} else DEFAULT_LLM_PROVIDER
@@ -1896,23 +2727,26 @@ def update_chat_settings(request: ChatSettingsRequest):
         _chat_settings["tool_mode"] = bool(request.tool_mode)
     _apply_runtime_chat_settings()
     _save_chat_state()
-    return {"ok": True, "settings": {**_chat_settings, "llm_status": get_llm_status()}}
+    return {"ok": True, "settings": {**_chat_settings, "active_model": _active_chat_model(), "llm_status": get_llm_status()}}
 
 
 @app.get("/chat/sessions")
-def get_sessions():
+def get_sessions(request: Request):
+    _enforce_app_auth(request)
     return {"ok": True, "sessions": _ordered_sessions()}
 
 
 @app.post("/chat/sessions")
-def create_session(request: SessionRequest):
+def create_session(request: SessionRequest, http_request: Request):
+    _enforce_app_auth(http_request)
     session = _ensure_session(title=_compact_text(request.title) or "New chat", create_new=True)
     _save_chat_state()
     return {"ok": True, "session": session, "sessions": _ordered_sessions()}
 
 
 @app.post("/chat/sessions/rename")
-def rename_session(request: SessionUpdateRequest):
+def rename_session(request: SessionUpdateRequest, http_request: Request):
+    _enforce_app_auth(http_request)
     session = _chat_sessions.get(request.session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found.")
@@ -1923,7 +2757,8 @@ def rename_session(request: SessionUpdateRequest):
 
 
 @app.post("/chat/sessions/delete")
-def delete_session(request: RegenerateRequest):
+def delete_session(request: RegenerateRequest, http_request: Request):
+    _enforce_app_auth(http_request)
     deleted = _delete_session(request.session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Session not found.")
@@ -1932,16 +2767,19 @@ def delete_session(request: RegenerateRequest):
 
 
 @app.get("/chat/history")
-def chat_history(session_id: str | None = None):
+def chat_history(request: Request, session_id: str | None = None):
+    _enforce_app_auth(request)
     session = _resolve_session(session_id=session_id)
     return {"ok": True, "session": session, "messages": session["messages"], "sessions": _ordered_sessions()}
 
 
 @app.post("/chat/upload")
 async def chat_upload(
+    request: Request,
     file: UploadFile = File(...),
     session_id: str | None = Form(default=None),
 ):
+    _enforce_app_auth(request)
     session = _resolve_session(session_id=session_id)
     filename = _compact_text(file.filename) or "document"
     try:
@@ -1968,9 +2806,10 @@ async def chat_upload(
 
 
 @app.post("/chat/upload/remove")
-def chat_remove_upload(request: RemoveDocumentRequest):
-    session = _resolve_session(session_id=request.session_id)
-    filename = _compact_text(request.filename)
+def chat_remove_upload(payload: RemoveDocumentRequest, request: Request):
+    _enforce_app_auth(request)
+    session = _resolve_session(session_id=payload.session_id)
+    filename = _compact_text(payload.filename)
     if not filename:
         raise HTTPException(status_code=400, detail="Filename is required.")
         
@@ -1992,7 +2831,8 @@ def chat_remove_upload(request: RemoveDocumentRequest):
 
 
 @app.get("/chat/export")
-def export_chat(session_id: str):
+def export_chat(request: Request, session_id: str):
+    _enforce_app_auth(request)
     session = _chat_sessions.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found.")
@@ -2014,7 +2854,8 @@ def export_chat(session_id: str):
 
 
 @app.post("/chat/reset")
-def chat_reset(session_id: str | None = None):
+def chat_reset(request: Request, session_id: str | None = None):
+    _enforce_app_auth(request)
     session = _resolve_session(session_id=session_id)
     session["messages"] = []
     session["updated_at"] = _utc_now()
@@ -2023,25 +2864,69 @@ def chat_reset(session_id: str | None = None):
 
 
 @app.post("/chat/cancel")
-def chat_cancel(request: CancelRequest):
-    _cancelled_streams.add(request.session_id)
+def chat_cancel(payload: CancelRequest, request: Request):
+    _enforce_app_auth(request)
+    _cancelled_streams.add(payload.session_id)
     return {"ok": True}
 
 
 @app.post("/chat")
-def chat_reply(request: ChatRequest):
+def chat_reply(request: ChatRequest, http_request: Request = None):
     message = _compact_text(request.message)
     if not message:
         raise HTTPException(status_code=400, detail="Message is required.")
+    _enforce_app_auth(http_request)
+    auth_context = _authenticated_app_context(http_request, required=False)
+    user_id = _authenticated_user_id(http_request)
+    prompt_guard = validate_prompt_text(message, source="web-api-chat")
+    if not prompt_guard.get("allowed", True):
+        log_audit_event(
+            "chat",
+            "blocked_prompt",
+            user_id=user_id,
+            payload={"message": message[:280]},
+        )
+        return {
+            "ok": False,
+            "reply": prompt_guard.get("message", "Unsafe prompt blocked."),
+            "interaction_id": None,
+            "mood": mood_status_payload(),
+            "message": _history_item("assistant", prompt_guard.get("message", "Unsafe prompt blocked.")),
+        }
 
     session = _resolve_session(session_id=request.session_id)
+    mood_snapshot = record_mood_from_analysis(message, analyze_emotion(message), source="web-api-chat")
+    runtime_observation = ASSISTANT_RUNTIME.observe_user_message(
+        message,
+        source="web-api-chat",
+        emotion={"emotion": mood_snapshot.get("last_mood", "neutral")},
+        mood=mood_snapshot,
+    )
+    context = runtime_observation.get("context", "casual")
+    observe_user_turn(
+        message,
+        context=context,
+        emotion=mood_snapshot.get("last_mood", "neutral"),
+        mood=mood_snapshot.get("last_mood", "neutral"),
+        source="web-api-chat",
+    )
     _update_session_title(session, message)
     user_item = _history_item("user", message)
     session["messages"].append(user_item)
     session["messages"] = _trim_messages(session["messages"])
     session["updated_at"] = _utc_now()
     _save_chat_state()
-    prompt_message = _build_chat_input(session, message)
+    append_chat_message(
+        session["id"],
+        "user",
+        message,
+        user_id=user_id,
+        source="web-chat",
+        emotion=mood_snapshot.get("last_mood", "neutral"),
+        metadata={"context": context},
+    )
+    MOBILE_COMPANION.record_chat_message("user", message, session_id=session["id"], source="desktop-chat")
+    prompt_message = _build_chat_input(session, message, mood_snapshot=mood_snapshot, context=context)
 
     try:
         if _looks_like_direct_action_input(message):
@@ -2061,15 +2946,55 @@ def chat_reply(request: ChatRequest):
             session["messages"] = _trim_messages(session["messages"])
             session["updated_at"] = _utc_now()
             _save_chat_state()
+            append_chat_message(
+                session["id"],
+                "assistant",
+                assistant_item["content"],
+                user_id=user_id,
+                source="web-chat",
+                emotion=mood_snapshot.get("last_mood", "neutral"),
+                metadata={"route": "tool-direct"},
+            )
+            MOBILE_COMPANION.record_chat_message(
+                "assistant",
+                assistant_item["content"],
+                session_id=session["id"],
+                source="desktop-chat",
+            )
+            ASSISTANT_RUNTIME.observe_assistant_reply(assistant_item["content"], source="web-api-chat")
+            interaction = record_assistant_turn(
+                message,
+                assistant_item["content"],
+                context=context,
+                emotion=mood_snapshot.get("last_mood", "neutral"),
+                mood=mood_snapshot.get("last_mood", "neutral"),
+                source="web-api-chat",
+                route="tool-direct",
+                model="command-router",
+            )
+            log_audit_event(
+                "chat",
+                "assistant_reply",
+                user_id=user_id,
+                payload={"session_id": session["id"], "route": "tool-direct", "interaction_id": interaction.get("id")},
+            )
             return {
                 "ok": True,
                 "reply": assistant_item["content"],
+                "interaction_id": interaction.get("id"),
+                "mood": mood_snapshot,
                 "message": assistant_item,
                 "messages": session["messages"],
                 "session": session,
             }
 
-        reply, tool_command, tool_messages, confirmation_id = _run_tool_aware_reply(session["messages"][:-1], prompt_message)
+        reply, tool_command, tool_messages, confirmation_id = _run_tool_aware_reply(
+            session["messages"][:-1],
+            prompt_message,
+            raw_user_message=message,
+            mood_snapshot=mood_snapshot,
+            context=context,
+        )
         assistant_item = _history_item("assistant", reply)
         if tool_command:
             assistant_item["tool"] = {"command": tool_command, "messages": tool_messages}
@@ -2079,13 +3004,42 @@ def chat_reply(request: ChatRequest):
         session["messages"] = _trim_messages(session["messages"])
         session["updated_at"] = _utc_now()
         _save_chat_state()
-        return {"ok": True, "reply": reply, "message": assistant_item, "messages": session["messages"], "session": session}
+        append_chat_message(
+            session["id"],
+            "assistant",
+            reply,
+            user_id=user_id,
+            source="web-chat",
+            emotion=mood_snapshot.get("last_mood", "neutral"),
+            metadata={"route": "chat", "model": _active_chat_model()},
+        )
+        MOBILE_COMPANION.record_chat_message("assistant", reply, session_id=session["id"], source="desktop-chat")
+        ASSISTANT_RUNTIME.observe_assistant_reply(reply, source="web-api-chat")
+        interaction = record_assistant_turn(
+            message,
+            reply,
+            context=context,
+            emotion=mood_snapshot.get("last_mood", "neutral"),
+            mood=mood_snapshot.get("last_mood", "neutral"),
+            source="web-api-chat",
+            route="chat",
+            model=_active_chat_model(),
+        )
+        log_audit_event(
+            "chat",
+            "assistant_reply",
+            user_id=user_id,
+            payload={"session_id": session["id"], "route": "chat", "interaction_id": interaction.get("id")},
+        )
+        return {"ok": True, "reply": reply, "interaction_id": interaction.get("id"), "mood": mood_snapshot, "message": assistant_item, "messages": session["messages"], "session": session}
     except Exception as error:
+        record_system_error("web-api-chat", str(error), metadata={"context": context})
         raise HTTPException(status_code=500, detail=_friendly_ai_error(error)) from error
 
 
 @app.post("/chat/regenerate")
-def regenerate_reply(request: RegenerateRequest):
+def regenerate_reply(request: RegenerateRequest, http_request: Request):
+    _enforce_app_auth(http_request)
     session = _chat_sessions.get(request.session_id)
     if not session or not session["messages"]:
         raise HTTPException(status_code=404, detail="Session not found.")
@@ -2097,7 +3051,8 @@ def regenerate_reply(request: RegenerateRequest):
         raise HTTPException(status_code=400, detail="No user message available to regenerate.")
 
     last_user_message = messages[-1]["content"]
-    prompt_message = _build_chat_input(session, last_user_message)
+    current_mood_snapshot = mood_status_payload()
+    prompt_message = _build_chat_input(session, last_user_message, mood_snapshot=current_mood_snapshot)
     try:
         if _looks_like_direct_action_input(last_user_message):
             direct_reply, tool_command, tool_messages, confirmation_id = _execute_tool_command_for_chat(
@@ -2118,7 +3073,12 @@ def regenerate_reply(request: RegenerateRequest):
             _save_chat_state()
             return {"ok": True, "message": assistant_item, "session": session}
 
-        reply, tool_command, tool_messages, confirmation_id = _run_tool_aware_reply(messages[:-1], prompt_message)
+        reply, tool_command, tool_messages, confirmation_id = _run_tool_aware_reply(
+            messages[:-1],
+            prompt_message,
+            raw_user_message=last_user_message,
+            mood_snapshot=current_mood_snapshot,
+        )
         assistant_item = _history_item("assistant", reply)
         if tool_command:
             assistant_item["tool"] = {"command": tool_command, "messages": tool_messages}
@@ -2128,18 +3088,42 @@ def regenerate_reply(request: RegenerateRequest):
         session["messages"] = _trim_messages(messages)
         session["updated_at"] = _utc_now()
         _save_chat_state()
-        return {"ok": True, "message": assistant_item, "session": session}
+        return {"ok": True, "mood": current_mood_snapshot, "message": assistant_item, "session": session}
     except Exception as error:
         raise HTTPException(status_code=500, detail=_friendly_ai_error(error)) from error
 
 
 @app.post("/chat/stream")
-async def chat_stream(request: ChatRequest):
+async def chat_stream(request: ChatRequest, http_request: Request = None):
     message = _compact_text(request.message)
     if not message:
         raise HTTPException(status_code=400, detail="Message is required.")
+    _enforce_app_auth(http_request)
+    user_id = _authenticated_user_id(http_request)
+    prompt_guard = validate_prompt_text(message, source="web-api-stream")
+    if not prompt_guard.get("allowed", True):
+        async def blocked_stream():
+            yield f"data: {json.dumps({'type': 'delta', 'content': prompt_guard.get('message', 'Unsafe prompt blocked.')})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'content': prompt_guard.get('message', 'Unsafe prompt blocked.'), 'interaction_id': None})}\n\n"
+
+        return StreamingResponse(blocked_stream(), media_type="text/event-stream")
 
     session = _resolve_session(session_id=request.session_id)
+    mood_snapshot = record_mood_from_analysis(message, analyze_emotion(message), source="web-api-stream")
+    runtime_observation = ASSISTANT_RUNTIME.observe_user_message(
+        message,
+        source="web-api-stream",
+        emotion={"emotion": mood_snapshot.get("last_mood", "neutral")},
+        mood=mood_snapshot,
+    )
+    context = runtime_observation.get("context", "casual")
+    observe_user_turn(
+        message,
+        context=context,
+        emotion=mood_snapshot.get("last_mood", "neutral"),
+        mood=mood_snapshot.get("last_mood", "neutral"),
+        source="web-api-stream",
+    )
     _update_session_title(session, message)
     session_id = session["id"]
     if session_id in _cancelled_streams:
@@ -2150,13 +3134,34 @@ async def chat_stream(request: ChatRequest):
     session["messages"] = _trim_messages(session["messages"])
     session["updated_at"] = _utc_now()
     _save_chat_state()
+    append_chat_message(
+        session_id,
+        "user",
+        message,
+        user_id=user_id,
+        source="web-stream",
+        emotion=mood_snapshot.get("last_mood", "neutral"),
+        metadata={"context": context},
+    )
+    MOBILE_COMPANION.record_chat_message("user", message, session_id=session_id, source="desktop-stream")
     history_snapshot = list(session["messages"][:-1])
-    prompt_message = _build_chat_input(session, message)
+    prompt_message = _build_chat_input(session, message, mood_snapshot=mood_snapshot, context=context)
 
     async def event_stream():
         full_reply = ""
         confirmation_id = None
         try:
+            yield (
+                "data: "
+                + json.dumps(
+                    {
+                        "type": "mood",
+                        "mood": mood_snapshot,
+                        "session": {"id": session["id"], "title": session["title"]},
+                    }
+                )
+                + "\n\n"
+            )
             if _looks_like_direct_action_input(message):
                 direct_reply, tool_command, tool_messages, confirmation_id = _execute_tool_command_for_chat(
                     _compact_text(message),
@@ -2174,12 +3179,45 @@ async def chat_stream(request: ChatRequest):
                 session["messages"] = _trim_messages(session["messages"])
                 session["updated_at"] = _utc_now()
                 _save_chat_state()
+                append_chat_message(
+                    session["id"],
+                    "assistant",
+                    assistant_item["content"],
+                    user_id=user_id,
+                    source="web-stream",
+                    emotion=mood_snapshot.get("last_mood", "neutral"),
+                    metadata={"route": "tool-direct"},
+                )
+                MOBILE_COMPANION.record_chat_message(
+                    "assistant",
+                    assistant_item["content"],
+                    session_id=session["id"],
+                    source="desktop-stream",
+                )
+                ASSISTANT_RUNTIME.observe_assistant_reply(assistant_item["content"], source="web-api-stream")
+                interaction = record_assistant_turn(
+                    message,
+                    assistant_item["content"],
+                    context=context,
+                    emotion=mood_snapshot.get("last_mood", "neutral"),
+                    mood=mood_snapshot.get("last_mood", "neutral"),
+                    source="web-api-stream",
+                    route="tool-direct",
+                    model="command-router",
+                )
+                log_audit_event(
+                    "chat",
+                    "assistant_stream_reply",
+                    user_id=user_id,
+                    payload={"session_id": session["id"], "route": "tool-direct", "interaction_id": interaction.get("id")},
+                )
                 yield (
                     "data: "
                     + json.dumps(
                         {
                             "type": "done",
                             "message": assistant_item,
+                            "interaction_id": interaction.get("id"),
                             "session": {"id": session["id"], "title": session["title"]},
                         }
                     )
@@ -2190,8 +3228,8 @@ async def chat_stream(request: ChatRequest):
             for chunk in stream_chat_reply(
                 history_snapshot,
                 prompt_message,
-                model=_chat_settings["model"],
-                system_prompt=_effective_system_prompt(),
+                model=_active_chat_model(),
+                system_prompt=_effective_system_prompt(message, mood_snapshot=mood_snapshot, context=context),
             ):
                 if session_id in _cancelled_streams:
                     _cancelled_streams.discard(session_id)
@@ -2217,8 +3255,8 @@ async def chat_stream(request: ChatRequest):
                     full_reply = generate_chat_reply(
                         history_snapshot,
                         bridge_message,
-                        model=_chat_settings["model"],
-                        system_prompt=_chat_settings["system_prompt"],
+                        model=_active_chat_model(),
+                        system_prompt=_effective_system_prompt(message, mood_snapshot=mood_snapshot, context=context),
                     )
 
             assistant_item = _history_item("assistant", full_reply.strip() or "I could not generate a reply right now.")
@@ -2230,18 +3268,71 @@ async def chat_stream(request: ChatRequest):
             session["messages"] = _trim_messages(session["messages"])
             session["updated_at"] = _utc_now()
             _save_chat_state()
-            yield f"data: {json.dumps({'type': 'done', 'message': assistant_item, 'session': {'id': session['id'], 'title': session['title']}})}\n\n"
+            append_chat_message(
+                session["id"],
+                "assistant",
+                assistant_item["content"],
+                user_id=user_id,
+                source="web-stream",
+                emotion=mood_snapshot.get("last_mood", "neutral"),
+                metadata={"route": "chat-stream", "model": _active_chat_model()},
+            )
+            MOBILE_COMPANION.record_chat_message(
+                "assistant",
+                assistant_item["content"],
+                session_id=session["id"],
+                source="desktop-stream",
+            )
+            ASSISTANT_RUNTIME.observe_assistant_reply(assistant_item["content"], source="web-api-stream")
+            interaction = record_assistant_turn(
+                message,
+                assistant_item["content"],
+                context=context,
+                emotion=mood_snapshot.get("last_mood", "neutral"),
+                mood=mood_snapshot.get("last_mood", "neutral"),
+                source="web-api-stream",
+                route="chat-stream",
+                model=_active_chat_model(),
+            )
+            log_audit_event(
+                "chat",
+                "assistant_stream_reply",
+                user_id=user_id,
+                payload={"session_id": session["id"], "route": "chat-stream", "interaction_id": interaction.get("id")},
+            )
+            yield f"data: {json.dumps({'type': 'done', 'message': assistant_item, 'interaction_id': interaction.get('id'), 'session': {'id': session['id'], 'title': session['title']}})}\n\n"
         except Exception as error:
+            record_system_error("web-api-stream", str(error), metadata={"context": context})
             yield f"data: {json.dumps({'type': 'error', 'error': _friendly_ai_error(error)})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+def _initialize_web_runtime() -> None:
+    _load_chat_state()
+    _ensure_session()
+    ASSISTANT_RUNTIME.start()
+    DEVICE_MANAGER.start()
+
+
+def _shutdown_web_runtime() -> None:
+    DEVICE_MANAGER.stop()
+
+
+@app.on_event("startup")
+def _on_web_api_startup() -> None:
+    _initialize_web_runtime()
+
+
+@app.on_event("shutdown")
+def _on_web_api_shutdown() -> None:
+    _shutdown_web_runtime()
+
+
 def start_web_api(installed_apps, host="127.0.0.1", port=8765):
     global _server, _server_thread, _installed_apps
     _installed_apps = installed_apps or {}
-    _load_chat_state()
-    _ensure_session()
+    _initialize_web_runtime()
     if _server_thread and _server_thread.is_alive():
         return
 

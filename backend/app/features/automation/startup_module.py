@@ -16,6 +16,13 @@ STARTUP_DIR = os.path.join(
 STARTUP_SCRIPT_PATH = os.path.join(STARTUP_DIR, "GrandpaAssistantStartup.cmd")
 
 
+def _desktop_executable():
+    candidate = os.path.abspath(str(os.environ.get("GRANDPA_DESKTOP_EXE", "")).strip())
+    if candidate and os.path.exists(candidate):
+        return candidate
+    return ""
+
+
 def _launcher_executable():
     pythonw_path = os.path.join(PROJECT_ROOT, ".venv", "Scripts", "pythonw.exe")
     python_path = os.path.join(PROJECT_ROOT, ".venv", "Scripts", "python.exe")
@@ -33,9 +40,17 @@ def _startup_args():
 
 
 def _startup_script_contents():
-    launcher = _launcher_executable()
     args = _startup_args()
     args_part = f" {args}" if args else ""
+    desktop_executable = _desktop_executable()
+    if desktop_executable:
+        return (
+            "@echo off\n"
+            f'cd /d "{os.path.dirname(desktop_executable)}"\n'
+            f'start "" "{desktop_executable}"{args_part}\n'
+        )
+
+    launcher = _launcher_executable()
     return (
         "@echo off\n"
         f'cd /d "{PROJECT_ROOT}"\n'

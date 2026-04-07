@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import AuthPanel from "./components/AuthPanel";
 import ChatSurface from "./components/ChatSurface";
 import DashboardSurface from "./components/DashboardSurface";
 import LogoMark from "./components/LogoMark";
@@ -15,6 +16,8 @@ import {
   initialVoiceStatus,
 } from "./constants/appState";
 import { cleanPlannerItem, matchesCommand, normalizeMessageText } from "./utils/text";
+
+const AUTH_TOKEN_KEY = "grandpa_assistant_auth_token";
 
 export default function App() {
   const messagesEndRef = useRef(null);
@@ -69,12 +72,67 @@ export default function App() {
   const [voiceToast, setVoiceToast] = useState(null);
   const [startupState, setStartupState] = useState(initialStartupState);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
+  const [authState, setAuthState] = useState(initialUiState.auth);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [authReady, setAuthReady] = useState(false);
+  const [authForm, setAuthForm] = useState({
+    mode: "login",
+    username: "",
+    displayName: "",
+    password: "",
+  });
+  const [authToken, setAuthToken] = useState(() => {
+    try {
+      return window.localStorage.getItem(AUTH_TOKEN_KEY) || "";
+    } catch (_error) {
+      return "";
+    }
+  });
+  const [accountProfile, setAccountProfile] = useState({
+    user: null,
+    preferences: initialUiState.auth.preferences,
+  });
+  const [accountDraft, setAccountDraft] = useState({
+    displayName: "",
+    preferredLanguage: "en-US",
+    responseStyle: "balanced",
+    tone: "friendly",
+    theme: "system",
+    shortAnswers: false,
+  });
+  const [accountBusy, setAccountBusy] = useState(false);
   const [pinnedCommands, setPinnedCommands] = useState([
     "plan my day",
     "weather",
     "latest note",
   ]);
   const previousVoiceStateRef = useRef(initialVoiceStatus.state_label);
+
+  const fetch = async (url, options = {}) => {
+    const headers = new Headers(options.headers || {});
+    if (authToken) {
+      headers.set("Authorization", `Bearer ${authToken}`);
+    }
+    const response = await window.fetch(url, {
+      ...options,
+      headers,
+    });
+    if (response.status === 401 && authToken) {
+      try {
+        window.localStorage.removeItem(AUTH_TOKEN_KEY);
+      } catch (_error) {
+        // Ignore local storage cleanup failures.
+      }
+      setAuthToken("");
+      setAuthState((current) => ({
+        ...current,
+        authenticated: false,
+        user: null,
+      }));
+    }
+    return response;
+  };
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
@@ -238,9 +296,229 @@ export default function App() {
       preview: item.preview || "",
     }));
 
-  useEffect(() => {
-    if (mode !== "voice") {
+  const applyAccountProfilePayload = (payload = {}) => {
+    const user = payload.user || null;
+    const preferences = {
+      ...initialUiState.auth.preferences,
+      ...(payload.preferences || {}),
+    };
+    setAccountProfile({ user, preferences });
+    setAccountDraft({
+      displayName: user?.display_name || user?.username || "",
+      preferredLanguage: preferences.preferred_language || "en-US",
+      responseStyle: preferences.response_style || "balanced",
+      tone: preferences.tone || "friendly",
+      theme: preferences.theme || "system",
+      shortAnswers: Boolean(preferences.short_answers),
+    });
+  };
+
+  const applyUiState = (state) => {
+    if (!state) return;
+    setUiState(state);
+    if (state.auth) {
+      setAuthState(state.auth);
+      applyAccountProfilePayload({
+        user: state.auth.user,
+        preferences: state.auth.preferences,
+      });
+      if (!state.auth.authenticated) {
+        setAuthForm((current) => ({
+          ...current,
+          mode: state.auth.bootstrap?.has_users ? "login" : "register",
+        }));
+      }
+    }
+    if (state.voice) {
+      setVoiceStatus(state.voice);
+    }
+    if (state.startup) {
+      setStartupState(state.startup);
+    }
+  };
+
+  const refreshAssistantUiState = async () => {
+    const response = await fetch(`${API_BASE}/api/ui-state`);
+    const payload = await response.json();
+    if (!payload?.ok || !payload.state) {
+      throw new Error(payload?.detail || payload?.error || "Could not load assistant state.");
+    }
+    applyUiState(payload.state);
+    return payload.state;
+  };
+
+  const refreshAuthState = async () => {
+    const response = await fetch(`${API_BASE}/api/auth/status`);
+    const payload = await response.json();
+    if (!payload?.ok) {
+      throw new Error(payload?.detail || payload?.error || "Could not load auth state.");
+    }
+    const currentUser = payload.current?.user || null;
+    const nextAuth = {
+      authenticated: Boolean(currentUser),
+      user: currentUser,
+      bootstrap: payload.auth || authState.bootstrap,
+    };
+    setAuthState(nextAuth);
+    setAuthForm((current) => ({
+      ...current,
+      mode: nextAuth.bootstrap?.has_users ? "login" : "register",
+    }));
+    return nextAuth;
+  };
+
+  const refreshAccountProfile = async () => {
+    const response = await fetch(`${API_BASE}/api/auth/profile`);
+    const payload = await response.json();
+    if (!payload?.ok) {
+      throw new Error(payload?.detail || payload?.error || "Could not load account profile.");
+    }
+    applyAccountProfilePayload(payload);
+    return payload;
+  };
+
+  const saveAccountProfile = async () => {
+    setAccountBusy(true);
+    setApiError("");
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/profile`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          display_name: accountDraft.displayName,
+          preferred_language: accountDraft.preferredLanguage,
+          response_style: accountDraft.responseStyle,
+          tone: accountDraft.tone,
+          theme: accountDraft.theme,
+          short_answers: accountDraft.shortAnswers,
+        }),
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || payload?.error || "Could not save account profile.");
+      }
+      applyAccountProfilePayload(payload);
+      setAuthState((current) => ({
+        ...current,
+        user: payload.user || current.user,
+        preferences: payload.preferences || current.preferences,
+      }));
+    } catch (error) {
+      setApiError(error.message || "Could not save account profile.");
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const submitAuthForm = async (event) => {
+    event.preventDefault();
+    const username = (authForm.username || "").trim();
+    const password = authForm.password || "";
+    const displayName = (authForm.displayName || "").trim();
+    if (!username || !password) {
+      setAuthError("Username and password are required.");
       return;
+    }
+
+    setAuthBusy(true);
+    setAuthError("");
+    try {
+      const endpoint = authForm.mode === "register" ? "/api/auth/register" : "/api/auth/login";
+      const body =
+        authForm.mode === "register"
+          ? { username, password, display_name: displayName || username, device_name: "desktop-ui" }
+          : { username, password, device_name: "desktop-ui" };
+      const response = await fetch(`${API_BASE}${endpoint}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json();
+      if (!payload?.ok || !payload?.token) {
+        throw new Error(payload?.detail || payload?.error || "Authentication failed.");
+      }
+      window.localStorage.setItem(AUTH_TOKEN_KEY, payload.token);
+      setAuthToken(payload.token);
+      setAuthState({
+        authenticated: true,
+        user: payload.user,
+        bootstrap: payload.bootstrap || authState.bootstrap,
+      });
+      setAuthForm({
+        mode: "login",
+        username,
+        displayName: "",
+        password: "",
+      });
+      window.location.reload();
+    } catch (error) {
+      setAuthError(error.message || "Authentication failed.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const logoutAuthSession = async () => {
+    try {
+      if (authToken) {
+        await fetch(`${API_BASE}/api/auth/logout`, { method: "POST" });
+      }
+    } catch (_error) {
+      // Ignore logout transport errors and clear the local session anyway.
+    }
+    window.localStorage.removeItem(AUTH_TOKEN_KEY);
+    setAuthToken("");
+    setAuthState((current) => ({
+      ...current,
+      authenticated: false,
+      user: null,
+    }));
+    window.location.reload();
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAuth = async () => {
+      try {
+        const nextAuth = await refreshAuthState();
+        if (!cancelled && nextAuth?.authenticated) {
+          await refreshAccountProfile();
+        }
+      } catch (_error) {
+        if (!cancelled) {
+          try {
+            window.localStorage.removeItem(AUTH_TOKEN_KEY);
+          } catch (_storageError) {
+            // Ignore local storage failures here.
+          }
+          setAuthToken("");
+          setAuthState((current) => ({
+            ...current,
+            authenticated: false,
+            user: null,
+          }));
+        }
+      } finally {
+        if (!cancelled) {
+          setAuthReady(true);
+        }
+      }
+    };
+
+    loadAuth();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!authReady || !authState?.authenticated || mode !== "voice") {
+      return undefined;
     }
 
     let cancelled = false;
@@ -284,9 +562,22 @@ export default function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [mode]);
+  }, [authReady, authState?.authenticated, mode]);
 
   useEffect(() => {
+    if (!authReady) {
+      return undefined;
+    }
+
+    if (!authState?.authenticated) {
+      setMessages([]);
+      setChatSessions([]);
+      setCurrentSessionId("");
+      setAttachedDocuments([]);
+      applyAccountProfilePayload({ user: null, preferences: initialUiState.auth.preferences });
+      return undefined;
+    }
+
     let cancelled = false;
 
     const loadChatHistory = async () => {
@@ -313,7 +604,7 @@ export default function App() {
           setChatSettings(settingsPayload.settings);
           setChatSettingsDraft(settingsPayload.settings);
           if (!settingsPayload.settings?.llm_status?.ready) {
-            setApiError("OpenAI key not configured. Create a .env file in the project root and set OPENAI_API_KEY.");
+            setApiError("Local AI backend is not ready yet. Start Ollama and confirm the selected model is installed.");
           }
         }
       } catch (_error) {
@@ -325,16 +616,17 @@ export default function App() {
 
     const loadState = async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/ui-state`);
-        const payload = await response.json();
+        const [uiResponse, profileResponse] = await Promise.all([
+          fetch(`${API_BASE}/api/ui-state`),
+          fetch(`${API_BASE}/api/auth/profile`),
+        ]);
+        const payload = await uiResponse.json();
+        const profilePayload = await profileResponse.json();
         if (!cancelled && payload?.ok && payload.state) {
-          setUiState(payload.state);
-          if (payload.state.voice) {
-            setVoiceStatus(payload.state.voice);
-          }
-          if (payload.state.startup) {
-            setStartupState(payload.state.startup);
-          }
+          applyUiState(payload.state);
+        }
+        if (!cancelled && profilePayload?.ok) {
+          applyAccountProfilePayload(profilePayload);
           setApiError("");
         }
       } catch (_error) {
@@ -351,7 +643,7 @@ export default function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [authReady, authState?.authenticated]);
 
   const runCommand = async (rawCommand) => {
     const value = (rawCommand || "").trim();
@@ -390,13 +682,7 @@ export default function App() {
       }));
       setMessages((current) => [...current, ...replies]);
       if (payload.state) {
-        setUiState(payload.state);
-        if (payload.state.voice) {
-          setVoiceStatus(payload.state.voice);
-        }
-        if (payload.state.startup) {
-          setStartupState(payload.state.startup);
-        }
+        applyUiState(payload.state);
       }
       setApiError("");
     } catch (error) {
@@ -519,6 +805,17 @@ export default function App() {
           if (!line) continue;
 
           const payload = JSON.parse(line.slice(6));
+          if (payload.type === "mood") {
+            setUiState((current) => ({
+              ...current,
+              memory: {
+                ...(current.memory || {}),
+                mood: payload.mood || current.memory?.mood || {},
+              },
+            }));
+            continue;
+          }
+
           if (payload.type === "chunk") {
             setMessages((current) =>
               current.map((message) =>
@@ -757,8 +1054,10 @@ export default function App() {
   const memoryItems = [
     `Preferred language: ${uiState.memory.preferred_language}`,
     `Favorite contact: ${uiState.memory.favorite_contact}`,
+    `Mood: ${uiState.memory?.mood?.last_mood || "neutral"}`,
     `Mode: ${mode === "voice" ? "Voice" : "Text"}`,
     `Focus mode: ${uiState.settings.focus_mode ? "On" : "Off"}`,
+    `Context: ${uiState.runtime?.runtime?.current_context || "casual"}`,
   ];
   const workspaceTabs = ["planner", "calendar", "notes", "assistant", "settings"];
   const navItems = [
@@ -960,13 +1259,7 @@ export default function App() {
       const sessionsPayload = await sessionsResponse.json();
       const settingsPayload = await settingsResponse.json();
       if (uiPayload?.ok && uiPayload.state) {
-        setUiState(uiPayload.state);
-        if (uiPayload.state.voice) {
-          setVoiceStatus(uiPayload.state.voice);
-        }
-        if (uiPayload.state.startup) {
-          setStartupState(uiPayload.state.startup);
-        }
+        applyUiState(uiPayload.state);
       }
       if (historyPayload?.ok) {
         setMessages(mapHistoryMessages(historyPayload.messages));
@@ -1089,6 +1382,170 @@ export default function App() {
     await handleSend(lastPrompt);
   };
 
+  const setThinkingMode = async (nextMode) => {
+    try {
+      const response = await fetch(`${CHAT_API_BASE}/runtime/thinking-mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: nextMode }),
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || payload?.error || "Could not update thinking mode.");
+      }
+      await refreshAssistantUiState();
+      setMessages((current) => [
+        ...current,
+        {
+          id: `runtime-mode-${Date.now()}`,
+          side: "assistant",
+          text: `Grandpa : Thinking mode is now ${nextMode}.`,
+          createdAt: Date.now(),
+        },
+      ]);
+      setApiError("");
+    } catch (error) {
+      setApiError(error.message || "Could not update thinking mode.");
+    }
+  };
+
+  const setAutonomousMode = async (enabled) => {
+    try {
+      const response = await fetch(`${CHAT_API_BASE}/runtime/autonomous-mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || payload?.error || "Could not update autonomous mode.");
+      }
+      await refreshAssistantUiState();
+      setMessages((current) => [
+        ...current,
+        {
+          id: `runtime-autonomous-${Date.now()}`,
+          side: "assistant",
+          text: `Grandpa : Autonomous mode ${enabled ? "enabled" : "disabled"}.`,
+          createdAt: Date.now(),
+        },
+      ]);
+      setApiError("");
+    } catch (error) {
+      setApiError(error.message || "Could not update autonomous mode.");
+    }
+  };
+
+  const createRuntimeGoal = async () => {
+    const goal = window.prompt("What goal should I break into steps?");
+    if (!goal || !goal.trim()) return;
+    try {
+      const response = await fetch(`${CHAT_API_BASE}/goals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goal: goal.trim() }),
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || payload?.error || "Could not create goal.");
+      }
+      await refreshAssistantUiState();
+      setMessages((current) => [
+        ...current,
+        {
+          id: `goal-${Date.now()}`,
+          side: "assistant",
+          text: `Grandpa : I added a goal plan for ${payload.goal?.title || goal.trim()}.`,
+          createdAt: Date.now(),
+        },
+      ]);
+      setApiError("");
+    } catch (error) {
+      setApiError(error.message || "Could not create goal.");
+    }
+  };
+
+  const reloadPluginRegistry = async () => {
+    try {
+      const response = await fetch(`${CHAT_API_BASE}/plugins/reload`, { method: "POST" });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || payload?.error || "Could not reload plugins.");
+      }
+      await refreshAssistantUiState();
+      setMessages((current) => [
+        ...current,
+        {
+          id: `plugins-${Date.now()}`,
+          side: "assistant",
+          text: "Grandpa : Plugin registry refreshed.",
+          createdAt: Date.now(),
+        },
+      ]);
+      setApiError("");
+    } catch (error) {
+      setApiError(error.message || "Could not reload plugins.");
+    }
+  };
+
+  const togglePluginEnabled = async (pluginName, enabled) => {
+    if (!pluginName) return;
+    try {
+      const response = await fetch(`${CHAT_API_BASE}/plugins/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: pluginName, enabled }),
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || payload?.error || "Could not update plugin.");
+      }
+      await refreshAssistantUiState();
+      setMessages((current) => [
+        ...current,
+        {
+          id: `plugin-toggle-${Date.now()}`,
+          side: "assistant",
+          text: `Grandpa : ${payload.message || `Plugin ${pluginName} updated.`}`,
+          createdAt: Date.now(),
+        },
+      ]);
+      setApiError("");
+    } catch (error) {
+      setApiError(error.message || "Could not update plugin.");
+    }
+  };
+
+  const resetMoodMemory = async () => {
+    try {
+      const response = await fetch(`${CHAT_API_BASE}/mood/reset`, { method: "POST" });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.detail || payload?.error || "Could not reset mood memory.");
+      }
+      setUiState((current) => ({
+        ...current,
+        memory: {
+          ...(current.memory || {}),
+          mood: payload.mood || current.memory?.mood || {},
+        },
+      }));
+      await refreshAssistantUiState();
+      setMessages((current) => [
+        ...current,
+        {
+          id: `mood-reset-${Date.now()}`,
+          side: "assistant",
+          text: "Grandpa : Mood memory reset.",
+          createdAt: Date.now(),
+        },
+      ]);
+      setApiError("");
+    } catch (error) {
+      setApiError(error.message || "Could not reset mood memory.");
+    }
+  };
+
   const confirmPendingAction = async () => {
     if (!pendingConfirmation?.confirmationId) return;
     const confirmation = pendingConfirmation;
@@ -1114,7 +1571,7 @@ export default function App() {
       }));
       setMessages((current) => [...current, ...replies]);
       if (payload.state) {
-        setUiState(payload.state);
+        applyUiState(payload.state);
       }
       setApiError("");
     } catch (error) {
@@ -1189,6 +1646,33 @@ export default function App() {
     }
   };
 
+  if (!authReady) {
+    return (
+      <div className="auth-shell">
+        <div className="auth-panel compact">
+          <div className="auth-hero">
+            <span className="auth-kicker">Grandpa Assistant</span>
+            <h1>Loading your workspace</h1>
+            <p>Checking local auth and assistant status.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (authState?.bootstrap?.enabled && !authState?.authenticated) {
+    return (
+      <AuthPanel
+        authState={authState}
+        authForm={authForm}
+        setAuthForm={setAuthForm}
+        authBusy={authBusy}
+        authError={authError || apiError}
+        onSubmit={submitAuthForm}
+      />
+    );
+  }
+
   return (
     <div className="app-shell">
       {voiceToast ? (
@@ -1228,6 +1712,12 @@ export default function App() {
           </div>
         </div>
         <div className="clock-wrap">
+          {authState?.user ? (
+            <div className="auth-user-chip">
+              <span>{authState.user.display_name || authState.user.username}</span>
+              <button type="button" className="mini-ghost" onClick={logoutAuthSession}>Logout</button>
+            </div>
+          ) : null}
           <strong>{formatTime}</strong>
           <span>{formatDate}</span>
         </div>
@@ -1257,6 +1747,12 @@ export default function App() {
           setContactAliasTarget={setContactAliasTarget}
           startupState={startupState}
           updateStartupSettings={updateStartupSettings}
+          authState={authState}
+          accountProfile={accountProfile}
+          accountDraft={accountDraft}
+          setAccountDraft={setAccountDraft}
+          saveAccountProfile={saveAccountProfile}
+          accountBusy={accountBusy}
         />
 {/*
           <SectionCard title="Workspace">
@@ -1596,6 +2092,13 @@ export default function App() {
               voiceStatus={voiceStatus}
               activity={activity}
               handleModeChange={handleModeChange}
+              setThinkingMode={setThinkingMode}
+              setAutonomousMode={setAutonomousMode}
+              createRuntimeGoal={createRuntimeGoal}
+              reloadPluginRegistry={reloadPluginRegistry}
+              togglePluginEnabled={togglePluginEnabled}
+              resetMoodMemory={resetMoodMemory}
+              reloadWorkspace={reloadWorkspace}
             />
           ) : (
             <>

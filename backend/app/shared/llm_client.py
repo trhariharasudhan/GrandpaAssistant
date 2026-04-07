@@ -30,8 +30,13 @@ DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 RETRYABLE_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
 SYSTEM_PROMPT = (
-    "You are Grandpa Assistant, a warm, practical AI desktop assistant. "
-    "Give clear, concise, helpful replies. Prefer direct answers and useful next steps."
+    "You are Grandpa Assistant. Talk like a smart, friendly real person, not a robotic assistant. "
+    "Keep normal conversation short, natural, and easygoing, usually 1 or 2 sentences unless the user asks for more. "
+    "Use natural everyday English like hey, yeah, okay, or got it when it fits. "
+    "Avoid bullet points, overly structured formatting, pet names, and long explanations in casual chat. "
+    "Match the user's mood: casual when casual, empathetic when sad, and slightly professional when serious. "
+    "If the prompt includes a detected user emotion, follow that emotional guidance closely. "
+    "The user may write in Tanglish or mixed Tamil-English, but you must always reply only in natural English unless the user explicitly asks for translation."
 )
 
 
@@ -389,13 +394,13 @@ def _generate_ollama_reply(history: list[dict], user_message: str, model: str | 
 def generate_chat_reply(history: list[dict], user_message: str, model: str | None = None, system_prompt: str | None = None) -> str:
     provider = _resolved_provider()
     if provider == "ollama":
-        return _generate_ollama_reply(history, user_message, model=None, system_prompt=system_prompt)
+        return _generate_ollama_reply(history, user_message, model=model, system_prompt=system_prompt)
 
     try:
         return _generate_openai_reply(history, user_message, model=model, system_prompt=system_prompt)
     except Exception as openai_error:
         try:
-            return _generate_ollama_reply(history, user_message, model=None, system_prompt=system_prompt)
+            return _generate_ollama_reply(history, user_message, model=model, system_prompt=system_prompt)
         except Exception:
             raise openai_error
 
@@ -489,7 +494,7 @@ def stream_chat_reply(
 ) -> Generator[str, None, None]:
     provider = _resolved_provider()
     if provider == "ollama":
-        yield from _stream_ollama_reply(history, user_message, model=None, system_prompt=system_prompt)
+        yield from _stream_ollama_reply(history, user_message, model=model, system_prompt=system_prompt)
         return
 
     try:
@@ -502,6 +507,6 @@ def stream_chat_reply(
         if yielded_content:
             raise openai_error
         try:
-            yield from _stream_ollama_reply(history, user_message, model=None, system_prompt=system_prompt)
+            yield from _stream_ollama_reply(history, user_message, model=model, system_prompt=system_prompt)
         except Exception:
             raise openai_error
