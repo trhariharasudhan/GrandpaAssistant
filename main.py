@@ -4,13 +4,15 @@ import subprocess
 import sys
 import traceback
 
+from backend.app.shared.utils.paths import logs_path
+
 
 ROOT_DIR = os.path.dirname(__file__)
 BACKEND_MAIN = os.path.join(os.path.dirname(__file__), "backend", "main.py")
 BACKEND_DIR = os.path.dirname(BACKEND_MAIN)
 FASTAPI_BACKEND_DIR = os.path.join(os.path.dirname(__file__), "backend")
-LOG_DIR = os.path.join(FASTAPI_BACKEND_DIR, "logs")
-STARTUP_ERROR_LOG = os.path.join(LOG_DIR, "main_startup_error.log")
+LOG_DIR = logs_path()
+STARTUP_ERROR_LOG = logs_path("main_startup_error.log")
 _APP = None
 
 

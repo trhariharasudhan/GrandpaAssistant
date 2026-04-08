@@ -315,6 +315,7 @@ from voice.speak import (
     tts_backend_status_summary,
     voice_output_status_summary,
 )
+from utils.paths import backend_data_path, backend_path, config_path, docs_path
 
 mouse_stop_event = None
 mouse_stop_requested_by_command = False
@@ -323,11 +324,10 @@ object_detection_stop_requested_by_command = False
 pending_confirmation = None
 last_contact_context = {"name": "", "action": ""}
 security_bypass_context = {"command": "", "expires_at": 0.0}
-BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-IOT_CREDENTIALS_PATH = os.path.join(BACKEND_DIR, "data", "iot_credentials.json")
-IOT_EXAMPLE_PATH = os.path.join(BACKEND_DIR, "data", "iot_credentials.example.json")
-FACE_PROFILE_PATH = os.path.join(BACKEND_DIR, "data", "face_profile.json")
-VOICE_IOT_SETUP_DOC_PATH = os.path.join(os.path.dirname(BACKEND_DIR), "docs", "local-voice-iot-setup.md")
+IOT_CREDENTIALS_PATH = config_path("iot_credentials.json")
+IOT_EXAMPLE_PATH = backend_path("assets", "iot_credentials.example.json")
+FACE_PROFILE_PATH = backend_data_path("face_profile.json")
+VOICE_IOT_SETUP_DOC_PATH = docs_path("local-voice-iot-setup.md")
 
 
 def _current_location_text():
@@ -671,7 +671,7 @@ def _smart_home_status_summary():
     creds = _load_local_json(IOT_CREDENTIALS_PATH)
     if not creds:
         return (
-            "Smart Home is not configured yet. Add backend data iot_credentials.json "
+            f"Smart Home is not configured yet. Add {IOT_CREDENTIALS_PATH} "
             "with your webhook commands to enable device control."
         )
 
@@ -698,7 +698,7 @@ def _smart_home_status_summary():
 
 def _smart_home_setup_summary():
     return (
-        f"Smart Home setup help: copy {IOT_EXAMPLE_PATH} to backend data iot_credentials json, "
+        f"Smart Home setup help: copy {IOT_EXAMPLE_PATH} to {IOT_CREDENTIALS_PATH}, "
         "replace the placeholder values with your local webhook, Home Assistant, or MQTT settings, "
         "then set enabled to true. "
         f"Full setup notes are in {VOICE_IOT_SETUP_DOC_PATH}."

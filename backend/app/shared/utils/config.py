@@ -2,12 +2,21 @@ import copy
 import json
 import os
 
+from utils.paths import config_path, data_path, models_path, project_path
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-SETTINGS_PATH = os.path.join(DATA_DIR, "settings.json")
+CONFIG_DIR = config_path()
+SETTINGS_PATH = config_path("settings.json")
+_LEGACY_RUNTIME_PATH_PREFIXES = (
+    (project_path("backend", "data", "piper"), models_path("piper")),
+    (project_path("runtime", "data", "piper"), models_path("piper")),
+    (project_path("backend", "data", "voices"), models_path("voices")),
+    (project_path("runtime", "data", "voices"), models_path("voices")),
+    (project_path("backend", "data", "voice_profiles"), data_path("voice_profiles")),
+    (project_path("runtime", "data", "voice_profiles"), data_path("voice_profiles")),
+)
 
 DEFAULT_SETTINGS = {
+    "AI_MODE": "auto",
     "wake_word": "hey grandpa",
     "initial_timeout": 15,
     "active_timeout": 60,
@@ -284,9 +293,44 @@ def _merge_dicts(base, override):
 
 
 def _write_settings_file(settings):
-    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(CONFIG_DIR, exist_ok=True)
     with open(SETTINGS_PATH, "w", encoding="utf-8") as file:
         json.dump(settings, file, indent=4)
+
+
+def _normalize_runtime_setting_path(value):
+    text = str(value or "").strip()
+    if not text:
+        return text, False
+
+    normalized = os.path.abspath(os.path.expanduser(text))
+    for legacy_prefix, current_prefix in _LEGACY_RUNTIME_PATH_PREFIXES:
+        legacy_root = os.path.abspath(legacy_prefix)
+        if normalized == legacy_root or normalized.startswith(legacy_root + os.sep):
+            suffix = normalized[len(legacy_root):].lstrip("\\/")
+            candidate = os.path.join(current_prefix, suffix) if suffix else current_prefix
+            if os.path.exists(candidate) or not os.path.exists(normalized):
+                return candidate, candidate != normalized
+    return normalized, normalized != text
+
+
+def _normalize_runtime_setting_paths(settings, warnings, corrected_paths):
+    voice_settings = settings.get("voice")
+    if not isinstance(voice_settings, dict):
+        return settings
+
+    migrated = False
+    for key in ("custom_voice_sample_path", "piper_model_path", "piper_config_path"):
+        current_value = voice_settings.get(key, "")
+        normalized_value, changed = _normalize_runtime_setting_path(current_value)
+        if not changed:
+            continue
+        voice_settings[key] = normalized_value
+        warnings.append(f"{key} was updated to the runtime path layout.")
+        corrected_paths.append(f"voice.{key}")
+        migrated = True
+
+    return settings if migrated else settings
 
 
 def _settings_mtime():
@@ -439,7 +483,7 @@ def get_last_settings_validation():
 
 def load_settings():
     global _SETTINGS_CACHE, _SETTINGS_CACHE_MTIME
-    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(CONFIG_DIR, exist_ok=True)
 
     current_mtime = _settings_mtime()
     if _SETTINGS_CACHE is not None and _SETTINGS_CACHE_MTIME == current_mtime:
@@ -489,6 +533,7 @@ def load_settings():
     unknown_paths = _unknown_setting_paths(saved, DEFAULT_SETTINGS)
     merged = _merge_dicts(DEFAULT_SETTINGS, saved)
     sanitized = _sanitize_settings_value(merged, DEFAULT_SETTINGS, "", warnings, corrected_paths)
+    sanitized = _normalize_runtime_setting_paths(sanitized, warnings, corrected_paths)
 
     if sanitized != saved:
         _write_settings_file(sanitized)
@@ -507,6 +552,7 @@ def load_settings():
 
 def save_settings(settings):
     sanitized = _sanitize_settings_value(settings, DEFAULT_SETTINGS, "", [], [])
+    sanitized = _normalize_runtime_setting_paths(sanitized, [], [])
     _write_settings_file(sanitized)
     _cache_settings(
         sanitized,

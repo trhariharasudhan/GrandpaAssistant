@@ -8,11 +8,10 @@ import requests
 
 from iot_registry import load_iot_credentials
 from utils.config import get_setting
+from utils.paths import backend_data_path
 
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-BACKEND_DATA_DIR = os.path.join(PROJECT_ROOT, "backend", "data")
-IOT_ACTION_HISTORY_PATH = os.path.join(BACKEND_DATA_DIR, "iot_action_history.json")
+IOT_ACTION_HISTORY_PATH = backend_data_path("iot_action_history.json")
 
 _ACTION_PREFIXES = (
     ("turn on ", "turn_on"),

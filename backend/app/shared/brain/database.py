@@ -10,11 +10,11 @@ from security.encryption_utils import (
     unprotect_db_text,
     write_encrypted_json,
 )
+from utils.paths import backend_data_dir, backend_data_path
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-DB_PATH = os.path.join(DATA_DIR, "assistant.db")
-LEGACY_MEMORY_PATH = os.path.join(DATA_DIR, "memory.json")
+DATA_DIR = backend_data_dir()
+DB_PATH = backend_data_path("assistant.db")
+LEGACY_MEMORY_PATH = backend_data_path("memory.json")
 
 
 def _connect():

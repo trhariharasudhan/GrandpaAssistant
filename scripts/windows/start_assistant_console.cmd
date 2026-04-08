@@ -12,7 +12,7 @@ echo Starting Grandpa Assistant in text console mode...
 
 if errorlevel 1 (
   echo.
-  echo Startup failed. Check backend\logs\main_startup_error.log
+  echo Startup failed. Check runtime\logs\main_startup_error.log
   pause
 )
 

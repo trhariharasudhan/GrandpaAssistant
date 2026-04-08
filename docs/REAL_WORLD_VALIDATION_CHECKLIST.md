@@ -45,7 +45,7 @@ Use this checklist after the build is complete and the assistant is running on t
 - [ ] Run `scripts\windows\export_release_manifest.cmd`
 - [ ] Save the SHA256 checksum for the portable `.exe`
 - [ ] Confirm the artifact starts on a second Windows machine
-- [ ] Confirm private files under `backend/data/` are still ignored by git
+- [ ] Confirm private files under `runtime/data/` are still ignored by git
 
 ## Finish Line
 

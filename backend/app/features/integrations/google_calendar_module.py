@@ -10,14 +10,26 @@ from productivity.event_module import (
     _remove_date_phrases,
     _strip_recurrence_phrases,
 )
+from utils.paths import backend_data_dir, backend_data_path, project_path, runtime_config_path
 
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-CREDENTIALS_PATH = os.path.join(BASE_DIR, "credentials.json")
-TOKEN_PATH = os.path.join(DATA_DIR, "google_calendar_token.json")
-CACHE_PATH = os.path.join(DATA_DIR, "google_calendar_cache.json")
+DATA_DIR = backend_data_dir()
+TOKEN_PATH = backend_data_path("google_calendar_token.json")
+CACHE_PATH = backend_data_path("google_calendar_cache.json")
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
+
+
+def _credentials_path() -> str:
+    env_path = str(os.getenv("GRANDPA_ASSISTANT_GOOGLE_CREDENTIALS_PATH", "")).strip()
+    candidates = [
+        env_path,
+        runtime_config_path("credentials.json"),
+        project_path("credentials.json"),
+    ]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return runtime_config_path("credentials.json")
 
 
 def _ensure_data_dir():
@@ -25,10 +37,11 @@ def _ensure_data_dir():
 
 
 def _get_calendar_service():
-    if not os.path.exists(CREDENTIALS_PATH):
+    credentials_path = _credentials_path()
+    if not os.path.exists(credentials_path):
         return None, (
-            "I could not find credentials.json in the project folder. "
-            "Keep it in the project root and try again."
+            "I could not find Google credentials.json. "
+            "Keep it in runtime/config or set GRANDPA_ASSISTANT_GOOGLE_CREDENTIALS_PATH."
         )
 
     try:
@@ -59,7 +72,7 @@ def _get_calendar_service():
                 creds = None
 
         if not creds or not creds.valid:
-            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
             creds = flow.run_local_server(port=0)
 
         with open(TOKEN_PATH, "w", encoding="utf-8") as token_file:
@@ -132,8 +145,8 @@ def _today_cached_events():
 
 
 def google_calendar_status():
-    if not os.path.exists(CREDENTIALS_PATH):
-        return "Google Calendar is not ready yet because credentials.json is missing."
+    if not os.path.exists(_credentials_path()):
+        return "Google Calendar is not ready yet because credentials.json is missing from runtime/config."
     if os.path.exists(TOKEN_PATH):
         return "Google Calendar credentials are ready and an authorization token is saved."
     return "Google Calendar credentials are ready, but first-time authorization is still needed."

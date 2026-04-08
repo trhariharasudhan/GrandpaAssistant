@@ -13,13 +13,10 @@ from brain.memory_engine import get_named_contact_field, load_memory
 from integrations.google_contacts_module import ensure_google_contacts_fresh, get_google_contact_field
 from automation.notification_module import show_custom_popup
 from utils.config import get_setting
+from utils.paths import backend_data_path
 
 
-DATA_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "data",
-    "scheduled_messages.json",
-)
+DATA_FILE = backend_data_path("scheduled_messages.json")
 
 _scheduled_whatsapp_jobs = []
 _scheduled_job_lock = threading.Lock()

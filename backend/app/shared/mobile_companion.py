@@ -12,11 +12,11 @@ from typing import Any
 
 from security.encryption_utils import read_encrypted_json, remember_protected_target, write_encrypted_json
 from utils.config import get_setting
+from utils.paths import backend_data_dir, backend_data_path
 
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-DATA_DIR = os.path.join(PROJECT_ROOT, "backend", "data")
-STATE_PATH = os.path.join(DATA_DIR, "mobile_companion.json")
+DATA_DIR = backend_data_dir()
+STATE_PATH = backend_data_path("mobile_companion.json")
 
 
 def _utc_now() -> str:

@@ -4,13 +4,10 @@ import re
 
 from productivity_store import load_notes_payload, save_notes_payload
 from security.encryption_utils import read_encrypted_json, remember_protected_target, write_encrypted_json
+from utils.paths import backend_data_path
 
 
-DATA_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "data",
-    "notes.json",
-)
+DATA_FILE = backend_data_path("notes.json")
 
 
 def _default_data():

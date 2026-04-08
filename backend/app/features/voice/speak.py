@@ -17,17 +17,17 @@ from colorama import Fore, Style, init
 
 from utils.config import get_setting, update_setting
 from utils.mood_memory import mood_status_payload
+from utils.paths import cache_path, data_path, models_path, project_path
 
 
 init(autoreset=True)
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
-BACKEND_DATA_DIR = os.path.join(PROJECT_ROOT, "backend", "data")
-PIPER_AUDIO_DIR = os.path.join(BACKEND_DATA_DIR, "tts_audio")
-PIPER_MODEL_DIR = os.path.join(BACKEND_DATA_DIR, "piper")
-PIPER_VOICES_DIR = os.path.join(BACKEND_DATA_DIR, "voices")
-CUSTOM_VOICE_DIR = os.path.join(BACKEND_DATA_DIR, "voice_profiles")
-COQUI_RUNTIME_DIR = os.path.join(BACKEND_DATA_DIR, "runtime", "coqui")
+PROJECT_ROOT = project_path()
+PIPER_AUDIO_DIR = cache_path("tts_audio")
+PIPER_MODEL_DIR = models_path("piper")
+PIPER_VOICES_DIR = models_path("voices")
+CUSTOM_VOICE_DIR = data_path("voice_profiles")
+COQUI_RUNTIME_DIR = cache_path("coqui")
 DEFAULT_TTS_RATE = 170
 DEFAULT_TTS_VOLUME = 1.0
 
@@ -217,7 +217,7 @@ def _custom_voice_roots():
     return [
         CUSTOM_VOICE_DIR,
         os.path.join(PIPER_VOICES_DIR, "custom"),
-        os.path.join(PROJECT_ROOT, "models", "voice_profiles"),
+        models_path("voice_profiles"),
     ]
 
 
@@ -238,7 +238,7 @@ def _project_piper_model_candidates():
     roots = [
         PIPER_MODEL_DIR,
         PIPER_VOICES_DIR,
-        os.path.join(PROJECT_ROOT, "models", "piper"),
+        models_path("piper"),
     ]
     candidates = []
     for root in roots:
@@ -260,7 +260,7 @@ def _project_piper_roots():
     return [
         PIPER_MODEL_DIR,
         PIPER_VOICES_DIR,
-        os.path.join(PROJECT_ROOT, "models", "piper"),
+        models_path("piper"),
     ]
 
 
@@ -308,7 +308,7 @@ def choose_piper_model(model_name_or_path):
 def autoconfigure_piper_model():
     models = available_piper_models()
     if not models:
-        return False, "No Piper voice models were found yet. Put a .onnx model in backend/data/piper or backend/data/voices."
+        return False, f"No Piper voice models were found yet. Put a .onnx model in {os.path.abspath(PIPER_MODEL_DIR)} or {os.path.abspath(PIPER_VOICES_DIR)}."
 
     chosen = models[0]
     update_setting("voice.piper_model_path", chosen["model_path"])
@@ -346,7 +346,7 @@ def piper_setup_status_summary():
         )
     return (
         f"Piper is not ready yet. Put a voice model in {os.path.abspath(PIPER_MODEL_DIR)} "
-        "or backend/data/voices, then say auto configure piper."
+        f"or {os.path.abspath(PIPER_VOICES_DIR)}, then say auto configure piper."
     )
 
 
@@ -428,7 +428,7 @@ def clear_custom_voice_sample_path():
 def autoconfigure_custom_voice_sample():
     samples = available_custom_voice_samples()
     if not samples:
-        return False, "No custom voice sample was found yet. Put a clean WAV sample in backend/data/voice_profiles."
+        return False, f"No custom voice sample was found yet. Put a clean WAV sample in {os.path.abspath(CUSTOM_VOICE_DIR)}."
 
     chosen = samples[0]
     update_setting("voice.custom_voice_sample_path", chosen["sample_path"])

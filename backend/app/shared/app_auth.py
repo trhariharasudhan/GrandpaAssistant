@@ -22,11 +22,11 @@ from app_data_store import (
     update_user_last_login,
 )
 from utils.config import get_setting
+from utils.paths import config_path
 
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-AUTH_SECRET_PATH = os.path.join(DATA_DIR, "app_auth_secret.txt")
+CONFIG_DIR = config_path()
+AUTH_SECRET_PATH = config_path("app_auth_secret.txt")
 USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]{3,32}$")
 VALID_ROLES = {"admin", "user"}
 DEFAULT_SESSION_TTL_HOURS = 24 * 7
@@ -57,7 +57,7 @@ def _load_or_create_secret() -> bytes:
     if env_secret:
         return env_secret.encode("utf-8")
 
-    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(CONFIG_DIR, exist_ok=True)
     if os.path.exists(AUTH_SECRET_PATH):
         try:
             with open(AUTH_SECRET_PATH, "rb") as file:

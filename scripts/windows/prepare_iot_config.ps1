@@ -5,13 +5,15 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$ExamplePath = Join-Path $ProjectRoot "backend\data\iot_credentials.example.json"
-$TargetPath = Join-Path $ProjectRoot "backend\data\iot_credentials.json"
-$BackupPath = Join-Path $ProjectRoot "backend\data\iot_credentials.demo.backup.json"
+$ExamplePath = Join-Path $ProjectRoot "backend\assets\iot_credentials.example.json"
+$TargetPath = Join-Path $ProjectRoot "runtime\config\iot_credentials.json"
+$BackupPath = Join-Path $ProjectRoot "runtime\config\iot_credentials.demo.backup.json"
 
 if (-not (Test-Path $ExamplePath)) {
     throw "IoT example config not found at $ExamplePath"
 }
+
+$null = New-Item -ItemType Directory -Path (Split-Path -Parent $TargetPath) -Force
 
 if ((Test-Path $TargetPath) -and -not $Force) {
     Write-Host "IoT config already exists at $TargetPath"

@@ -13,10 +13,11 @@ from llm_client import generate_chat_reply, load_env_file
 from utils.config import get_setting
 from utils.emotion import build_emotion_prompt_context, detect_emotion
 from utils.mood_memory import build_mood_memory_context
+from utils.paths import backend_data_path, project_path
 
 
-CHAT_HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "..", "chat_history.json")
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+CHAT_HISTORY_FILE = backend_data_path("chat_history.json")
+PROJECT_ROOT = project_path()
 MAX_MESSAGES = 20
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_TIMEOUT_SECONDS = 25
@@ -33,7 +34,7 @@ UNWANTED_REPLY_PHRASES = [
     "is there anything else you might need assistance",
 ]
 
-load_env_file(os.path.join(PROJECT_ROOT, ".env"))
+load_env_file(project_path(".env"))
 
 def load_history():
     if not os.path.exists(CHAT_HISTORY_FILE):

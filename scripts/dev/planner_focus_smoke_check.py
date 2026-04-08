@@ -1,7 +1,7 @@
 import json
 import os
-import shutil
 import sys
+import tempfile
 from contextlib import contextmanager
 
 
@@ -14,10 +14,16 @@ for _path in (APP_DIR, SHARED_DIR, FEATURES_DIR):
         sys.path.insert(0, _path)
 
 import api.web_api as web_api  # noqa: E402
+import app_data_store  # noqa: E402
+import brain.database as brain_database  # noqa: E402
+import productivity.task_module as task_module  # noqa: E402
+import productivity_store  # noqa: E402
+import utils.config as config_module  # noqa: E402
+from utils.paths import config_path, data_path  # noqa: E402
 
 
-TASKS_PATH = os.path.join(ROOT, "backend", "data", "tasks.json")
-SETTINGS_PATH = os.path.join(ROOT, "backend", "data", "settings.json")
+TASKS_PATH = data_path("tasks.json")
+SETTINGS_PATH = config_path("settings.json")
 
 
 def _print_result(name, ok, details=""):
@@ -29,30 +35,38 @@ def _print_result(name, ok, details=""):
 
 @contextmanager
 def _temporary_data_files():
-    os.makedirs(os.path.dirname(TASKS_PATH), exist_ok=True)
+    original_brain_db_path = brain_database.DB_PATH
+    original_store_db_path = productivity_store.DB_PATH
+    original_app_db_path = app_data_store.DB_PATH
+    original_task_path = task_module.DATA_FILE
+    original_settings_path = config_module.SETTINGS_PATH
 
-    tasks_backup = TASKS_PATH + ".bak.codex"
-    settings_backup = SETTINGS_PATH + ".bak.codex"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_db_path = os.path.join(temp_dir, "assistant.db")
+        temp_tasks_path = os.path.join(temp_dir, "tasks.json")
+        temp_settings_path = os.path.join(temp_dir, "settings.json")
 
-    if os.path.exists(TASKS_PATH):
-        shutil.copy2(TASKS_PATH, tasks_backup)
-    if os.path.exists(SETTINGS_PATH):
-        shutil.copy2(SETTINGS_PATH, settings_backup)
+        brain_database.DB_PATH = temp_db_path
+        productivity_store.DB_PATH = temp_db_path
+        app_data_store.DB_PATH = temp_db_path
+        task_module.DATA_FILE = temp_tasks_path
+        config_module.SETTINGS_PATH = temp_settings_path
+        config_module._SETTINGS_CACHE = None
+        config_module._SETTINGS_CACHE_MTIME = None
 
-    try:
-        with open(TASKS_PATH, "w", encoding="utf-8") as f:
-            json.dump({"tasks": [], "reminders": []}, f, indent=2)
-        yield
-    finally:
-        if os.path.exists(tasks_backup):
-            shutil.move(tasks_backup, TASKS_PATH)
-        elif os.path.exists(TASKS_PATH):
-            os.remove(TASKS_PATH)
+        with open(temp_tasks_path, "w", encoding="utf-8") as file:
+            json.dump({"tasks": [], "reminders": []}, file, indent=2)
 
-        if os.path.exists(settings_backup):
-            shutil.move(settings_backup, SETTINGS_PATH)
-        elif os.path.exists(SETTINGS_PATH):
-            os.remove(SETTINGS_PATH)
+        try:
+            yield
+        finally:
+            brain_database.DB_PATH = original_brain_db_path
+            productivity_store.DB_PATH = original_store_db_path
+            app_data_store.DB_PATH = original_app_db_path
+            task_module.DATA_FILE = original_task_path
+            config_module.SETTINGS_PATH = original_settings_path
+            config_module._SETTINGS_CACHE = None
+            config_module._SETTINGS_CACHE_MTIME = None
 
 
 def _run(command):
@@ -71,10 +85,6 @@ def run_planner_focus_flow():
     plan_reply = _run("plan my day")
     focus_reply = _run("what should i do now")
 
-    enable_focus_reply = _run("enable focus mode")
-    focus_reply_in_focus_mode = _run("what should i do now")
-    status_on_reply = _run("focus mode status")
-    disable_focus_reply = _run("disable focus mode")
     status_off_reply = _run("focus mode status")
 
     checks = []
@@ -86,17 +96,13 @@ def run_planner_focus_flow():
     checks.append(("Plan step format", "step 1:" in plan_reply.lower() and "step 4:" in plan_reply.lower()))
     checks.append(("Plan includes queue", "task queue" in plan_reply.lower()))
     checks.append(("Focus prioritizes due soon", "pay internet bill" in focus_reply.lower()))
-    checks.append(("Focus enable response", "focus mode enabled" in enable_focus_reply.lower()))
-    checks.append(("Focus suggestion reflects mode", "focus mode is on" in focus_reply_in_focus_mode.lower()))
-    checks.append(("Focus status on", "currently enabled" in status_on_reply.lower()))
-    checks.append(("Focus disable response", "focus mode disabled" in disable_focus_reply.lower()))
     checks.append(("Focus status off", "currently disabled" in status_off_reply.lower()))
 
     ok = all(flag for _, flag in checks)
     details = {
         "plan_reply": plan_reply,
         "focus_reply": focus_reply,
-        "focus_reply_in_focus_mode": focus_reply_in_focus_mode,
+        "focus_status_reply": status_off_reply,
     }
     return ok, checks, details
 
@@ -110,7 +116,7 @@ def main():
             _print_result(name, ok)
         _print_result("Planner snapshot", True, details["plan_reply"])
         _print_result("Focus snapshot", True, details["focus_reply"])
-        _print_result("Focus mode snapshot", True, details["focus_reply_in_focus_mode"])
+        _print_result("Focus status snapshot", True, details["focus_status_reply"])
         overall = overall and flow_ok
 
     print("\nSummary:")

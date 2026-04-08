@@ -8,13 +8,13 @@ from collections import Counter
 from contextlib import suppress
 
 from shared.utils.config import get_setting
+from shared.utils.paths import backend_data_dir, backend_data_path
 import voice.speak as voice_speak_module
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-DB_PATH = os.path.join(DATA_DIR, "assistant.db")
-CHAT_STATE_PATH = os.path.join(DATA_DIR, "chat_state.json")
-TASKS_PATH = os.path.join(DATA_DIR, "tasks.json")
+DATA_DIR = backend_data_dir()
+DB_PATH = backend_data_path("assistant.db")
+CHAT_STATE_PATH = backend_data_path("chat_state.json")
+TASKS_PATH = backend_data_path("tasks.json")
 SUGGESTION_POLL_SECONDS = 300
 
 _background_thread = None

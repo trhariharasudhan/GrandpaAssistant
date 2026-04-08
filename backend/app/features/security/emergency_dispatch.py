@@ -5,8 +5,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from contextlib import suppress
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-CREDENTIALS_PATH = os.path.join(BASE_DIR, "data", "emergency_credentials.json")
+from utils.paths import config_path
+
+CREDENTIALS_PATH = config_path("emergency_credentials.json")
 
 def _load_credentials():
     if not os.path.exists(CREDENTIALS_PATH):

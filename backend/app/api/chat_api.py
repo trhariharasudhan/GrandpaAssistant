@@ -11,8 +11,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from ai_router import route_request
 from api_logging import ensure_log_dir, log_api_event, new_request_id, request_summary
 from agents.runtime import ASSISTANT_RUNTIME
+from brain.memory_engine import search_memory
 from cognition.context_engine import contextual_recall_payload
 from cognition.graph_engine import build_knowledge_graph
 from cognition.hub import (
@@ -28,6 +30,8 @@ from cognition.recovery_engine import record_system_error, recovery_status_paylo
 from cognition.sync_engine import configure_sync, export_sync_payload, import_sync_payload, sync_status_payload
 from cognition.workflow_engine import create_workflow, run_workflow, workflow_status_payload
 from cognition.learning_engine import learning_status_payload
+from claude_client import ClaudeClientError, generate_claude_reply, is_claude_configured
+from core.unified_command_router import execute_command
 from device_manager import DEVICE_MANAGER
 from brain.semantic_memory import (
     build_semantic_memory_context,
@@ -42,7 +46,6 @@ from offline_multi_model import (
     generate_offline_reply,
     get_ollama_status,
     list_installed_models,
-    select_route,
 )
 from app_auth import (
     authenticate_app_token,
@@ -65,6 +68,7 @@ from startup_diagnostics import collect_startup_diagnostics
 from utils.config import get_last_settings_validation, get_setting, load_settings
 from utils.emotion import analyze_emotion, build_emotion_prompt_context
 from utils.mood_memory import build_mood_memory_context, mood_status_payload, record_mood_from_analysis, reset_mood_memory
+from utils.paths import backend_data_path
 from voice.speak import (
     autoconfigure_custom_voice_sample,
     autoconfigure_piper_model,
@@ -100,8 +104,7 @@ app.add_middleware(
 
 
 CHAT_HISTORY: list[dict] = []
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-IOT_MOCK_STATE_PATH = os.path.join(PROJECT_ROOT, "backend", "data", "iot_mock_state.json")
+IOT_MOCK_STATE_PATH = backend_data_path("iot_mock_state.json")
 
 
 class ChatRequest(BaseModel):
@@ -379,7 +382,30 @@ def _trim_history() -> None:
     CHAT_HISTORY = CHAT_HISTORY[-60:]
 
 
+def _compact_text(value: Any) -> str:
+    return " ".join(str(value or "").split()).strip()
+
+
+def _recent_history_context(history: list[dict] | None, *, limit: int = 6) -> str:
+    items = list(history or [])[-limit:]
+    lines = []
+    for item in items:
+        role = _compact_text((item or {}).get("role", "")).lower() or "user"
+        content = _compact_text((item or {}).get("content", ""))
+        if not content:
+            continue
+        lines.append(f"{role.title()}: {content}")
+    if not lines:
+        return ""
+    return "Recent conversation:\n" + "\n".join(lines)
+
+
 def _chat_prompt_with_memory(message: str, mood_snapshot: dict | None = None, context: str = "casual") -> str:
+    direct_memory_context = None
+    try:
+        direct_memory_context = _compact_text(search_memory(message))
+    except Exception:
+        direct_memory_context = None
     memory_context = build_semantic_memory_context(message)
     emotion_context = build_emotion_prompt_context(message)
     mood_context = build_mood_memory_context(mood_snapshot)
@@ -389,7 +415,13 @@ def _chat_prompt_with_memory(message: str, mood_snapshot: dict | None = None, co
         emotion=(mood_snapshot or {}).get("last_mood", "neutral"),
         mood=mood_snapshot,
     )
-    if not memory_context:
+    memory_sections = []
+    if direct_memory_context and direct_memory_context.lower() not in (memory_context or "").lower():
+        memory_sections.append(f"Relevant saved fact: {direct_memory_context}")
+    if memory_context:
+        memory_sections.append(memory_context)
+
+    if not memory_sections:
         return (
             f"User question: {message}\n"
             f"{emotion_context}\n"
@@ -399,8 +431,9 @@ def _chat_prompt_with_memory(message: str, mood_snapshot: dict | None = None, co
             "Keep casual chat short and natural, usually 1 or 2 sentences unless the user asks for more. "
             "Understand Tanglish input, but do not answer in Tanglish."
         )
+    combined_memory_context = "\n\n".join(section for section in memory_sections if section)
     return (
-        f"{memory_context}\n\n"
+        f"{combined_memory_context}\n\n"
         f"User question: {message}\n"
         f"{emotion_context}\n"
         f"{mood_context}\n"
@@ -410,6 +443,175 @@ def _chat_prompt_with_memory(message: str, mood_snapshot: dict | None = None, co
         "Keep casual chat short and natural, usually 1 or 2 sentences unless the user asks for more. "
         "Understand Tanglish input, but do not answer in Tanglish."
     )
+
+
+def _build_ai_prompt(
+    message: str,
+    *,
+    history: list[dict] | None = None,
+    mood_snapshot: dict | None = None,
+    context: str = "casual",
+) -> tuple[str, str | None]:
+    prompt_sections = []
+    hardware_context = DEVICE_MANAGER.build_prompt_context(message)
+    if hardware_context:
+        prompt_sections.append(hardware_context)
+
+    recent_history = _recent_history_context(history)
+    if recent_history:
+        prompt_sections.append(recent_history)
+
+    prompt_sections.append(_chat_prompt_with_memory(message, mood_snapshot=mood_snapshot, context=context))
+    if hardware_context:
+        prompt_sections.append("Use the hardware context only when it is relevant to the request.")
+
+    return "\n\n".join(section for section in prompt_sections if section), hardware_context
+
+
+def _capture_rule_fallback_reply(command: str) -> str:
+    unavailable_message = (
+        "I can't reach the AI models right now. "
+        "I can still help with built-in system commands, reminders, notes, and device actions."
+    )
+    iot_resolution = resolve_iot_control_command(command)
+    if iot_resolution.get("matched"):
+        return _compact_text(execute_iot_control(command, confirm=False).get("message", "")) or "Command completed."
+
+    local_response = _compact_text(DEVICE_MANAGER.local_response(command))
+    if local_response:
+        return local_response
+
+    result = execute_command(command, installed_apps={}, input_mode="text", source="chat-api-fallback")
+    if result.messages:
+        reply = " ".join(result.messages)
+        if _compact_text(reply).lower() in {"something went wrong", "command completed.", "i did not get a proper response."}:
+            return unavailable_message
+        return reply
+
+    return unavailable_message
+
+
+def _run_offline_ai(prompt_message: str, *, offline_mode: str | None = None) -> dict[str, Any]:
+    result = generate_offline_reply(prompt_message, mode=offline_mode or "auto")
+    return {
+        "reply": result["response"],
+        "model": result.get("model", "llama3"),
+        "mode": "offline",
+        "route": "offline",
+    }
+
+
+def _run_online_ai(prompt_message: str) -> dict[str, Any]:
+    result = generate_claude_reply(prompt_message)
+    return {
+        "reply": result["response"],
+        "model": result.get("model", "claude"),
+        "mode": "online",
+        "route": "online",
+    }
+
+
+def _run_legacy_ai(history: list[dict], prompt_message: str) -> dict[str, Any] | None:
+    try:
+        reply = _compact_text(generate_chat_reply(history, prompt_message))
+    except Exception as error:
+        record_system_error("chat-api-legacy-fallback", str(error), metadata={"provider": "legacy-chat"})
+        return None
+    if not reply:
+        return None
+    return {
+        "reply": reply,
+        "model": "legacy-chat",
+        "mode": "fallback",
+        "route": "legacy-fallback",
+    }
+
+
+def _run_rule_fallback(message: str) -> dict[str, Any]:
+    return {
+        "reply": _capture_rule_fallback_reply(message),
+        "model": "rule",
+        "mode": "fallback",
+        "route": "rule-fallback",
+    }
+
+
+def _generate_routed_reply(
+    message: str,
+    *,
+    history: list[dict] | None = None,
+    mood_snapshot: dict | None = None,
+    context: str = "casual",
+    requested_mode: str | None = None,
+) -> dict[str, Any]:
+    prompt_message, hardware_context = _build_ai_prompt(
+        message,
+        history=history,
+        mood_snapshot=mood_snapshot,
+        context=context,
+    )
+    normalized_requested_mode = str(requested_mode or "").strip().lower()
+    offline_mode = normalized_requested_mode if normalized_requested_mode in {"auto", "general", "fast", "coding"} else "auto"
+
+    if normalized_requested_mode in {"offline", "online", "fallback"}:
+        routing = {
+            "mode": normalized_requested_mode,
+            "model": {
+                "offline": "llama3",
+                "online": "claude",
+                "fallback": "rule",
+            }[normalized_requested_mode],
+            "reason": "manual-override",
+        }
+    else:
+        routing = route_request(message)
+    attempts = []
+    if routing["mode"] == "offline":
+        attempts = ["offline", "online", "legacy", "fallback"]
+    elif routing["mode"] == "online":
+        attempts = ["online", "offline", "legacy", "fallback"]
+    else:
+        attempts = ["fallback", "legacy"] if routing.get("reason") == "system-task" else ["legacy", "fallback"]
+
+    last_error = None
+    for attempt in attempts:
+        try:
+            if attempt == "offline":
+                response = _run_offline_ai(prompt_message, offline_mode=offline_mode)
+            elif attempt == "online":
+                if not is_claude_configured():
+                    continue
+                response = _run_online_ai(prompt_message)
+            elif attempt == "legacy":
+                response = _run_legacy_ai(list(history or []), prompt_message)
+                if response is None:
+                    continue
+            else:
+                response = _run_rule_fallback(message)
+            response["hardware_context_used"] = hardware_context is not None
+            response["requested_route"] = routing["mode"]
+            return response
+        except (OfflineAssistantError, ClaudeClientError, RuntimeError) as error:
+            last_error = error
+            record_system_error(
+                "chat-api-route",
+                str(error),
+                metadata={"attempt": attempt, "requested_route": routing["mode"]},
+            )
+        except Exception as error:
+            last_error = error
+            record_system_error(
+                "chat-api-route",
+                str(error),
+                metadata={"attempt": attempt, "requested_route": routing["mode"]},
+            )
+
+    fallback = _run_rule_fallback(message)
+    fallback["hardware_context_used"] = hardware_context is not None
+    fallback["requested_route"] = routing["mode"]
+    if last_error is not None:
+        fallback["fallback_error"] = str(last_error)
+    return fallback
 
 
 @app.middleware("http")
@@ -1450,17 +1652,17 @@ def ask(request: AskRequest, http_request: Request = None) -> dict:
             "hardware_context_used": True,
         }
 
-    effective_prompt, hardware_context = _hardware_aware_prompt(prompt)
-    routing = select_route(prompt, mode=request.mode)
-    try:
-        result = generate_offline_reply(effective_prompt, mode=routing["route"])
-    except OfflineAssistantError as error:
-        record_system_error("chat-api-ask", str(error), metadata={"route": routing.get("route", "")})
-        raise HTTPException(status_code=503, detail=str(error)) from error
-    ASSISTANT_RUNTIME.observe_assistant_reply(result["response"], source="chat-api-ask")
+    result = _generate_routed_reply(
+        prompt,
+        history=[],
+        mood_snapshot=mood,
+        context=context,
+        requested_mode=request.mode,
+    )
+    ASSISTANT_RUNTIME.observe_assistant_reply(result["reply"], source="chat-api-ask")
     interaction = record_assistant_turn(
         prompt,
-        result["response"],
+        result["reply"],
         context=context,
         emotion=emotion.get("emotion", "neutral"),
         mood=mood.get("last_mood", "neutral"),
@@ -1473,12 +1675,12 @@ def ask(request: AskRequest, http_request: Request = None) -> dict:
         source="chat-api-ask",
         message="LLM response returned.",
         command=prompt,
-        response=result["response"],
+        response=result["reply"],
     )
     append_chat_message(
         "ask-api",
         "assistant",
-        result["response"],
+        result["reply"],
         user_id=user_id,
         source="chat-api-ask",
         emotion=emotion.get("emotion", "neutral"),
@@ -1494,15 +1696,15 @@ def ask(request: AskRequest, http_request: Request = None) -> dict:
     return {
         "ok": True,
         "prompt": prompt,
-        "mode": routing["mode"],
+        "mode": result["mode"],
         "route": result["route"],
         "model": result["model"],
-        "response": result["response"],
+        "response": result["reply"],
         "interaction_id": interaction.get("id"),
         "emotion": emotion,
         "mood": mood,
         "hardware": DEVICE_MANAGER.get_status(),
-        "hardware_context_used": hardware_context is not None,
+        "hardware_context_used": bool(result.get("hardware_context_used")),
     }
 
 
@@ -1541,6 +1743,9 @@ def chat(request: ChatRequest, http_request: Request = None) -> dict:
         return {
             "ok": False,
             "reply": assistant_item["content"],
+            "model": "security-layer",
+            "mode": "fallback",
+            "route": "security-block",
             "messages": CHAT_HISTORY,
             "emotion": analyze_emotion(message),
             "mood": mood_status_payload(),
@@ -1569,7 +1774,13 @@ def chat(request: ChatRequest, http_request: Request = None) -> dict:
             emotion=emotion.get("emotion", "neutral"),
             metadata={"context": context},
         )
-        reply = generate_chat_reply(CHAT_HISTORY, _chat_prompt_with_memory(message, mood_snapshot=mood, context=context))
+        routed = _generate_routed_reply(
+            message,
+            history=CHAT_HISTORY,
+            mood_snapshot=mood,
+            context=context,
+        )
+        reply = routed["reply"]
         assistant_item = _history_item("assistant", reply)
     except Exception as error:
         record_system_error("chat-api-chat", str(error), metadata={"context": context})
@@ -1585,8 +1796,8 @@ def chat(request: ChatRequest, http_request: Request = None) -> dict:
         emotion=emotion.get("emotion", "neutral"),
         mood=mood.get("last_mood", "neutral"),
         source="chat-api-chat",
-        route="chat",
-        model="chat-provider",
+        route=routed["route"],
+        model=routed["model"],
     )
     append_security_activity(
         "assistant_response",
@@ -1602,15 +1813,26 @@ def chat(request: ChatRequest, http_request: Request = None) -> dict:
         user_id=user_id,
         source="chat-api-chat",
         emotion=emotion.get("emotion", "neutral"),
-        metadata={"route": "chat", "model": "chat-provider"},
+        metadata={"route": routed["route"], "model": routed["model"], "mode": routed["mode"]},
     )
     log_audit_event(
         "chat",
         "chat_reply",
         user_id=user_id,
-        payload={"interaction_id": interaction.get("id")},
+        payload={"interaction_id": interaction.get("id"), "route": routed["route"], "model": routed["model"], "mode": routed["mode"]},
     )
-    return {"ok": True, "reply": reply, "interaction_id": interaction.get("id"), "emotion": emotion, "mood": mood, "message": assistant_item, "messages": CHAT_HISTORY}
+    return {
+        "ok": True,
+        "reply": reply,
+        "model": routed["model"],
+        "mode": routed["mode"],
+        "route": routed["route"],
+        "interaction_id": interaction.get("id"),
+        "emotion": emotion,
+        "mood": mood,
+        "message": assistant_item,
+        "messages": CHAT_HISTORY,
+    }
 
 
 @app.post("/chat/stream")

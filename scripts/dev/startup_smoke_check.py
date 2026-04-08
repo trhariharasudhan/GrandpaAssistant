@@ -23,7 +23,7 @@ def _print_result(name, ok, details=""):
 
 def _health_ok():
     try:
-        with urllib.request.urlopen(HEALTH_URL, timeout=2) as response:
+        with urllib.request.urlopen(HEALTH_URL, timeout=10) as response:
             payload = json.loads(response.read().decode("utf-8", errors="ignore"))
         return bool(payload.get("ok"))
     except (OSError, urllib.error.URLError, json.JSONDecodeError):

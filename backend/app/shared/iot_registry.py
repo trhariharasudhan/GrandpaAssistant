@@ -6,9 +6,9 @@ from typing import Any
 
 import requests
 
+from utils.paths import config_path
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-IOT_CREDENTIALS_PATH = os.path.join(PROJECT_ROOT, "backend", "data", "iot_credentials.json")
+IOT_CREDENTIALS_PATH = config_path("iot_credentials.json")
 
 _STOPWORDS = {
     "the",
@@ -325,7 +325,7 @@ def validate_iot_config(*, test_connectivity: bool = False, timeout_seconds: flo
                 {
                     "key": "credentials_file",
                     "status": "error",
-                    "detail": "Add backend/data/iot_credentials.json to enable local IoT control.",
+                    "detail": f"Add {IOT_CREDENTIALS_PATH} to enable local IoT control.",
                 }
             ],
         }

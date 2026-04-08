@@ -7,9 +7,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$PiperDir = Join-Path $ProjectRoot "backend\data\piper"
-$VoicesDir = Join-Path $ProjectRoot "backend\data\voices"
-$ModelsDir = Join-Path $ProjectRoot "models\piper"
+$PiperDir = Join-Path $ProjectRoot "runtime\models\piper"
+$VoicesDir = Join-Path $ProjectRoot "runtime\models\voices"
+$ModelsDir = Join-Path $ProjectRoot "runtime\models\piper"
 $PythonExe = @(
     (Join-Path $ProjectRoot ".python311\python.exe"),
     (Join-Path $ProjectRoot ".venv\Scripts\python.exe"),

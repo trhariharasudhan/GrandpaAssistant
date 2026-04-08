@@ -53,15 +53,15 @@ The current codebase already has a strong production-friendly base.
 
 ### Data Layer
 
-- `backend/data/assistant.db`
+- `runtime/data/assistant.db`
   Primary SQLite application store.
-- `backend/data/memory.json`
+- `runtime/data/memory.json`
   Legacy or supplemental memory state.
-- `backend/data/chat_state.json`
+- `runtime/data/chat_state.json`
   Legacy chat session state.
-- `backend/data/mood_memory.json`
+- `runtime/data/mood_memory.json`
   Mood history.
-- `backend/data/agent_runtime_state.json`
+- `runtime/data/agent_runtime_state.json`
   Runtime agent state.
 - FAISS-backed semantic memory via `backend/app/shared/brain/semantic_memory.py`
 

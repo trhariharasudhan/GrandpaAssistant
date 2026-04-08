@@ -9,6 +9,7 @@ from tkinter import ttk
 
 from brain.memory_engine import get_memory
 import core.command_router as command_router_module
+from core.unified_command_router import execute_command
 from modules.event_module import get_event_data
 from modules.google_calendar_module import upcoming_google_calendar_title_lines
 from modules.health_module import get_system_status
@@ -929,11 +930,14 @@ class OdinUI:
 
                     def run_router_command():
                         try:
-                            command_router_module.process_command(
-                                command.lower(),
-                                self.installed_apps,
+                            result = execute_command(
+                                command,
+                                installed_apps=self.installed_apps,
                                 input_mode="text",
+                                source="odin-ui",
                             )
+                            for message in result.messages:
+                                capture_speak(message)
                         except Exception as error:
                             runner_error["value"] = error
 

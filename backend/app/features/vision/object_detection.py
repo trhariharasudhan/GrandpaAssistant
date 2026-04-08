@@ -8,14 +8,23 @@ import numpy as np
 import pyautogui
 
 from utils.config import get_setting, update_setting
+from utils.paths import cache_path, models_path, project_path
+
+
+DEFAULT_OBJECT_MODEL = "yolov8n.pt"
+MODEL_SEARCH_ROOTS = (
+    models_path(),
+    models_path("vision"),
+    project_path("models"),
+    project_path(),
+)
 
 
 def _prepare_ultralytics_config_dir():
     if os.getenv("YOLO_CONFIG_DIR"):
         return
-    backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-    config_root = os.path.join(backend_root, "data", "runtime")
-    ultralytics_root = os.path.join(config_root, "ultralytics")
+    config_root = cache_path()
+    ultralytics_root = cache_path("ultralytics")
     os.makedirs(ultralytics_root, exist_ok=True)
     os.environ["YOLO_CONFIG_DIR"] = config_root
 
@@ -81,7 +90,7 @@ def _set_latest_labels(labels):
 
 def _object_settings():
     return {
-        "model_name": str(get_setting("vision.object_detection_model", "yolov8n.pt") or "yolov8n.pt"),
+        "model_name": str(get_setting("vision.object_detection_model", DEFAULT_OBJECT_MODEL) or DEFAULT_OBJECT_MODEL),
         "confidence": float(get_setting("vision.object_detection_confidence", 0.45) or 0.45),
         "person_confidence": float(get_setting("vision.object_detection_person_confidence", 0.68) or 0.68),
         "min_area_ratio": float(get_setting("vision.object_detection_min_area_ratio", 0.0015) or 0.0015),
@@ -100,6 +109,38 @@ def is_object_detection_available():
     return YOLO is not None
 
 
+def _resolve_model_path(model_name):
+    cleaned = str(model_name or DEFAULT_OBJECT_MODEL).strip() or DEFAULT_OBJECT_MODEL
+    default_vision_model = models_path("vision", DEFAULT_OBJECT_MODEL)
+    candidates = [cleaned, os.path.abspath(cleaned)]
+    base_name = os.path.basename(cleaned)
+
+    if cleaned == DEFAULT_OBJECT_MODEL:
+        candidates.insert(0, default_vision_model)
+
+    for root in MODEL_SEARCH_ROOTS:
+        candidates.append(os.path.join(root, cleaned))
+        candidates.append(os.path.join(root, base_name))
+
+    for candidate in candidates:
+        resolved = os.path.abspath(candidate)
+        if os.path.exists(resolved):
+            return resolved
+    return cleaned
+
+
+def _model_load_candidates(model_name):
+    cleaned = str(model_name or DEFAULT_OBJECT_MODEL).strip() or DEFAULT_OBJECT_MODEL
+    resolved = _resolve_model_path(cleaned)
+    candidates = []
+
+    for candidate in (resolved, cleaned, DEFAULT_OBJECT_MODEL):
+        normalized = str(candidate or "").strip()
+        if normalized and normalized not in candidates:
+            candidates.append(normalized)
+    return candidates
+
+
 def object_detection_import_error():
     if _IMPORT_ERROR:
         return f"Object detection dependency missing: {_IMPORT_ERROR}"
@@ -107,7 +148,7 @@ def object_detection_import_error():
 
 
 def get_object_detection_model_name():
-    return str(get_setting("vision.object_detection_model", "yolov8n.pt") or "yolov8n.pt")
+    return str(get_setting("vision.object_detection_model", DEFAULT_OBJECT_MODEL) or DEFAULT_OBJECT_MODEL)
 
 
 def set_object_detection_model_name(model_name):
@@ -164,7 +205,7 @@ def apply_object_detection_alert_profile(profile_name):
 
 
 def reset_object_detection_model():
-    return set_object_detection_model_name("yolov8n.pt")
+    return set_object_detection_model_name(DEFAULT_OBJECT_MODEL)
 
 
 def get_object_detection_presets():
@@ -222,7 +263,17 @@ def _ensure_model():
         raise RuntimeError(object_detection_import_error() or "Ultralytics is not installed.")
     if _MODEL is None:
         settings = _object_settings()
-        _MODEL = YOLO(settings["model_name"])
+        errors = []
+        for candidate in _model_load_candidates(settings["model_name"]):
+            try:
+                _MODEL = YOLO(candidate)
+                break
+            except Exception as error:
+                errors.append(f"{candidate}: {error}")
+        if _MODEL is None:
+            raise RuntimeError(
+                "I could not load the object detection model. Tried: " + " | ".join(errors[:3])
+            )
     return _MODEL
 
 

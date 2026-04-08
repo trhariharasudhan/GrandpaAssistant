@@ -80,9 +80,9 @@ frontend/
 
 - `__pycache__/` folders
 - `.venv/`
-- `backend/chat_history.json`
-- `backend/data/apps_cache.json`
-- `backend/data/assistant.db`
-- `backend/data/chat_state.json`
+- `runtime/data/chat_history.json`
+- `runtime/data/apps_cache.json`
+- `runtime/data/assistant.db`
+- `runtime/data/chat_state.json`
 
 These are generated while running the app and are not source code.

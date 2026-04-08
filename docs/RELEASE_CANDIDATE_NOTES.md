@@ -47,4 +47,4 @@ Primary validation commands now pass:
 ## Notes
 
 - The repo currently ships with a local Smart Home demo configuration for safe local testing.
-- For real-device automation, replace the localhost demo URLs in your ignored `backend/data/iot_credentials.json`.
+- For real-device automation, replace the localhost demo URLs in your ignored `runtime/config/iot_credentials.json`.

@@ -11,11 +11,12 @@ import requests
 
 from iot_registry import summarize_iot_config
 from utils.config import get_last_settings_validation, get_setting, load_settings
+from utils.paths import config_path, data_path, logs_path, project_path
 
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-BACKEND_DATA_DIR = os.path.join(PROJECT_ROOT, "backend", "data")
-BACKEND_LOG_DIR = os.path.join(PROJECT_ROOT, "backend", "logs")
+PROJECT_ROOT = project_path()
+BACKEND_DATA_DIR = data_path()
+BACKEND_LOG_DIR = logs_path()
 DEFAULT_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 DEFAULT_TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 REQUIRED_MODELS = {
@@ -331,7 +332,7 @@ def _iot_config_status() -> dict[str, Any]:
             "iot_config",
             "warning",
             "Smart Home Config",
-            "IoT control config is not set up yet. Add backend/data/iot_credentials.json to enable local smart-home control.",
+            f"IoT control config is not set up yet. Add {config_path('iot_credentials.json')} to enable local smart-home control.",
             configured=False,
             enabled=False,
             command_count=0,

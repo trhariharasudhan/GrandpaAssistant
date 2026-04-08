@@ -7,10 +7,9 @@ from collections import Counter
 
 from cognition.learning_engine import learning_status_payload
 from utils.mood_memory import mood_status_payload
+from utils.paths import backend_data_path
 
-
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
-DB_PATH = os.path.join(PROJECT_ROOT, "backend", "data", "assistant.db")
+DB_PATH = backend_data_path("assistant.db")
 
 
 def _compact_text(value) -> str:

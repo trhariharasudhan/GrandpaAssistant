@@ -19,11 +19,10 @@ from iot_registry import (
     summarize_iot_config,
 )
 from utils.config import get_setting
+from utils.paths import backend_data_path
 
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-BACKEND_DATA_DIR = os.path.join(PROJECT_ROOT, "backend", "data")
-DEVICE_STATE_PATH = os.path.join(BACKEND_DATA_DIR, "hardware_devices.json")
+DEVICE_STATE_PATH = backend_data_path("hardware_devices.json")
 
 _SMART_DEVICE_KEYWORDS = (
     "alexa",

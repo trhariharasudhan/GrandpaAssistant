@@ -2,7 +2,7 @@
 
 ## Smart Home Config
 
-1. Copy `backend/data/iot_credentials.example.json` to `backend/data/iot_credentials.json`.
+1. Copy `backend/assets/iot_credentials.example.json` to `runtime/config/iot_credentials.json`.
 2. Set `"enabled": true` after you replace every placeholder value.
 3. Use one of these local control styles:
    - `webhook`: local HTTP endpoints or Node-RED style flows
@@ -22,9 +22,8 @@ Useful assistant commands:
 ## Piper Voice Setup
 
 1. Put a `.onnx` Piper model in one of these folders:
-   - `backend/data/piper`
-   - `backend/data/voices`
-   - `models/piper`
+   - `runtime/models/piper`
+   - `runtime/models/voices`
 2. Put the matching `.json` config next to the model file.
 3. Run one of these assistant commands:
    - `auto configure piper`

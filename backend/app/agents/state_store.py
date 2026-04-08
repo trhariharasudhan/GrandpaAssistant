@@ -8,10 +8,10 @@ import time
 import atexit
 from typing import Any
 
+from utils.paths import backend_data_dir, backend_data_path
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-DATA_DIR = os.path.join(PROJECT_ROOT, "backend", "data")
-STATE_PATH = os.path.join(DATA_DIR, "agent_runtime_state.json")
+DATA_DIR = backend_data_dir()
+STATE_PATH = backend_data_path("agent_runtime_state.json")
 
 
 def _utc_timestamp() -> str:

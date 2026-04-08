@@ -5,13 +5,10 @@ import re
 
 from productivity_store import load_event_payload, save_event_payload
 from productivity.calendar_module import extract_specific_date, get_relative_base
+from utils.paths import backend_data_path
 
 
-DATA_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "data",
-    "events.json",
-)
+DATA_FILE = backend_data_path("events.json")
 
 
 def _default_data():

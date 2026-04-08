@@ -30,7 +30,6 @@ from cognition.hub import (
     record_assistant_turn,
 )
 from cognition.recovery_engine import record_system_error
-import core.command_router as command_router_module
 from brain.database import get_recent_commands
 from brain.memory_engine import get_memory
 from brain.semantic_memory import (
@@ -41,7 +40,7 @@ from brain.semantic_memory import (
 from device_manager import DEVICE_MANAGER
 from iot_control import get_iot_action_history
 from iot_registry import summarize_iot_config
-from core.command_router import process_command
+from core.unified_command_router import execute_command, looks_like_command_input
 from security.hub import security_status_payload, validate_prompt_text
 from llm_client import (
     DEFAULT_LLM_PROVIDER,
@@ -101,6 +100,7 @@ from modules.weather_module import get_weather_report
 from utils.config import get_setting, update_setting
 from utils.emotion import analyze_emotion, build_emotion_prompt_context
 from utils.mood_memory import build_mood_memory_context, mood_status_payload, record_mood_from_analysis
+from utils.paths import backend_data_dir, backend_data_path, backend_path, docs_path, project_path
 from plugin_system import plugin_status_payload
 from vision.object_detection import (
     get_detection_history,
@@ -140,12 +140,12 @@ import voice.speak as voice_speak_module
 from voice.speak import synthesize_speech_base64
 
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-load_env_file(os.path.join(PROJECT_ROOT, ".env"))
-DATA_DIR = os.path.join(PROJECT_ROOT, "backend", "data")
-CHAT_STATE_PATH = os.path.join(DATA_DIR, "chat_state.json")
-IOT_EXAMPLE_PATH = os.path.join(DATA_DIR, "iot_credentials.example.json")
-VOICE_IOT_SETUP_DOC_PATH = os.path.join(PROJECT_ROOT, "docs", "local-voice-iot-setup.md")
+PROJECT_ROOT = project_path()
+load_env_file(project_path(".env"))
+DATA_DIR = backend_data_dir()
+CHAT_STATE_PATH = backend_data_path("chat_state.json")
+IOT_EXAMPLE_PATH = backend_path("assets", "iot_credentials.example.json")
+VOICE_IOT_SETUP_DOC_PATH = docs_path("local-voice-iot-setup.md")
 
 app = FastAPI(title="Grandpa Assistant API", version="3.0.0")
 app.add_middleware(
@@ -788,7 +788,7 @@ def _smart_home_status_payload():
 
 
 def _face_security_payload():
-    profile_path = os.path.join(DATA_DIR, "face_profile.json")
+    profile_path = backend_data_path("face_profile.json")
     enrolled = os.path.exists(profile_path)
     camera_ready = importlib.util.find_spec("cv2") is not None
     embedding_ready = importlib.util.find_spec("deepface") is not None
@@ -1330,32 +1330,13 @@ def _load_contact_preview(limit=6):
 
 
 def _capture_command_reply(command):
-    spoken_messages = []
-    original_router_speak = command_router_module.speak
-    original_voice_speak = voice_speak_module.speak
-    buffer = io.StringIO()
-
-    def capture_speak(text, *args, **kwargs):
-        cleaned = _compact_text(text)
-        if cleaned:
-            spoken_messages.append(cleaned)
-
-    command_router_module.speak = capture_speak
-    voice_speak_module.speak = capture_speak
-    try:
-        with contextlib.redirect_stdout(buffer):
-            process_command((command or "").lower().strip(), _installed_apps, input_mode="text")
-    finally:
-        command_router_module.speak = original_router_speak
-        voice_speak_module.speak = original_voice_speak
-
-    if spoken_messages:
-        return spoken_messages
-
-    output = _compact_text(buffer.getvalue())
-    if output:
-        return [output]
-    return ["Command completed."]
+    result = execute_command(
+        command,
+        installed_apps=_installed_apps,
+        input_mode="text",
+        source="web-api",
+    )
+    return result.messages or ["Command completed."]
 
 
 def _is_risky_command(command):
@@ -1403,134 +1384,7 @@ def _looks_like_tool_command(command):
 
 
 def _looks_like_direct_action_input(message):
-    cleaned = _compact_text(message)
-    lowered = cleaned.lower()
-    if not cleaned:
-        return False
-    if len(cleaned) > 140:
-        return False
-    if lowered.endswith("?"):
-        return False
-    if lowered.startswith(("can you ", "could you ", "would you ", "how ", "why ", "explain ")):
-        return False
-
-    exact_commands = {
-        "weather",
-        "today events",
-        "latest note",
-        "voice status",
-        "voice diagnostics",
-        "security status",
-        "security alerts",
-        "security logs",
-        "admin status",
-        "administrator status",
-        "full control status",
-        "settings access status",
-        "energy saver status",
-        "battery saver status",
-        "night light status",
-        "mobile hotspot status",
-        "nearby sharing status",
-        "live captions status",
-        "focus assist status",
-        "do not disturb status",
-        "camera status",
-        "microphone status",
-        "mic status",
-        "nextgen status",
-        "habit dashboard",
-        "goal board",
-        "automation rules",
-        "automation history",
-        "mobile companion status",
-        "smart reminder priority",
-        "show settings",
-        "plan my day",
-        "what should i do now",
-    }
-    if lowered in exact_commands:
-        return True
-
-    command_roots = (
-        "open ",
-        "close ",
-        "start ",
-        "stop ",
-        "add ",
-        "set ",
-        "enable ",
-        "disable ",
-        "show ",
-        "list ",
-        "delete ",
-        "remove ",
-        "create ",
-        "plan ",
-        "run ",
-        "scan ",
-        "detect ",
-        "watch ",
-        "sync ",
-        "use ",
-        "verify ",
-        "trust ",
-        "unlock ",
-        "save ",
-        "rename ",
-        "reschedule ",
-        "call ",
-        "message ",
-        "mail ",
-        "send ",
-        "wifi ",
-        "wi-fi ",
-        "wireless ",
-        "bluetooth ",
-        "blue tooth ",
-        "blutooth ",
-        "airplane ",
-        "flight mode ",
-        "energy saver ",
-        "battery saver ",
-        "power saver ",
-        "night light ",
-        "night mode ",
-        "mobile hotspot ",
-        "hotspot ",
-        "nearby sharing ",
-        "nearby share ",
-        "live captions ",
-        "live caption ",
-        "accessibility ",
-        "cast ",
-        "project screen ",
-        "second screen ",
-        "projection mode ",
-        "focus assist ",
-        "do not disturb ",
-        "quiet hours ",
-        "dnd ",
-        "camera ",
-        "microphone ",
-        "mic ",
-        "display mode ",
-        "duplicate screen ",
-        "extend screen ",
-        "pc screen only",
-        "second screen only",
-        "volume ",
-        "brightness ",
-        "mute",
-        "unmute",
-        "turn on ",
-        "turn off ",
-        "switch on ",
-        "switch off ",
-        "press ",
-        "click ",
-    )
-    return lowered.startswith(command_roots)
+    return looks_like_command_input(message)
 
 
 def _execute_tool_command_for_chat(command, source="chat-tool"):

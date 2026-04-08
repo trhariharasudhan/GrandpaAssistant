@@ -6,12 +6,9 @@ import re
 from brain.memory_engine import CONTACT_REFERENCE_ALIASES, load_memory
 from productivity_store import load_task_payload, save_task_payload
 from productivity.calendar_module import extract_specific_date, get_relative_base
+from utils.paths import backend_data_path
 
-DATA_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "data",
-    "tasks.json",
-)
+DATA_FILE = backend_data_path("tasks.json")
 
 
 def _default_data():

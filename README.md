@@ -41,6 +41,37 @@ There is also a separate mobile companion client:
 - `mobile/`
   - Expo React Native app that talks to the desktop API for pairing, remote commands, and mobile chat
 
+## Unified Command Architecture
+
+The system has been refactored to use a centralized command execution pipeline that unifies all input sources and ensures consistent behavior across the assistant.
+
+### Execution Flow
+
+Voice / Text / UI / Mobile / Workflow
+→ AI + Context Layer
+→ Unified Command Router
+→ Standardized Module Adapter
+→ Legacy Router Fallback
+→ Response Output (Text / Voice)
+
+### Key Improvements
+
+* All command entry points now converge into a single unified router
+* Introduced standardized module contracts for consistent integration
+* Added support for multi-step command execution
+* Implemented safe fallback to legacy routing for backward compatibility
+* Eliminated duplicated command handling logic across multiple components
+
+### Current State
+
+* Fully unified at the command pipeline level
+* Modular and scalable architecture
+* Backward compatible with legacy modules
+* Supports gradual migration to the new adapter-based module system
+
+This architecture ensures stability while enabling continuous improvement and future scalability of the assistant system.
+
+
 ## Local AI Stack
 
 The repo now includes an offline FastAPI backend that routes requests by intent:
@@ -298,7 +329,12 @@ npm run build
 
 ## Local Data and Privacy
 
-Runtime data is stored locally under `backend/data/` and includes settings, notes, reminders, assistant state, and other machine-specific files.
+Runtime files are stored locally under `runtime/`:
+
+- `runtime/data/` for assistant state, notes, reminders, SQLite data, and other machine-specific data
+- `runtime/config/` for local secrets and config files such as app auth secrets and IoT credentials
+- `runtime/models/` for local downloaded model files
+- `runtime/cache/` for generated caches and temporary runtime assets
 
 This repo intentionally ignores private/runtime files such as:
 
@@ -307,7 +343,7 @@ This repo intentionally ignores private/runtime files such as:
 - SQLite state
 - assistant settings and personal memory
 
-If you make the repo public, do not commit personal data from `backend/data/`.
+If you make the repo public, do not commit personal data from `runtime/`.
 
 ## Troubleshooting
 

@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import contextlib
-import io
 import uuid
 
-import core.command_router as command_router_module
 from cognition.state import load_section, update_section, utc_now
-from core.command_router import process_command
-import voice.speak as voice_speak_module
+from core.unified_command_router import execute_command
 
 
 MAX_HISTORY = 80
@@ -32,31 +28,8 @@ def _compact_text(value) -> str:
 
 
 def _capture_command_reply(command: str) -> list[str]:
-    spoken_messages = []
-    original_router_speak = command_router_module.speak
-    original_voice_speak = voice_speak_module.speak
-    buffer = io.StringIO()
-
-    def capture_speak(text, *args, **kwargs):
-        cleaned = _compact_text(text)
-        if cleaned:
-            spoken_messages.append(cleaned)
-
-    command_router_module.speak = capture_speak
-    voice_speak_module.speak = capture_speak
-    try:
-        with contextlib.redirect_stdout(buffer):
-            process_command((command or "").lower().strip(), {}, input_mode="text")
-    finally:
-        command_router_module.speak = original_router_speak
-        voice_speak_module.speak = original_voice_speak
-
-    if spoken_messages:
-        return spoken_messages
-    output = _compact_text(buffer.getvalue())
-    if output:
-        return [output]
-    return ["Command completed."]
+    result = execute_command(command, installed_apps={}, input_mode="text", source="workflow-engine")
+    return result.messages or ["Command completed."]
 
 
 def _workflow_items() -> list[dict]:

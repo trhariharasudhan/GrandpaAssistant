@@ -4,10 +4,11 @@ import os
 import re
 import subprocess
 
+from utils.paths import backend_data_dir, backend_data_path
+
 # ================= PATH SETUP =================
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-CACHE_FILE = os.path.join(DATA_DIR, "apps_cache.json")
+DATA_DIR = backend_data_dir()
+CACHE_FILE = backend_data_path("apps_cache.json")
 START_MENU_PATHS = [
     r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs",
     os.path.expanduser(r"~\AppData\Roaming\Microsoft\Windows\Start Menu\Programs"),

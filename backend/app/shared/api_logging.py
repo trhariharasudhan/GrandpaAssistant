@@ -5,10 +5,10 @@ import time
 import uuid
 from typing import Any
 
+from utils.paths import logs_path
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-LOG_DIR = os.path.join(PROJECT_ROOT, "backend", "logs")
-API_LOG_PATH = os.path.join(LOG_DIR, "fastapi_events.jsonl")
+LOG_DIR = logs_path()
+API_LOG_PATH = logs_path("fastapi_events.jsonl")
 
 _WRITE_LOCK = threading.Lock()
 

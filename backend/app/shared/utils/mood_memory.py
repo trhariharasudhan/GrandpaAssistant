@@ -5,10 +5,10 @@ import datetime
 import json
 import os
 
+from utils.paths import backend_data_dir, backend_data_path
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
-DATA_DIR = os.path.join(PROJECT_ROOT, "backend", "data")
-MOOD_MEMORY_PATH = os.path.join(DATA_DIR, "mood_memory.json")
+DATA_DIR = backend_data_dir()
+MOOD_MEMORY_PATH = backend_data_path("mood_memory.json")
 MAX_MOOD_HISTORY = 160
 
 DEFAULT_MOOD_MEMORY = {

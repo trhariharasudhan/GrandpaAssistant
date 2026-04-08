@@ -16,13 +16,10 @@ from automation.messaging_automation_module import quick_email_shortcut, quick_w
 from productivity.notes_module import add_note
 from productivity.task_module import add_reminder, add_task
 from utils.config import get_setting
+from utils.paths import backend_data_path
 
 
-RESEARCH_DATA_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "data",
-    "research_sessions.json",
-)
+RESEARCH_DATA_FILE = backend_data_path("research_sessions.json")
 
 
 def _clean_query(text):

@@ -26,12 +26,12 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 
-& $PythonExe -m PyInstaller --noconfirm --clean --distpath backend\dist --workpath backend\build backend\GrandpaAssistantBackend.spec
+& $PythonExe -m PyInstaller --noconfirm --clean --distpath runtime\artifacts\backend\dist --workpath runtime\artifacts\backend\build backend\GrandpaAssistantBackend.spec
 if ($LASTEXITCODE -ne 0) {
     throw "Backend executable build failed."
 }
 
-$Artifact = Join-Path $ProjectRoot "backend\dist\GrandpaAssistantBackend\GrandpaAssistantBackend.exe"
+$Artifact = Join-Path $ProjectRoot "runtime\artifacts\backend\dist\GrandpaAssistantBackend\GrandpaAssistantBackend.exe"
 if (-not (Test-Path $Artifact)) {
     throw "Backend executable was not created."
 }

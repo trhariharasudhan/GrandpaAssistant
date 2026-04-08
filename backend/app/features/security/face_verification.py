@@ -2,8 +2,9 @@ import os
 import json
 import time
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-PROFILE_PATH = os.path.join(BASE_DIR, "data", "face_profile.json")
+from utils.paths import backend_data_path
+
+PROFILE_PATH = backend_data_path("face_profile.json")
 
 def _get_camera_frame(camera_index=0, retries=5):
     try:

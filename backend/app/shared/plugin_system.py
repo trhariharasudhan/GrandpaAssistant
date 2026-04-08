@@ -4,17 +4,11 @@ import os
 import sys
 from types import ModuleType
 
+from utils.paths import backend_data_dir, backend_data_path, plugins_path
 
-PLUGIN_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "plugins",
-)
-DATA_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "backend",
-    "data",
-)
-PLUGIN_REGISTRY_PATH = os.path.join(DATA_DIR, "plugin_registry.json")
+PLUGIN_DIR = plugins_path()
+DATA_DIR = backend_data_dir()
+PLUGIN_REGISTRY_PATH = backend_data_path("plugin_registry.json")
 
 _PLUGIN_CACHE = {}
 _PLUGIN_REGISTRY_CACHE = None

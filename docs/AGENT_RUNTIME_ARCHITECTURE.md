@@ -9,7 +9,7 @@ Grandpa Assistant now includes a modular multi-agent runtime layer on top of the
 - `backend/app/agents/message_bus.py`
   In-process message bus used for agent-to-agent events.
 - `backend/app/agents/state_store.py`
-  Centralized runtime state persisted to `backend/data/agent_runtime_state.json`.
+  Centralized runtime state persisted to `runtime/data/agent_runtime_state.json`.
 - `backend/app/agents/catalog.py`
   Default runtime agents wired to the existing assistant features.
 - `backend/app/agents/runtime.py`
@@ -79,7 +79,7 @@ Grandpa Assistant now includes a modular multi-agent runtime layer on top of the
 Plugin metadata and enabled/disabled state are managed through:
 
 - `backend/app/shared/plugin_system.py`
-- `backend/data/plugin_registry.json`
+- `runtime/data/plugin_registry.json`
 
 Plugins can expose:
 

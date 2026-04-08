@@ -77,7 +77,7 @@ Status: Issue-ready backlog
 10. **[P2] Backup/Restore for Local Data**
    - Goal: protect user data and simplify migration.
    - Acceptance:
-     - one-command backup zip for `backend/data/`.
+     - one-command backup zip for `runtime/data/`.
      - restore command with safety confirmation.
      - optional scheduled backup rule.
 

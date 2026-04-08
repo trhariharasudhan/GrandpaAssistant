@@ -35,4 +35,4 @@ The following checks were run successfully on `main` before tagging:
 ## Notes
 
 - This release is focused on feature expansion while preserving the V1 stable core.
-- Runtime local data remains under `backend/data/` and is intentionally not part of release commits.
+- Runtime local data remains under `runtime/data/` and is intentionally not part of release commits.

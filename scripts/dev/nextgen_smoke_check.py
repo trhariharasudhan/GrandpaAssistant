@@ -22,13 +22,13 @@ import productivity.nextgen_module as nextgen_module  # noqa: E402
 import productivity.task_module as task_module  # noqa: E402
 import productivity_store  # noqa: E402
 import utils.config as config_module  # noqa: E402
+from utils.paths import config_path, data_path  # noqa: E402
 
 
-DATA_DIR = os.path.join(ROOT, "backend", "data")
-TASKS_PATH = os.path.join(DATA_DIR, "tasks.json")
-EVENTS_PATH = os.path.join(DATA_DIR, "events.json")
-NEXTGEN_PATH = os.path.join(DATA_DIR, "nextgen_features.json")
-SETTINGS_PATH = os.path.join(DATA_DIR, "settings.json")
+TASKS_PATH = data_path("tasks.json")
+EVENTS_PATH = data_path("events.json")
+NEXTGEN_PATH = data_path("nextgen_features.json")
+SETTINGS_PATH = config_path("settings.json")
 
 
 def _print_result(name, ok, details=""):

@@ -121,7 +121,7 @@ Acceptance:
 - [x] Remove temporary test files and logs.
 - [x] Update [`.gitignore`](C:\Users\ASUS\OneDrive\Desktop\GrandpaAssistant\.gitignore) for new temp/runtime outputs.
 - [x] Keep runtime data out of source control where possible.
-  - Verified runtime folders are not tracked (`git ls-files backend/data`, `git ls-files backend/logs`).
+  - Verified runtime folders are not tracked (`git ls-files runtime/data`, `git ls-files runtime/logs`).
 - [x] Remove stale docs and duplicated instructions.
   - Consolidated tracking docs under `docs/` only.
 

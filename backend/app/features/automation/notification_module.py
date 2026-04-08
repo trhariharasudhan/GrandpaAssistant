@@ -14,6 +14,7 @@ from integrations.weather_module import get_weather_report
 from productivity.briefing_module import build_brief_details
 from productivity.export_module import export_daily_recap_summary
 from utils.config import get_setting
+from utils.paths import backend_data_path
 
 
 _monitor_thread = None
@@ -26,11 +27,7 @@ _last_status_popup_signature = None
 _last_brief_popup_signature = None
 _last_recap_popup_signature = None
 _popup_history = {}
-STATE_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "data",
-    "notification_state.json",
-)
+STATE_FILE = backend_data_path("notification_state.json")
 
 
 def _load_notification_state():

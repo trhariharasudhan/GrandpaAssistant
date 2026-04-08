@@ -5,10 +5,9 @@ import os
 
 from brain.memory_engine import get_memory
 from modules.task_module import get_task_data
+from utils.paths import backend_data_path
 
-
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
-NEXTGEN_PATH = os.path.join(PROJECT_ROOT, "backend", "data", "nextgen_features.json")
+NEXTGEN_PATH = backend_data_path("nextgen_features.json")
 
 
 def _compact_text(value) -> str:

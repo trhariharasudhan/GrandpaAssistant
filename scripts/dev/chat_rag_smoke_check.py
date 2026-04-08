@@ -15,9 +15,10 @@ for _path in (APP_DIR, SHARED_DIR, FEATURES_DIR):
         sys.path.insert(0, _path)
 
 import api.web_api as web_api  # noqa: E402
+from utils.paths import backend_data_path  # noqa: E402
 
 
-CHAT_STATE_PATH = os.path.join(ROOT, "backend", "data", "chat_state.json")
+CHAT_STATE_PATH = backend_data_path("chat_state.json")
 
 
 def _print_result(name, ok, details=""):

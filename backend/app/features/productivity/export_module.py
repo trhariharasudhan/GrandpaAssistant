@@ -4,13 +4,10 @@ import os
 from productivity.dashboard_module import build_daily_recap, build_today_agenda
 from productivity.event_module import get_event_data
 from productivity.task_module import get_task_data
+from utils.paths import backend_data_path
 
 
-EXPORT_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "data",
-    "exports",
-)
+EXPORT_DIR = backend_data_path("exports")
 
 
 def _build_summary_lines():

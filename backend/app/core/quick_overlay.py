@@ -9,6 +9,8 @@ try:
 except ImportError:
     keyboard = None
 
+from utils.paths import backend_data_path
+
 
 _overlay_root = None
 _overlay_entry = None
@@ -24,11 +26,7 @@ _overlay_all_suggestions = None
 _overlay_all_recent_commands = None
 _overlay_all_recent_actions = None
 _overlay_all_context_items = None
-_STATE_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "data",
-    "overlay_state.json",
-)
+_STATE_PATH = backend_data_path("overlay_state.json")
 
 
 def _load_overlay_state():

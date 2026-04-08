@@ -8,12 +8,12 @@ import time
 import atexit
 from typing import Any, Callable
 
+from utils.paths import backend_data_dir, backend_data_path
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-DATA_DIR = os.path.join(PROJECT_ROOT, "backend", "data")
-STATE_PATH = os.path.join(DATA_DIR, "security_state.json")
-ACTIVITY_LOG_PATH = os.path.join(DATA_DIR, "security_activity.jsonl")
-VOICE_PROFILE_PATH = os.path.join(DATA_DIR, "security_voice_profile.json")
+DATA_DIR = backend_data_dir()
+STATE_PATH = backend_data_path("security_state.json")
+ACTIVITY_LOG_PATH = backend_data_path("security_activity.jsonl")
+VOICE_PROFILE_PATH = backend_data_path("security_voice_profile.json")
 
 
 def utc_now() -> str:

@@ -9,13 +9,10 @@ from mobile_companion import MOBILE_COMPANION
 from productivity.event_module import get_event_data
 from productivity.task_module import get_task_data
 from utils.config import get_setting, update_setting
+from utils.paths import backend_data_path
 
 
-DATA_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "data",
-    "nextgen_features.json",
-)
+DATA_FILE = backend_data_path("nextgen_features.json")
 
 VOICE_TRAINER_PRESETS = {
     "quiet": {

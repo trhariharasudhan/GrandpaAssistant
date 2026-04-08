@@ -9,17 +9,16 @@ from datetime import datetime
 from brain.database import LEGACY_MEMORY_PATH
 from security.encryption_utils import read_encrypted_json, remember_protected_target, write_encrypted_json
 from utils.config import get_setting
+from utils.paths import backend_data_dir, backend_data_path, project_path, runtime_config_path
 
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-CREDENTIALS_PATH = os.path.join(BASE_DIR, "credentials.json")
-TOKEN_PATH = os.path.join(DATA_DIR, "google_token.json")
-CACHE_PATH = os.path.join(DATA_DIR, "google_contacts_cache.json")
-ALIAS_PATH = os.path.join(DATA_DIR, "contact_aliases.json")
-META_PATH = os.path.join(DATA_DIR, "google_contacts_meta.json")
-CHANGE_LOG_PATH = os.path.join(DATA_DIR, "google_contact_change_log.json")
-FAVORITES_PATH = os.path.join(DATA_DIR, "contact_favorites.json")
+DATA_DIR = backend_data_dir()
+TOKEN_PATH = backend_data_path("google_token.json")
+CACHE_PATH = backend_data_path("google_contacts_cache.json")
+ALIAS_PATH = backend_data_path("contact_aliases.json")
+META_PATH = backend_data_path("google_contacts_meta.json")
+CHANGE_LOG_PATH = backend_data_path("google_contact_change_log.json")
+FAVORITES_PATH = backend_data_path("contact_favorites.json")
 SCOPES = ["https://www.googleapis.com/auth/contacts.readonly"]
 TRANSLITERATION_EQUIVALENTS = {
     "appa": ["அப்பா", "அப்பா ❤️", "அப்பா🙏"],
@@ -41,6 +40,19 @@ TRANSLITERATION_EQUIVALENTS = {
     "periyappa": ["பெரியப்பா"],
 }
 DEFAULT_LIVE_REFRESH_MINUTES = 1
+
+
+def _credentials_path() -> str:
+    env_path = str(os.getenv("GRANDPA_ASSISTANT_GOOGLE_CREDENTIALS_PATH", "")).strip()
+    candidates = [
+        env_path,
+        runtime_config_path("credentials.json"),
+        project_path("credentials.json"),
+    ]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return runtime_config_path("credentials.json")
 
 
 def _ensure_data_dir():
@@ -356,11 +368,12 @@ def _build_contact_entry(person):
 
 
 def sync_google_contacts():
-    if not os.path.exists(CREDENTIALS_PATH):
+    credentials_path = _credentials_path()
+    if not os.path.exists(credentials_path):
         return (
             False,
-            "I could not find credentials.json in the project folder. "
-            "Keep it in the repo root and try again.",
+            "I could not find Google credentials.json. "
+            "Keep it in runtime/config or set GRANDPA_ASSISTANT_GOOGLE_CREDENTIALS_PATH.",
         )
 
     try:
@@ -392,7 +405,7 @@ def sync_google_contacts():
                 creds = None
 
         if not creds or not creds.valid:
-            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
             creds = flow.run_local_server(port=0)
 
         with open(TOKEN_PATH, "w", encoding="utf-8") as token_file:
@@ -473,7 +486,7 @@ def ensure_google_contacts_fresh(force=False, max_age_minutes=None):
     if not get_setting("google_contacts.live_refresh_enabled", True) and not force:
         return False, "Google Contacts live refresh disabled."
 
-    if not os.path.exists(CREDENTIALS_PATH) or not os.path.exists(TOKEN_PATH):
+    if not os.path.exists(_credentials_path()) or not os.path.exists(TOKEN_PATH):
         return False, "Google Contacts live refresh skipped."
 
     if max_age_minutes is None:
@@ -803,7 +816,7 @@ def import_google_contact_to_memory(contact_name):
 
 
 def auto_refresh_google_contacts(refresh_hours=24):
-    if not os.path.exists(CREDENTIALS_PATH) or not os.path.exists(TOKEN_PATH):
+    if not os.path.exists(_credentials_path()) or not os.path.exists(TOKEN_PATH):
         return False, "Google Contacts auto refresh skipped."
 
     meta = _load_meta()

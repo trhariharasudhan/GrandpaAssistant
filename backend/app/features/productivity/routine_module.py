@@ -7,12 +7,9 @@ import time
 from controls.brightness_control import set_brightness_level
 from controls.volume_control import set_volume_level
 from utils.config import APP_ALIASES
+from utils.paths import backend_data_path
 
-DATA_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "data",
-    "routines.json",
-)
+DATA_FILE = backend_data_path("routines.json")
 
 PRESET_ROUTINES = {
     "work": {

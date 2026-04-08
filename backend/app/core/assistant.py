@@ -10,7 +10,6 @@ from colorama import Fore, Style, init
 
 from brain.database import get_recent_commands
 from api.web_api import start_web_api
-from core.command_router import process_command
 from core.odin_ui import launch_odin_ui
 from core.quick_overlay import (
     get_pinned_commands,
@@ -20,6 +19,7 @@ from core.quick_overlay import (
     unregister_overlay_hotkey,
 )
 from core.tray_manager import set_tray_exit_callback, set_tray_open_callbacks, start_tray, stop_tray
+from core.unified_command_router import execute_command
 from modules.app_scan_module import get_all_apps
 from modules.dictation_module import handle_dictation_text, is_dictation_active, stop_dictation
 from modules.event_module import get_event_data
@@ -303,8 +303,19 @@ def _handle_ocr_hotkey_result(result):
 
 def _handle_overlay_command(command_text):
     print(f"\nOverlay command: {command_text}")
-    process_command(command_text.lower().strip(), INSTALLED_APPS, input_mode="text")
+    _run_unified_command(command_text, input_mode="text")
     play_sound("success")
+
+
+def _run_unified_command(command_text, *, input_mode="text"):
+    result = execute_command(
+        command_text,
+        installed_apps=INSTALLED_APPS,
+        input_mode=input_mode,
+        source="assistant-core",
+    )
+    for message in result.messages or ["Command completed."]:
+        speak(message)
 
 
 def _open_overlay():
@@ -535,7 +546,7 @@ def _process_voice_command(command, current_timeout):
             play_sound("success")
             return {"exit": False, "timeout": ACTIVE_TIMEOUT}
 
-    process_command(command, INSTALLED_APPS, input_mode="voice")
+    _run_unified_command(command, input_mode="voice")
     play_sound("success")
     print()
     return {"exit": False, "timeout": ACTIVE_TIMEOUT}
@@ -969,7 +980,7 @@ def text_mode():
                 stop_tray()
                 return None
 
-            process_command(command, INSTALLED_APPS, input_mode="text")
+            _run_unified_command(command, input_mode="text")
             play_sound("success")
             print()
 
