@@ -37,17 +37,36 @@ from brain.semantic_memory import (
 import pyperclip
 from brain.question_analyzer import is_personal_question
 from core.intent_router import try_handle_intent
-from core.quick_overlay import (
-    get_pinned_commands,
-    hide_quick_overlay,
-    is_quick_overlay_open,
-    list_pinned_commands,
-    move_pinned_command,
-    pin_overlay_command,
-    show_quick_overlay,
-    unpin_overlay_command,
-)
-from core.tray_manager import start_tray, stop_tray
+# UI/overlay/tray removed: provide lightweight stubs to avoid import failures
+def get_pinned_commands():
+    return []
+
+def hide_quick_overlay():
+    return False, "overlay disabled"
+
+def is_quick_overlay_open():
+    return False
+
+def list_pinned_commands():
+    return "No pinned overlay commands."
+
+def move_pinned_command(command_text, direction):
+    return False, "overlay disabled"
+
+def pin_overlay_command(command_text):
+    return False, "overlay disabled"
+
+def show_quick_overlay(*args, **kwargs):
+    return False, "overlay disabled"
+
+def unpin_overlay_command(command_text):
+    return False, "overlay disabled"
+
+def start_tray(*args, **kwargs):
+    return False, "tray not available"
+
+def stop_tray(*args, **kwargs):
+    return False
 
 from modules.calendar_module import (
     handle_calendar_queries,
@@ -162,11 +181,15 @@ from modules.google_calendar_module import (
     upcoming_google_calendar_events,
 )
 from modules.messaging_automation_module import quick_email_shortcut, quick_whatsapp_message
-from modules.desktop_launch_module import (
-    open_react_browser_ui,
-    open_react_desktop_ui,
-    tray_react_status,
-)
+# Desktop React UI removed: stubs
+def open_react_browser_ui():
+    return False, "UI removed"
+
+def open_react_desktop_ui():
+    return False, "UI removed"
+
+def tray_react_status():
+    return "Tray React UI is disabled"
 from modules.notification_module import show_custom_popup
 from modules.startup_module import (
     disable_startup_auto_launch,

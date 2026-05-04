@@ -2018,21 +2018,7 @@ def api_doctor():
     }
 
 
-@app.get("/api/ui-state")
-def api_ui_state(request: Request):
-    auth_context = _authenticated_app_context(request, required=False)
-    if _web_ui_auth_required() and not auth_context:
-        return {
-            "ok": True,
-            "state": {
-                "auth": {
-                    "authenticated": False,
-                    "user": None,
-                    "bootstrap": auth_bootstrap_status(),
-                }
-            },
-        }
-    return {"ok": True, "state": _build_ui_state(auth_context)}
+
 
 
 @app.get("/api/auth/bootstrap-status")

@@ -10,15 +10,34 @@ from colorama import Fore, Style, init
 
 from brain.database import get_recent_commands
 from api.web_api import start_web_api
-from core.odin_ui import launch_odin_ui
-from core.quick_overlay import (
-    get_pinned_commands,
-    hide_quick_overlay,
-    register_overlay_hotkey,
-    show_quick_overlay,
-    unregister_overlay_hotkey,
-)
-from core.tray_manager import set_tray_exit_callback, set_tray_open_callbacks, start_tray, stop_tray
+# UI removed: provide local no-op stubs for overlay/tray functions so backend stays functional
+def get_pinned_commands():
+    return []
+
+def hide_quick_overlay():
+    return False, "overlay disabled"
+
+def register_overlay_hotkey(*args, **kwargs):
+    return False
+
+def unregister_overlay_hotkey(*args, **kwargs):
+    return False
+
+def show_quick_overlay(*args, **kwargs):
+    return False, "overlay disabled"
+
+def set_tray_exit_callback(callback):
+    # no-op: tray not available in backend-only mode
+    return
+
+def set_tray_open_callbacks(*args, **kwargs):
+    return
+
+def start_tray(*args, **kwargs):
+    return False, "tray not available"
+
+def stop_tray(*args, **kwargs):
+    return False
 from core.unified_command_router import execute_command
 from modules.app_scan_module import get_all_apps
 from modules.dictation_module import handle_dictation_text, is_dictation_active, stop_dictation
@@ -36,7 +55,15 @@ from modules.notification_module import (
 )
 from modules.profile_module import build_proactive_nudge
 from modules.messaging_automation_module import restore_scheduled_jobs
-from modules.desktop_launch_module import launch_react_for_tray, open_react_browser_ui, open_react_desktop_ui
+# UI launchers removed; provide no-op launchers
+def open_react_browser_ui():
+    return False, "UI removed"
+
+def open_react_desktop_ui():
+    return False, "UI removed"
+
+def launch_react_for_tray():
+    return False, "UI removed"
 from modules.startup_module import refresh_startup_auto_launch
 from modules.google_contacts_module import start_google_contacts_auto_refresh
 from modules.task_module import get_task_data
@@ -444,7 +471,6 @@ def _prompt_for_input_mode():
     mode_map = {
         "1": "voice",
         "2": "text",
-        "3": "ui",
     }
 
     while True:
@@ -489,12 +515,10 @@ def _run_selected_mode_loop(start_mode):
             speak("Text mode activated.")
             print()
             next_mode = text_mode()
-        elif mode == "ui":
-            set_response_mode("text")
-            play_sound("start")
-            speak("UI activated.")
-            launch_odin_ui(INSTALLED_APPS)
-            return
+        else:
+            # only voice and text modes supported in backend-only mode
+            mode = "menu"
+            continue
         else:
             mode = "menu"
             continue
@@ -597,36 +621,7 @@ def main(start_in_tray=False, start_in_ui=False, forced_input_mode=None):
 
     startup_messages = _build_compact_startup_messages()
 
-    if start_in_ui:
-        show_startup_notifications()
-        show_startup_brief_popup()
-        show_startup_agenda_popup()
-        show_startup_health_popup()
-        show_startup_weather_popup()
-        show_startup_status_popup()
-        show_startup_recap_popup()
-        run_startup_daily_automations()
-        start_notification_monitor()
-        restore_scheduled_jobs()
-        if get_setting("google_contacts.auto_refresh_enabled", True):
-            start_google_contacts_auto_refresh(get_setting("google_contacts.auto_refresh_hours", 24))
-        if get_setting("ocr.region_hotkey_enabled", True):
-            register_region_hotkey(
-                _handle_ocr_hotkey_result,
-                get_setting("ocr.region_hotkey", "ctrl+shift+o"),
-            )
-        if get_setting("overlay.hotkey_enabled", True):
-            register_overlay_hotkey(
-                _handle_overlay_command,
-                get_setting("overlay.hotkey", "ctrl+shift+space"),
-                suggestions_provider=_overlay_suggestions,
-                recent_provider=get_recent_commands,
-                recent_actions_provider=lambda: get_recent_commands(limit=4),
-                context_provider=_overlay_context_items,
-            )
-        set_response_mode("text")
-        launch_odin_ui(INSTALLED_APPS, startup_messages=startup_messages)
-        return
+    # UI mode removed; proceed with backend-only startup
 
     if get_setting("startup.show_installed_apps_on_boot", False):
         print("\n========= INSTALLED APPLICATIONS =========")
