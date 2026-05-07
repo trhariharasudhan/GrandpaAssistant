@@ -36,6 +36,7 @@ from brain.semantic_memory import (
     semantic_memory_search_summary,
     semantic_memory_status_summary,
 )
+from context_suggestions import summarize_context_suggestions
 from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
 from screen_awareness import explain_screen
 from window_awareness import summarize_active_window
@@ -4140,6 +4141,17 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     ]:
         language = "ta" if command == "screen la enna iruku" else "auto"
         speak(explain_screen(language=language))
+        return
+
+    if command in [
+        "what should i do next",
+        "suggest next action",
+        "context suggestion",
+        "enna next pannalam",
+        "help me with this screen",
+    ]:
+        language = "ta" if command == "enna next pannalam" else "auto"
+        speak(summarize_context_suggestions(language=language))
         return
 
     if command.startswith("clear knowledge review item "):
