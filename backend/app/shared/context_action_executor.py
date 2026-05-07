@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
+from debug_assistant import build_debug_report, format_debug_report
 from screen_awareness import summarize_screen_context
 
 
@@ -79,33 +80,15 @@ def is_safe_read_only_action(action: str | None) -> bool:
 
 def explain_screen_error(language: str = "auto") -> dict[str, Any]:
     resolved = _resolve_language(language)
-    payload = _screen_payload(resolved)
-    lines = _error_lines(payload)
-    if not payload.get("ok"):
-        message = (
-            "Ippo screen-ai padikka mudiyala, so error-ai explain panna mudiyala."
-            if resolved == "ta"
-            else "I cannot read the screen right now, so I cannot explain the error yet."
-        )
-    elif lines:
-        joined = "; ".join(lines)
-        message = (
-            f"Screen-la error mathiri line theriyuthu: {joined}. Idhai base panni issue-ai explain panna mudiyum."
-            if resolved == "ta"
-            else f"I see error-like text on the screen: {joined}. The likely issue is around that output."
-        )
-    else:
-        message = (
-            "Screen-la clear error line theriyala. Visible text-ai summarize pannalaam."
-            if resolved == "ta"
-            else "I do not see a clear error line right now. I can summarize the visible text instead."
-        )
+    report = build_debug_report(language=resolved)
+    message = format_debug_report(report, language=resolved)
     return {
-        "ok": bool(payload.get("ok")),
+        "ok": bool(report.get("ok")),
         "executed": True,
         "action": "debug_error",
         "read_only": True,
         "message": message,
+        "debug_report": report,
         "timestamp": _utc_now(),
     }
 
@@ -191,9 +174,9 @@ def execute_suggested_action(
         result = explain_screen_error(language=resolved)
         result["action"] = "troubleshoot_terminal"
         if resolved == "ta":
-            result["message"] = result["message"].replace("Screen-la", "Terminal-la", 1)
+            result["message"] = "Terminal troubleshooting: " + result.get("message", "")
         else:
-            result["message"] = result["message"].replace("screen", "terminal", 1)
+            result["message"] = "Terminal troubleshooting: " + result.get("message", "")
         return result
     if action == "summarize_page":
         return summarize_visible_screen_text(language=resolved)

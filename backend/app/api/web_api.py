@@ -59,6 +59,7 @@ from screen_awareness import summarize_screen_context
 from window_awareness import summarize_active_window
 from context_suggestions import build_context_suggestions
 from context_action_executor import execute_suggested_action
+from debug_assistant import build_debug_report
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -2150,6 +2151,14 @@ def api_context_execute_suggestion(request: Request, payload: ContextExecuteSugg
     language = (payload.language if payload else "auto") or "auto"
     action_payload = payload.action_payload if payload and payload.action_payload else build_context_suggestions(language=language)
     return execute_suggested_action(action_payload, user_confirmation=True, language=language)
+
+
+@app.get("/api/debug/report")
+def api_debug_report(request: Request, language: str = "auto"):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Debug reports are only available from localhost or admin sessions.")
+    return build_debug_report(language=language)
 
 
 
