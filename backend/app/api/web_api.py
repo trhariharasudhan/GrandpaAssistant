@@ -355,6 +355,11 @@ def _require_local_request(request: Request) -> None:
     raise HTTPException(status_code=403, detail="This action is only allowed from the desktop device.")
 
 
+def _is_local_request(request: Request | None) -> bool:
+    client = getattr(request, "client", None) if request is not None else None
+    return _is_local_host(getattr(client, "host", ""))
+
+
 def _extract_bearer_token(authorization_value: str) -> str:
     value = _compact_text(authorization_value)
     if value.lower().startswith("bearer "):
@@ -378,6 +383,35 @@ def _authenticated_app_context(request: Request | None, *, required: bool = Fals
             raise HTTPException(status_code=401, detail="Invalid or expired session.")
         return None
     return payload
+
+
+def _is_admin_context(context: dict | None) -> bool:
+    try:
+        require_admin(context)
+        return True
+    except Exception:
+        return False
+
+
+def _restricted_stability_payload() -> dict:
+    detail = "Detailed backend stability is available from localhost or authenticated admin sessions."
+    check = {
+        "key": "access_restricted",
+        "name": "Access restricted",
+        "status": "warning",
+        "ok": True,
+        "detail": detail,
+    }
+    return {
+        "overall_ok": False,
+        "restricted": True,
+        "timestamp": datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "checks": [check],
+        "warnings": [check],
+        "failures": [],
+        "next_actions": ["Access this endpoint from localhost or authenticate as an admin user."],
+        "diagnostics_summary": "",
+    }
 
 
 def _authenticated_app_user(request: Request | None, *, required: bool = False) -> dict | None:
@@ -2044,7 +2078,10 @@ def api_doctor():
 
 
 @app.get("/api/backend/stability")
-def api_backend_stability():
+def api_backend_stability(request: Request):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        return _restricted_stability_payload()
     return build_backend_stability_payload(
         pending_confirmations=_pending_confirmations,
         api_health={

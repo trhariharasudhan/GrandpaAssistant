@@ -76,6 +76,7 @@ scripts\windows\check_assistant_health.cmd
 Desktop API examples:
 
 - `GET /api/health`
+- `GET /api/backend/stability`
 - `POST /api/command`
 - `POST /api/voice/start`
 - `POST /api/voice/stop`
@@ -98,6 +99,7 @@ Run these checks before shipping backend changes:
 
 ```bat
 python -m unittest discover -s tests -v
+python scripts\dev\full_backend_validation.py
 python scripts\dev\startup_smoke_check.py
 ```
 
@@ -105,6 +107,20 @@ Compile backend Python files:
 
 ```powershell
 Get-ChildItem backend -Recurse -Filter *.py | ForEach-Object { python -m py_compile $_.FullName }
+```
+
+Backend stability dashboard:
+
+```text
+GET /api/backend/stability
+```
+
+The stability route returns full details for localhost or authenticated admin requests. Remote unauthenticated requests receive a trimmed restricted payload. The same release-lock summary is available through assistant commands such as `backend health summary` and `release lock status`.
+
+Release candidate checklist:
+
+```text
+docs/RELEASE_CANDIDATE_CHECKLIST.md
 ```
 
 ## Notes

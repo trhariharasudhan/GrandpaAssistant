@@ -41,11 +41,20 @@ class BackendStabilityApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
+        self.assertNotIn("restricted", payload)
         self.assertIn("overall_ok", payload)
         self.assertIn("checks", payload)
         self.assertIn("warnings", payload)
         self.assertIn("timestamp", payload)
         self.assertIn("next_actions", payload)
+
+    def test_localhost_access_allowed_full_payload(self) -> None:
+        response = self.client.get("/api/backend/stability")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload.get("restricted", False))
+        self.assertGreaterEqual(len(payload["checks"]), 5)
 
     def test_optional_warning_states_do_not_fail_route(self) -> None:
         diagnostics = {
@@ -71,6 +80,32 @@ class BackendStabilityApiTests(unittest.TestCase):
         warning_keys = {item["key"] for item in payload["warnings"]}
         self.assertIn("ollama", warning_keys)
         self.assertIn("camera_vision", warning_keys)
+
+    def test_non_local_unauthenticated_access_is_trimmed(self) -> None:
+        remote_client = TestClient(web_api.app, client=("203.0.113.10", 50000))
+
+        response = remote_client.get("/api/backend/stability")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["restricted"])
+        self.assertEqual([item["key"] for item in payload["checks"]], ["access_restricted"])
+        self.assertEqual(payload["diagnostics_summary"], "")
+
+    def test_non_local_admin_access_allowed_full_payload(self) -> None:
+        remote_client = TestClient(web_api.app, client=("203.0.113.10", 50000))
+        admin_context = {"user": {"id": 1, "username": "admin", "role": "admin"}}
+
+        with patch.object(web_api, "authenticate_app_token", return_value=admin_context):
+            response = remote_client.get(
+                "/api/backend/stability",
+                headers={"Authorization": "Bearer admin-token"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload.get("restricted", False))
+        self.assertGreaterEqual(len(payload["checks"]), 5)
 
 
 if __name__ == "__main__":
