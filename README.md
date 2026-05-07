@@ -1,209 +1,114 @@
-# GrandpaAssistant 🤖🔥
+# GrandpaAssistant
 
-A **Windows-first AI desktop assistant** built with **Python, FastAPI, React, and local AI (Ollama)** — designed to bring voice, automation, and intelligence into one unified system.
+GrandpaAssistant is a Windows-first Python backend for a local desktop assistant. The current active setup is backend-only: it runs from `backend\desktop_backend_entry.py` and keeps assistant logic, FastAPI endpoints, voice hooks, productivity modules, IoT helpers, plugins, tests, and Windows support scripts in this repository.
 
----
+## Current Scope
 
-## 🚀 Demo (Coming Soon)
+- Python backend runtime for the Windows desktop assistant
+- FastAPI chat and desktop APIs
+- Local assistant command routing and module system
+- Voice, productivity, system control, IoT, memory, and plugin integrations
+- Local data under ignored runtime/data paths
 
-> Add screenshots / demo video here for best impact
+App-client workspaces are not part of the active project right now. The backend still contains protected companion API logic where those features are part of the assistant backend.
 
----
+## Project Layout
 
-## ✨ Features
-
-* 🎙️ Voice + Text interaction (wake word support)
-* ⚡ Fast local AI responses using multi-model routing
-* 🧠 Session memory (remembers context & user info)
-* 🖥️ Desktop automation (apps, volume, brightness, typing)
-* 📊 Productivity tools (tasks, notes, reminders, dashboard)
-* 🧩 Unified command system (single execution pipeline)
-* 🌐 React + Electron desktop UI
-* 🔌 FastAPI backend (chat, voice, UI, mobile support)
-
----
-
-## 🧠 Architecture
-
-All inputs flow through one unified pipeline:
-
-```
-Voice / Text / UI / Mobile
-        ↓
-AI + Context Layer
-        ↓
-Unified Command Router
-        ↓
-Module System
-        ↓
-Response (Text / Voice)
+```text
+GrandpaAssistant/
+|-- backend/      Python assistant backend and runtime entry points
+|-- docs/         Architecture, setup, validation, and release notes
+|-- plugins/      Local assistant plugins
+|-- scripts/      Backend, diagnostics, IoT, voice, and Windows helper scripts
+|-- tests/        Backend unit tests
+|-- runtime/      Local runtime output (ignored)
+|-- main.py       Root launcher helper
+|-- README.md
 ```
 
-### 🔥 Key Highlights
+## Requirements
 
-* Single command pipeline (no duplicate logic)
-* Modular and scalable design
-* Supports multi-step execution
-* Backward compatible with legacy modules
+- Windows 10/11
+- Python 3.11 recommended
+- Optional: Ollama for local LLM responses
+- Optional: microphone, Piper/Coqui/Whisper tooling, Tesseract, and IoT credentials depending on enabled features
 
----
+## Setup
 
-## 🛠️ Tech Stack
-
-* **Backend:** Python, FastAPI
-* **Frontend:** React, Vite, Electron
-* **AI:** Ollama (Mistral, Phi3, DeepSeek)
-* **Voice:** Whisper, Piper / Coqui
-* **OCR:** Tesseract
-* **Database:** SQLite
-
----
-
-## ⚙️ Setup
-
-### 1. Clone
-
-```bash
-git clone https://github.com/trhariharasudhan/GrandpaAssistant.git
-cd GrandpaAssistant
-```
-
----
-
-### 2. Backend Setup
-
-```bash
+```bat
 python -m venv .venv
 .venv\Scripts\activate
-pip install -r backend/requirements.txt
+pip install -r backend\requirements.txt
 ```
 
----
+Optional local AI models:
 
-### 3. Frontend Setup
-
-```bash
-cd frontend
-npm install
-cd ..
-```
-
----
-
-### 4. Install Local AI (Ollama)
-
-```bash
+```bat
 ollama pull mistral:7b
 ollama pull phi3:mini
 ollama pull deepseek-coder:6.7b
 ```
 
----
+## Run
 
-## ▶️ Run
+Start the backend desktop assistant:
 
-### Backend
-
-```bash
+```bat
 python backend\desktop_backend_entry.py
 ```
 
-### Frontend
+Optional chat API entry point:
 
-```bash
-cd frontend
-npm run dev
-```
-
-### Optional (Chat API)
-
-```bash
+```bat
 python backend\fastapi_chat.py
 ```
 
----
+Useful Windows helper scripts:
 
-## 📡 API Endpoints
-
-**Desktop API**
-
-* `GET /api/health`
-* `POST /api/command`
-* `POST /api/voice/start`
-* `POST /api/voice/stop`
-
-**Chat API**
-
-* `POST /chat`
-* `POST /chat/stream`
-* `GET /chat/history`
-
----
-
-## 📁 Project Structure
-
-```
-GrandpaAssistant/
-├── backend/
-├── frontend/
-├── mobile/
-├── runtime/   (ignored)
-├── docs/
-├── scripts/
-└── README.md
+```bat
+scripts\windows\start_assistant_console.cmd
+scripts\windows\start_assistant_admin.cmd
+scripts\windows\check_assistant_health.cmd
 ```
 
----
+## API Surface
 
-## 🔐 Privacy & Local Data
+Desktop API examples:
 
-* All user data stored locally (`runtime/`)
-* No external data sharing by default
-* Secrets are ignored via `.gitignore`
+- `GET /api/health`
+- `POST /api/command`
+- `POST /api/voice/start`
+- `POST /api/voice/stop`
 
----
+Chat API examples:
 
-## 🧪 Validation
+- `POST /chat`
+- `POST /chat/stream`
+- `GET /chat/history`
 
-```bash
+## Local Data And Secrets
+
+Runtime output is local and should stay out of git. Secret-bearing files under `backend\data`, including app auth secrets, tokens, and credential files, are ignored by `.gitignore`.
+
+Use checked-in example files such as `backend\assets\iot_credentials.example.json` as templates, then place real local credentials in ignored data/config locations.
+
+## Validation
+
+Run these checks before shipping backend changes:
+
+```bat
 python -m unittest discover -s tests -v
+python scripts\dev\startup_smoke_check.py
 ```
 
----
+Compile backend Python files:
 
-## ⚠️ Notes
+```powershell
+Get-ChildItem backend -Recurse -Filter *.py | ForEach-Object { python -m py_compile $_.FullName }
+```
 
-* Windows-first (desktop automation dependent)
-* Requires microphone for voice mode
-* Ollama must be running for AI responses
+## Notes
 
----
-
-## 🧭 Roadmap
-
-* 🌍 Web deployment
-* 📱 Mobile improvements
-* 🧠 Smarter memory system
-* ⚡ Faster response optimization
-
----
-
-## 👨‍💻 Author
-
-**Hari Hara Sudhan**
-
----
-
-## ⭐ Support
-
-If you like this project:
-
-👉 Star the repo
-👉 Share it
-👉 Contribute
-
----
-
-## 📜 License
-
-Add a license (MIT recommended) before public distribution.
+- Backend runtime must remain runnable with `python backend\desktop_backend_entry.py`.
+- Some optional capabilities need local services or hardware to be configured before they report fully ready.
+- Keep secrets, generated databases, logs, and runtime output untracked.

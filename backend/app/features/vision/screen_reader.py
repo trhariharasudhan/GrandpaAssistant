@@ -20,9 +20,18 @@ try:
 except ImportError:
     pyperclip = None
 
-import cv2
-import numpy as np
-import pyautogui
+try:
+    import cv2
+except Exception:
+    cv2 = None
+try:
+    import numpy as np
+except Exception:
+    np = None
+try:
+    import pyautogui
+except Exception:
+    pyautogui = None
 
 TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 OCR_CONFIG = r"--oem 3 --psm 6"
@@ -36,7 +45,7 @@ if pytesseract and os.path.exists(TESSERACT_PATH):
 
 
 def _ocr_ready():
-    if pytesseract is None:
+    if pytesseract is None or cv2 is None or np is None or pyautogui is None:
         return False
 
     configured_path = getattr(pytesseract.pytesseract, "tesseract_cmd", "")

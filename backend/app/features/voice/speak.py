@@ -7,12 +7,21 @@ import sys
 import tempfile
 import threading
 import time
-import winsound
 import importlib.util
 from xml.sax.saxutils import escape
 
-import pyttsx3
-import win32com.client
+try:
+    import winsound
+except Exception:
+    winsound = None
+try:
+    import pyttsx3
+except Exception:
+    pyttsx3 = None
+try:
+    import win32com.client
+except Exception:
+    win32com = None
 from colorama import Fore, Style, init
 
 from utils.config import get_setting, update_setting
@@ -653,8 +662,8 @@ def _backend_availability():
     return {
         "coqui": custom_voice["ready"],
         "piper": piper["ready"],
-        "sapi": True,
-        "pyttsx3": True,
+        "sapi": win32com is not None,
+        "pyttsx3": pyttsx3 is not None,
         "custom_voice_status": custom_voice,
         "piper_status": piper,
     }
@@ -805,6 +814,8 @@ def _get_sapi_voice():
     global _sapi_voice
 
     if _sapi_voice is None:
+        if win32com is None:
+            raise RuntimeError("Windows SAPI voice support is not available.")
         lang = _preferred_language()
         voice = win32com.client.Dispatch("SAPI.SpVoice")
         lang_base = lang.split("-")[0].lower()
@@ -842,6 +853,8 @@ def _get_engine():
     global _engine
 
     if _engine is None:
+        if pyttsx3 is None:
+            raise RuntimeError("pyttsx3 is not available.")
         lang = _preferred_language()
         engine = pyttsx3.init("sapi5")
         voices = engine.getProperty("voices")
@@ -964,6 +977,8 @@ def _speak_with_piper(text):
         stdout_text, stderr_text = _piper_process.communicate(text, timeout=120)
         if _piper_process.returncode != 0:
             raise RuntimeError((stderr_text or stdout_text or "Unknown Piper error").strip())
+        if winsound is None:
+            raise RuntimeError("winsound is not available for Piper playback.")
         winsound.PlaySound(output_path, winsound.SND_FILENAME)
     finally:
         _piper_process = None
@@ -1034,6 +1049,8 @@ def _speak_with_coqui(text):
         except TypeError:
             kwargs.pop("language", None)
             tts.tts_to_file(**kwargs)
+        if winsound is None:
+            raise RuntimeError("winsound is not available for Coqui playback.")
         winsound.PlaySound(output_path, winsound.SND_FILENAME)
     finally:
         if os.path.exists(output_path):
@@ -1248,7 +1265,8 @@ def stop_speaking():
                 _piper_process.terminate()
                 _piper_process = None
 
-            winsound.PlaySound(None, 0)
+            if winsound is not None:
+                winsound.PlaySound(None, 0)
 
             if _sapi_voice is not None:
                 _sapi_voice.Speak("", SVS_FLAGS_ASYNC | SVS_FPURGE_BEFORE_SPEAK)

@@ -1,38 +1,37 @@
-# Grandpa Assistant Release Notes v1.1.0
+# Grandpa Assistant Backend Release Notes v1.1.0
 
 Date: 02 April 2026
 
 ## Overview
 
-This release adds the NextGen productivity feature pack on top of the V1 stabilization baseline.
+This release adds the NextGen productivity feature pack on top of the V1 backend stabilization baseline.
 
 ## Highlights
 
-- AI day planner with focused time blocks from tasks/reminders.
-- Habit tracker with check-ins, streaks, and dashboard summary.
-- Goals and milestones board with completion tracking.
-- Smart reminder priority ranking (P1/P2/P3 style).
-- Voice trainer presets for quiet/normal/noisy environments.
-- Language mode controls (`auto`, `english`, `tamil`) with preview.
-- Meeting capture with extracted action items.
-- RAG library metadata tools (document tags and folders).
-- Lightweight automation rule manager (create/list/enable/disable).
-- Mobile companion setup and queued update feed.
+- AI day planner with focused time blocks from tasks/reminders
+- Habit tracker with check-ins, streaks, and dashboard summary
+- Goals and milestones board with completion tracking
+- Smart reminder priority ranking
+- Voice trainer presets for quiet/normal/noisy environments
+- Language mode controls with preview
+- Meeting capture with extracted action items
+- RAG library metadata tools
+- Lightweight automation rule manager
+- Mobile companion backend APIs and queued update feed
 
-## API and UI Improvements
+## API Improvements
 
-- New NextGen status snapshot included in API UI state payload.
-- Dashboard now includes a dedicated NextGen card with quick actions.
-- Command router now supports direct natural commands for all 10 features.
+- New NextGen status snapshot included in API state payload
+- Command router supports direct natural commands for all feature-pack flows
+- Backend APIs preserve chat, voice, productivity, automation, and companion surfaces
 
 ## Verification Summary
 
-The following checks were run successfully on `main` before tagging:
-
-- `cmd /c ".venv\Scripts\activate.bat && python scripts\dev\nextgen_smoke_check.py"` -> `overall_ok=True`
-- `cmd /c npm run build` (frontend Vite production build)
+- `python scripts\dev\nextgen_smoke_check.py` should report `overall_ok=True`
+- `python -m unittest discover -s tests -v` should pass
+- `python scripts\dev\startup_smoke_check.py` should pass
 
 ## Notes
 
-- This release is focused on feature expansion while preserving the V1 stable core.
-- Runtime local data remains under `runtime/data/` and is intentionally not part of release commits.
+- Runtime local data remains under ignored local data paths.
+- This release preserves the V1 stable backend core.

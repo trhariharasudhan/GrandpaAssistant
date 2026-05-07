@@ -55,15 +55,15 @@ from modules.notification_module import (
 )
 from modules.profile_module import build_proactive_nudge
 from modules.messaging_automation_module import restore_scheduled_jobs
-# UI launchers removed; provide no-op launchers
-def open_react_browser_ui():
-    return False, "UI removed"
+# Desktop UI launchers were removed in the backend-only build.
+def open_desktop_ui_removed():
+    return False, "Desktop UI is not part of this backend-only build."
 
-def open_react_desktop_ui():
-    return False, "UI removed"
+def open_desktop_shell_removed():
+    return False, "Desktop shell is not part of this backend-only build."
 
-def launch_react_for_tray():
-    return False, "UI removed"
+def launch_desktop_ui_for_tray():
+    return False, "Desktop UI is not part of this backend-only build."
 from modules.startup_module import refresh_startup_auto_launch
 from modules.google_contacts_module import start_google_contacts_auto_refresh
 from modules.task_module import get_task_data
@@ -475,7 +475,7 @@ def _prompt_for_input_mode():
 
     while True:
         try:
-            print("\nChoose to enter input mode (1 - Voice / 2 - Text / 3 - UI): ", end="", flush=True)
+            print("\nChoose to enter input mode (1 - Voice / 2 - Text): ", end="", flush=True)
             selected = input().strip()
         except EOFError:
             print("\nNo interactive console input detected. Switching to text mode.")
@@ -519,11 +519,8 @@ def _run_selected_mode_loop(start_mode):
             # only voice and text modes supported in backend-only mode
             mode = "menu"
             continue
-        else:
-            mode = "menu"
-            continue
 
-        if next_mode in {"voice", "text", "ui", "menu"}:
+        if next_mode in {"voice", "text", "menu"}:
             mode = next_mode
             continue
         return
@@ -537,7 +534,8 @@ def _process_voice_command(command, current_timeout):
         elif mode_switch == "text":
             speak("Switching to text mode.")
         elif mode_switch == "ui":
-            speak("Switching to UI mode.")
+            speak("UI mode is disabled in this build.")
+            return {"exit": False, "timeout": ACTIVE_TIMEOUT, "switch_mode": None}
         else:
             speak("Voice mode already active.")
         return {"exit": False, "timeout": ACTIVE_TIMEOUT, "switch_mode": mode_switch}
@@ -583,8 +581,8 @@ def main(start_in_tray=False, start_in_ui=False, forced_input_mode=None):
 
     set_tray_exit_callback(exit_assistant)
     set_tray_open_callbacks(
-        open_react_browser=lambda: open_react_browser_ui(),
-        open_react_desktop=lambda: open_react_desktop_ui(),
+        open_browser=lambda: open_desktop_ui_removed(),
+        open_desktop=lambda: open_desktop_shell_removed(),
     )
     WAKE_WORD = get_setting("wake_word", "hey grandpa")
     INITIAL_TIMEOUT = get_setting("initial_timeout", 15)
@@ -671,7 +669,7 @@ def main(start_in_tray=False, start_in_ui=False, forced_input_mode=None):
         if message:
             print(message)
         if success:
-            launch_react_for_tray()
+            launch_desktop_ui_for_tray()
             set_response_mode("voice")
             speak("Background tray mode activated.")
             voice_mode()

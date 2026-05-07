@@ -7,7 +7,10 @@ import threading
 import time
 from difflib import SequenceMatcher
 
-import speech_recognition as sr
+try:
+    import speech_recognition as sr
+except Exception:
+    sr = None
 try:
     import sounddevice
 except Exception:
@@ -18,7 +21,7 @@ from utils.config import get_setting, update_setting
 from voice.speak import tts_backend_payload
 
 
-recognizer = sr.Recognizer()
+recognizer = sr.Recognizer() if sr is not None else None
 _last_calibration_mode = None
 _last_calibration_at = 0.0
 _whisper_module = None
@@ -844,6 +847,8 @@ def _mark_calibrated(settings):
 
 
 def _transcribe_with_google(audio, preferred_language):
+    if recognizer is None:
+        raise RuntimeError("SpeechRecognition is not available.")
     return recognizer.recognize_google(audio, language=_normalized_google_language(preferred_language))
 
 
@@ -881,6 +886,11 @@ def _transcribe_with_whisper(audio, settings, preferred_language):
 def listen(for_wake_word=False, for_follow_up=False):
     global _last_stt_backend_used, _last_stt_error
     settings = _active_voice_settings()
+
+    if sr is None or recognizer is None:
+        _last_stt_backend_used = "unavailable"
+        _last_stt_error = "SpeechRecognition is not installed."
+        return None
 
     clap_window_seconds = 0.0
     if for_wake_word and detect_double_clap_wake(settings):

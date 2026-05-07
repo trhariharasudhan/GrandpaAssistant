@@ -301,6 +301,81 @@ def _module_status() -> dict[str, Any]:
     )
 
 
+def _voice_input_status() -> dict[str, Any]:
+    speech_ready = _module_is_available("speech_recognition")
+    sounddevice_ready = _module_is_available("sounddevice")
+    pyaudio_ready = _module_is_available("pyaudio")
+
+    if speech_ready and (sounddevice_ready or pyaudio_ready):
+        source = "sounddevice" if sounddevice_ready else "PyAudio"
+        return _item(
+            "voice_input",
+            "ok",
+            "Voice Input",
+            f"Voice input dependencies are available through {source}.",
+            speech_recognition=speech_ready,
+            sounddevice=sounddevice_ready,
+            pyaudio=pyaudio_ready,
+        )
+
+    if speech_ready:
+        return _item(
+            "voice_input",
+            "warning",
+            "Voice Input",
+            "SpeechRecognition is installed, but no microphone backend is available yet.",
+            speech_recognition=speech_ready,
+            sounddevice=sounddevice_ready,
+            pyaudio=pyaudio_ready,
+        )
+
+    return _item(
+        "voice_input",
+        "warning",
+        "Voice Input",
+        "SpeechRecognition is not installed, so voice input will be disabled.",
+        speech_recognition=speech_ready,
+        sounddevice=sounddevice_ready,
+        pyaudio=pyaudio_ready,
+    )
+
+
+def _camera_vision_status() -> dict[str, Any]:
+    cv2_ready = _module_is_available("cv2")
+    numpy_ready = _module_is_available("numpy")
+    pyautogui_ready = _module_is_available("pyautogui")
+    ultralytics_ready = _module_is_available("ultralytics")
+
+    if cv2_ready and numpy_ready:
+        status = "ok" if ultralytics_ready else "warning"
+        detail = (
+            "OpenCV and NumPy are available for camera/OCR features."
+            if ultralytics_ready
+            else "OpenCV and NumPy are available; object detection needs ultralytics for YOLO models."
+        )
+        return _item(
+            "camera_vision",
+            status,
+            "Camera and Vision",
+            detail,
+            opencv=cv2_ready,
+            numpy=numpy_ready,
+            pyautogui=pyautogui_ready,
+            ultralytics=ultralytics_ready,
+        )
+
+    return _item(
+        "camera_vision",
+        "warning",
+        "Camera and Vision",
+        "Camera/OCR/vision features are disabled until OpenCV and NumPy are available.",
+        opencv=cv2_ready,
+        numpy=numpy_ready,
+        pyautogui=pyautogui_ready,
+        ultralytics=ultralytics_ready,
+    )
+
+
 def _launcher_status() -> dict[str, Any]:
     scripts = {
         "admin_launcher": os.path.join(PROJECT_ROOT, "scripts", "windows", "start_assistant_admin.cmd"),
@@ -449,6 +524,8 @@ def collect_startup_diagnostics(*, use_cache: bool = True, allow_create_dirs: bo
     items.append(_ollama_model_status(installed_models))
     items.append(_tesseract_status())
     items.append(_module_status())
+    items.append(_voice_input_status())
+    items.append(_camera_vision_status())
     items.append(_iot_config_status())
     items.append(_piper_status())
     items.append(_launcher_status())

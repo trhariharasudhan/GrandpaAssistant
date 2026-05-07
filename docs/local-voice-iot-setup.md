@@ -40,8 +40,9 @@ Useful assistant commands:
 
 ## Release and Validation
 
-- `scripts\windows\final_release_check.cmd`
-- `scripts\windows\export_release_manifest.cmd`
+- `python -m unittest discover -s tests -v`
+- `python scripts\dev\startup_smoke_check.py`
+- `scripts\windows\check_assistant_health.cmd`
 - `docs\REAL_WORLD_VALIDATION_CHECKLIST.md`
 
 ## Wake Word Tuning

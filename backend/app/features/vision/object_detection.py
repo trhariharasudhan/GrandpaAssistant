@@ -3,9 +3,27 @@ import threading
 import time
 from collections import Counter
 
-import cv2
-import numpy as np
-import pyautogui
+try:
+    import cv2
+except Exception as error:
+    cv2 = None
+    _CV2_IMPORT_ERROR = str(error)
+else:
+    _CV2_IMPORT_ERROR = ""
+try:
+    import numpy as np
+except Exception as error:
+    np = None
+    _NUMPY_IMPORT_ERROR = str(error)
+else:
+    _NUMPY_IMPORT_ERROR = ""
+try:
+    import pyautogui
+except Exception as error:
+    pyautogui = None
+    _PYAUTOGUI_IMPORT_ERROR = str(error)
+else:
+    _PYAUTOGUI_IMPORT_ERROR = ""
 
 from utils.config import get_setting, update_setting
 from utils.paths import cache_path, models_path, project_path
@@ -106,7 +124,7 @@ def _object_settings():
 
 
 def is_object_detection_available():
-    return YOLO is not None
+    return YOLO is not None and cv2 is not None and np is not None
 
 
 def _resolve_model_path(model_name):
@@ -142,6 +160,10 @@ def _model_load_candidates(model_name):
 
 
 def object_detection_import_error():
+    if cv2 is None:
+        return f"OpenCV is not available: {_CV2_IMPORT_ERROR}"
+    if np is None:
+        return f"NumPy is not available: {_NUMPY_IMPORT_ERROR}"
     if _IMPORT_ERROR:
         return f"Object detection dependency missing: {_IMPORT_ERROR}"
     return ""
@@ -259,6 +281,8 @@ def delete_object_detection_preset(name):
 
 def _ensure_model():
     global _MODEL
+    if cv2 is None or np is None:
+        raise RuntimeError(object_detection_import_error() or "OpenCV and NumPy are required for object detection.")
     if YOLO is None:
         raise RuntimeError(object_detection_import_error() or "Ultralytics is not installed.")
     if _MODEL is None:
@@ -508,6 +532,8 @@ def detect_objects_once():
 
 
 def detect_objects_on_screen():
+    if pyautogui is None:
+        return {"ok": False, "error": f"Screen capture is not available: {_PYAUTOGUI_IMPORT_ERROR}"}
     settings = _object_settings()
     model = _ensure_model()
     screenshot = pyautogui.screenshot()

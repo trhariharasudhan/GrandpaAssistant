@@ -181,15 +181,15 @@ from modules.google_calendar_module import (
     upcoming_google_calendar_events,
 )
 from modules.messaging_automation_module import quick_email_shortcut, quick_whatsapp_message
-# Desktop React UI removed: stubs
-def open_react_browser_ui():
-    return False, "UI removed"
+# Desktop UI launchers were removed in the backend-only build.
+def open_backend_ui_removed():
+    return False, "Desktop UI is not part of this backend-only build."
 
-def open_react_desktop_ui():
-    return False, "UI removed"
+def open_desktop_shell_removed():
+    return False, "Desktop shell is not part of this backend-only build."
 
-def tray_react_status():
-    return "Tray React UI is disabled"
+def tray_desktop_ui_status():
+    return "Tray desktop UI launch is disabled in the backend-only build."
 from modules.notification_module import show_custom_popup
 from modules.startup_module import (
     disable_startup_auto_launch,
@@ -2608,54 +2608,20 @@ def _handle_config_command(command):
         return startup_auto_launch_status()
 
     if command in [
-        "open react ui",
-        "open react browser ui",
         "open web ui",
+        "open desktop ui",
     ]:
-        _ok, reply = open_react_browser_ui()
+        _ok, reply = open_backend_ui_removed()
         return reply
 
     if command in [
-        "open react desktop",
         "open desktop shell",
-        "open react desktop ui",
     ]:
-        _ok, reply = open_react_desktop_ui()
+        _ok, reply = open_desktop_shell_removed()
         return reply
 
-    if command in [
-        "tray react status",
-        "react tray status",
-    ]:
-        return tray_react_status()
-
-    if command in [
-        "enable tray react ui",
-        "enable react ui on tray startup",
-    ]:
-        update_setting("startup.react_ui_on_tray_enabled", True)
-        return "Tray React UI launch enabled."
-
-    if command in [
-        "disable tray react ui",
-        "disable react ui on tray startup",
-    ]:
-        update_setting("startup.react_ui_on_tray_enabled", False)
-        return "Tray React UI launch disabled."
-
-    if command in [
-        "set tray react mode to browser",
-        "set react tray mode to browser",
-    ]:
-        update_setting("startup.react_ui_on_tray_mode", "browser")
-        return "Tray React UI mode set to browser."
-
-    if command in [
-        "set tray react mode to desktop",
-        "set react tray mode to desktop",
-    ]:
-        update_setting("startup.react_ui_on_tray_mode", "desktop")
-        return "Tray React UI mode set to desktop."
+    if command in ["tray desktop ui status", "desktop ui tray status"]:
+        return tray_desktop_ui_status()
 
     if command in ["enable health popup", "turn on health popup"]:
         update_setting("notifications.health_popup_enabled", True)

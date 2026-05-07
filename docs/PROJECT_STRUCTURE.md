@@ -1,28 +1,31 @@
 # GrandpaAssistant Project Structure Guide
 
-This file is the quick orientation map for the repository.
+This is the backend-only orientation map for the active repository.
 
-## 1) Top-Level Folders
+## Top-Level Folders
 
 ```text
 GrandpaAssistant/
-|- backend/       # Python assistant runtime, API, and feature logic
-|- frontend/      # React + Electron desktop UI
-|- scripts/       # Helper scripts (mostly Windows launch/build)
+|- backend/       # Python assistant runtime, APIs, feature logic, assets
+|- scripts/       # Backend smoke checks and Windows helper scripts
 |- plugins/       # Local plugin examples
-|- docs/          # Product scope, roadmap, and structure docs
+|- docs/          # Architecture, validation, and setup notes
+|- tests/         # Backend unit tests
+|- runtime/       # Local runtime output, ignored by git
 |- main.py        # Thin launcher to backend/main.py
 ```
 
-## 2) Backend Layout
+## Backend Layout
 
 ```text
 backend/
+|- desktop_backend_entry.py
 |- main.py
+|- fastapi_chat.py
 |- app/
 |  |- api/        # FastAPI endpoints
-|  |- core/       # Assistant loop, command router, tray, overlay, UI glue
-|  |- shared/     # Config, DB, sound, LLM client, shared helpers
+|  |- core/       # Assistant loop and command routing
+|  |- shared/     # Config, DB, auth, LLM client, diagnostics, helpers
 |  |- features/   # Domain modules
 |     |- productivity/
 |     |- system/
@@ -33,56 +36,23 @@ backend/
 |     |- integrations/
 |     |- security/
 |     |- modules/ # Compatibility aliases for legacy imports
-|- assets/        # Static runtime assets (sounds, models)
-|- data/          # Local runtime state (JSON/SQLite)
-|- logs/          # Runtime logs
+|- assets/        # Static runtime assets and examples
 ```
 
-## 3) Frontend Layout
+## Common Edit Points
 
-```text
-frontend/
-|- src/
-|  |- components/
-|  |- constants/
-|  |- utils/
-|  |- App.jsx
-|  |- main.jsx
-|- electron/      # Electron main/preload
-|- assets/
-```
-
-## 4) What To Edit For Common Tasks
-
-- New voice/text command behavior: `backend/app/core/command_router.py`
-- Voice runtime state and APIs: `backend/app/api/web_api.py`
-- Voice recognition/tuning internals: `backend/app/features/voice/listen.py`
-- Productivity feature logic: `backend/app/features/productivity/`
-- System controls: `backend/app/features/system/`
-- UI actions and controls: `frontend/src/App.jsx`
-- UI reusable blocks: `frontend/src/components/`
+- Command behavior: `backend/app/core/command_router.py`
+- Desktop assistant loop: `backend/app/core/assistant.py`
+- Desktop/API runtime: `backend/app/api/web_api.py`
+- Chat API runtime: `backend/app/api/chat_api.py`
+- Voice internals: `backend/app/features/voice/`
+- OCR and vision internals: `backend/app/features/vision/`
 - Settings defaults: `backend/app/shared/utils/config.py`
+- Startup diagnostics: `backend/app/shared/startup_diagnostics.py`
 
-## 5) Practical Rules To Keep Structure Clean
+## Practical Rules
 
-1. Put new backend feature code in the correct domain folder under `backend/app/features/`.
-2. Do not add new business logic into `features/modules/`; that folder is alias-only.
-3. Keep temporary test files in `scripts/` or local ignored paths, not the repo root.
-4. Update this file when adding major new folders or moving module ownership.
-
-## 6) Why `.env` And `.env.example` Both Exist
-
-- `.env` is your real local secrets/runtime config (machine-specific, never commit).
-- `.env.example` is a safe template with placeholder values so setup is easy for new machines/users.
-- They are intentionally both needed; they are not duplicate files.
-
-## 7) Runtime Files You Can Ignore In Explorer
-
-- `__pycache__/` folders
-- `.venv/`
-- `runtime/data/chat_history.json`
-- `runtime/data/apps_cache.json`
-- `runtime/data/assistant.db`
-- `runtime/data/chat_state.json`
-
-These are generated while running the app and are not source code.
+1. Put new backend feature code in the matching domain folder under `backend/app/features/`.
+2. Do not add business logic into `features/modules/`; that folder is compatibility-only.
+3. Keep temporary files in ignored runtime/temp paths.
+4. Keep backend runnable with `python backend\desktop_backend_entry.py`.

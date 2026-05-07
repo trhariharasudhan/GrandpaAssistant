@@ -5,7 +5,6 @@ import importlib.util
 import io
 import json
 import os
-import subprocess
 import tempfile
 import threading
 import time
@@ -79,6 +78,7 @@ from app_data_store import (
     update_user_profile,
     upsert_chat_session,
 )
+from api_cors import localhost_cors_origins
 from startup_diagnostics import collect_startup_diagnostics
 from modules.event_module import get_event_data
 from modules.google_contacts_module import CACHE_PATH as GOOGLE_CONTACTS_CACHE_PATH
@@ -150,7 +150,7 @@ VOICE_IOT_SETUP_DOC_PATH = docs_path("local-voice-iot-setup.md")
 app = FastAPI(title="Grandpa Assistant API", version="3.0.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=localhost_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1972,11 +1972,9 @@ def _build_ui_state(auth_context: dict | None = None):
             "auto_launch_enabled": _safe_call(lambda: get_setting("startup.auto_launch_enabled", False), False),
             "tray_mode": _safe_call(lambda: get_setting("startup.tray_mode", False), False),
             "summary": _safe_call(startup_auto_launch_status, "Startup status unavailable right now."),
-            "portable_setup_ready": os.path.exists(os.path.join(PROJECT_ROOT, "scripts", "windows", "setup_portable_desktop.cmd")),
-            "react_ui_on_tray_enabled": _safe_call(lambda: get_setting("startup.react_ui_on_tray_enabled", False), False),
-            "react_ui_on_tray_mode": _safe_call(lambda: get_setting("startup.react_ui_on_tray_mode", "browser"), "browser"),
-            "react_frontend_ready": os.path.exists(os.path.join(PROJECT_ROOT, "scripts", "windows", "start_react_frontend.cmd")),
-            "react_desktop_ready": os.path.exists(os.path.join(PROJECT_ROOT, "scripts", "windows", "start_react_electron.cmd")),
+            "desktop_ui_ready": False,
+            "desktop_ui_enabled": False,
+            "desktop_ui_mode": "removed",
         },
         "doctor": doctor_state,
         "voice": _voice_status_payload(),
@@ -2247,24 +2245,11 @@ def api_refresh_proactive():
 
 @app.post("/api/settings/portable-setup")
 def api_portable_setup(request: PortableSetupRequest):
-    action = _compact_text(request.action) or "desktop"
-    script_path = os.path.join(PROJECT_ROOT, "scripts", "windows", "setup_portable_desktop.cmd")
-    if not os.path.exists(script_path):
-        raise HTTPException(status_code=404, detail="Portable setup helper not found.")
-    try:
-        args = [script_path]
-        if action == "startup-on":
-            args.append("/startup-on")
-        elif action == "startup-off":
-            args.append("/startup-off")
-        subprocess.run(args, cwd=PROJECT_ROOT, check=True, shell=True)
-        message = {
-            "startup-on": "Portable app startup shortcut enabled.",
-            "startup-off": "Portable app startup shortcut disabled.",
-        }.get(action, "Portable app desktop shortcut created.")
-        return {"ok": True, "message": message, "startup": _build_ui_state()["startup"]}
-    except Exception as error:
-        raise HTTPException(status_code=500, detail=f"Portable setup error: {error}") from error
+    _compact_text(request.action)
+    raise HTTPException(
+        status_code=410,
+        detail="Portable desktop packaging is not part of the backend-only build.",
+    )
 
 
 @app.post("/api/command")

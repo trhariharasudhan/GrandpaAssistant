@@ -16,13 +16,15 @@ backend/data/*credential*
 backend/data/*credentials*
 backend/data/*.db
 node_modules/
-frontend/dist/
-frontend/release/
 build/
 dist/
 /package-lock.json
 *.log
 *.db
+backend/data/app_auth_secret.txt
+backend/data/*.secret
+backend/data/*token*
+backend/data/*credential*
 temp_*_report*.json
 temp_run_output*.txt
 temp_server_restart.log

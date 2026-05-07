@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from api_cors import localhost_cors_origins
 from ai_router import route_request
 from api_logging import ensure_log_dir, log_api_event, new_request_id, request_summary
 from agents.runtime import ASSISTANT_RUNTIME
@@ -96,7 +97,7 @@ app = FastAPI(title="Grandpa Assistant Chat API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=localhost_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -44,7 +44,6 @@ CODING_HINTS = (
     "docker",
     "kubernetes",
     "fastapi",
-    "react",
     "traceback",
     "stack trace",
     "exception",

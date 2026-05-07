@@ -98,8 +98,6 @@ DEFAULT_SETTINGS = {
     "startup": {
         "tray_mode": False,
         "auto_launch_enabled": False,
-        "react_ui_on_tray_enabled": False,
-        "react_ui_on_tray_mode": "browser",
         "interface_mode": "terminal",
         "terminal_input_mode": "text",
         "show_installed_apps_on_boot": False,
