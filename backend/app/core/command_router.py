@@ -38,6 +38,7 @@ from brain.semantic_memory import (
 )
 from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
 from screen_awareness import explain_screen
+from window_awareness import summarize_active_window
 import pyperclip
 from brain.question_analyzer import is_personal_question
 from core.intent_router import try_handle_intent
@@ -5457,11 +5458,16 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
 
     if command in [
         "what app am i in",
+        "what app am i using",
         "what window is active",
         "current window",
         "active window",
+        "naan enna app use panren",
+        "where am i working",
     ]:
-        speak(get_active_window_summary())
+        language = "ta" if command == "naan enna app use panren" else "auto"
+        payload = summarize_active_window(language=language)
+        speak(payload.get("summary") or payload.get("message") or get_active_window_summary())
         return
 
     intent_result = try_handle_intent(command)

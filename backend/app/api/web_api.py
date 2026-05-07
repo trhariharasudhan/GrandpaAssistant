@@ -56,6 +56,7 @@ from llm_client import (
 )
 from local_knowledge import answer_if_confident, list_knowledge_review_queue
 from screen_awareness import summarize_screen_context
+from window_awareness import summarize_active_window
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -2116,6 +2117,14 @@ def api_screen_summary(request: Request, language: str = "auto"):
     if not _is_local_request(request) and not _is_admin_context(context):
         raise HTTPException(status_code=403, detail="Screen summary is only available from localhost or admin sessions.")
     return summarize_screen_context(language=language)
+
+
+@app.get("/api/window/context")
+def api_window_context(request: Request, language: str = "auto"):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Window context is only available from localhost or admin sessions.")
+    return summarize_active_window(language=language)
 
 
 

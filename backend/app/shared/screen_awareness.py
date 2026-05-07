@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from vision import screen_reader
+from window_awareness import safe_window_context_payload
 
 
 NO_TEXT_MESSAGE = "Readable text was not clearly detected on the screen."
@@ -159,6 +160,7 @@ def summarize_screen_context(language: str = "auto") -> dict[str, Any]:
             "language": resolved_language,
             "text": "",
             "lines": [],
+            "active_window": safe_window_context_payload(),
             "error_detection": {"has_error_like_text": False, "matches": [], "lines": []},
             "summary": warning["message"],
         }
@@ -175,6 +177,7 @@ def summarize_screen_context(language: str = "auto") -> dict[str, Any]:
         "language": resolved_language,
         "text": text_payload.get("text", ""),
         "lines": text_payload.get("lines", []),
+        "active_window": safe_window_context_payload(),
         "summary": summary,
         "error_detection": error_detection,
         "timestamp": text_payload.get("timestamp"),
