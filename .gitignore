@@ -14,6 +14,7 @@ backend/data/*.secret
 backend/data/*token*
 backend/data/*credential*
 backend/data/*credentials*
+backend/data/last_backend_validation.json
 backend/data/*.db
 node_modules/
 build/

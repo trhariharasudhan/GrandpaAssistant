@@ -6,6 +6,8 @@ import re
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
 import uuid
 import webbrowser
 
@@ -353,6 +355,7 @@ IOT_CREDENTIALS_PATH = config_path("iot_credentials.json")
 IOT_EXAMPLE_PATH = backend_path("assets", "iot_credentials.example.json")
 FACE_PROFILE_PATH = backend_data_path("face_profile.json")
 VOICE_IOT_SETUP_DOC_PATH = docs_path("local-voice-iot-setup.md")
+LAST_BACKEND_VALIDATION_PATH = backend_data_path("last_backend_validation.json")
 
 
 def _store_pending_confirmation(state):
@@ -912,6 +915,91 @@ def _assistant_doctor_summary(include_ready=False):
     diagnostics = collect_startup_diagnostics(use_cache=False, allow_create_dirs=False)
     lines = format_startup_diagnostics_report(diagnostics, include_ready=include_ready)
     return " ".join(lines)
+
+
+def _load_last_backend_validation_status():
+    try:
+        with open(LAST_BACKEND_VALIDATION_PATH, "r", encoding="utf-8") as file:
+            payload = json.load(file)
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _api_health_status():
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8765/api/health", timeout=2) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+        if payload.get("ok"):
+            return "ok", "API health is responding on 127.0.0.1:8765."
+        return "warning", "API health responded, but did not report ok."
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+        return "warning", f"API health is not reachable right now: {error}"
+
+
+def _diagnostic_item(diagnostics, key):
+    for item in diagnostics.get("items", []):
+        if item.get("key") == key:
+            return item
+    return {"status": "warning", "detail": f"{key} was not reported by startup diagnostics."}
+
+
+def _backend_stability_summary():
+    diagnostics = collect_startup_diagnostics(use_cache=False, allow_create_dirs=False)
+    api_status, api_detail = _api_health_status()
+    voice = _diagnostic_item(diagnostics, "voice_input")
+    ollama = _diagnostic_item(diagnostics, "ollama_api")
+    ocr = _diagnostic_item(diagnostics, "tesseract")
+    camera = _diagnostic_item(diagnostics, "camera_vision")
+    data_dir = _diagnostic_item(diagnostics, "data_dir")
+    log_dir = _diagnostic_item(diagnostics, "log_dir")
+    pending_count = len(pending_confirmations)
+    latest_pending = pending_confirmation.get("id") if isinstance(pending_confirmation, dict) else ""
+    validation = _load_last_backend_validation_status()
+    validation_ok = validation.get("overall_ok")
+    validation_text = "No full backend validation status has been recorded yet."
+    if validation:
+        failed = validation.get("failed_sections") or []
+        checked_at = validation.get("checked_at", "unknown time")
+        validation_text = (
+            f"Last validation passed at {checked_at}."
+            if validation_ok
+            else f"Last validation failed at {checked_at}; failed sections: {', '.join(failed) or 'unknown'}."
+        )
+
+    optional_readiness_keys = {"Voice dependencies", "Ollama", "OCR", "Camera and vision"}
+
+    def release_status(name, status):
+        if name in optional_readiness_keys and status == "error":
+            return "warning"
+        return status
+
+    sections = [
+        ("API health", api_status, api_detail),
+        ("Voice dependencies", voice.get("status", "warning"), voice.get("detail", "")),
+        ("Ollama", ollama.get("status", "warning"), ollama.get("detail", "")),
+        ("OCR", ocr.get("status", "warning"), ocr.get("detail", "")),
+        ("Camera and vision", camera.get("status", "warning"), camera.get("detail", "")),
+        ("Runtime data path", data_dir.get("status", "warning"), data_dir.get("detail", "")),
+        ("Runtime log path", log_dir.get("status", "warning"), log_dir.get("detail", "")),
+        (
+            "Command confirmations",
+            "ok",
+            f"{pending_count} pending action(s)." + (f" Latest pending id is {latest_pending}." if latest_pending else ""),
+        ),
+        ("Last validation", "ok" if validation_ok else "warning", validation_text),
+    ]
+    sections = [(name, release_status(name, status), detail) for name, status, detail in sections]
+    errors = [name for name, status, _detail in sections if status == "error"]
+    warnings = [name for name, status, _detail in sections if status == "warning"]
+    headline = "Backend stability: release lock is clear." if not errors else "Backend stability: release lock is blocked."
+    summary_parts = [headline]
+    if warnings:
+        summary_parts.append("Warnings: " + ", ".join(warnings) + ".")
+    if errors:
+        summary_parts.append("Failures: " + ", ".join(errors) + ".")
+    summary_parts.extend(f"{name}: {status}. {detail}" for name, status, detail in sections)
+    return " ".join(part for part in summary_parts if part)
 
 
 def _learning_context_for_text(text):
@@ -4067,6 +4155,16 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         "assistant health check",
     ]:
         speak(_assistant_doctor_summary(include_ready=False))
+        return
+
+    if command in [
+        "backend health summary",
+        "backend stability summary",
+        "backend release lock",
+        "release lock status",
+        "backend stability dashboard",
+    ]:
+        speak(_backend_stability_summary())
         return
 
     if command in [
