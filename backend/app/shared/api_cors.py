@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlparse
 
 
 DEFAULT_LOCAL_CORS_ORIGINS = (
@@ -12,7 +13,24 @@ DEFAULT_LOCAL_CORS_ORIGINS = (
 def localhost_cors_origins() -> list[str]:
     configured = os.getenv("GRANDPA_ASSISTANT_CORS_ORIGINS", "").strip()
     if configured:
-        origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
+        origins = [
+            origin
+            for origin in (origin.strip() for origin in configured.split(",") if origin.strip())
+            if _is_safe_local_origin(origin)
+        ]
         if origins:
             return origins
     return list(DEFAULT_LOCAL_CORS_ORIGINS)
+
+
+def _is_safe_local_origin(origin: str) -> bool:
+    if origin in {"*", "null"}:
+        return False
+    try:
+        parsed = urlparse(origin)
+    except Exception:
+        return False
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    hostname = (parsed.hostname or "").lower()
+    return hostname in {"localhost", "127.0.0.1", "::1"}

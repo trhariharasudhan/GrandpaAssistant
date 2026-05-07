@@ -908,8 +908,8 @@ def listen(for_wake_word=False, for_follow_up=False):
     recognizer.pause_threshold = settings["pause_threshold"]
     recognizer.non_speaking_duration = settings["non_speaking_duration"]
 
-    with sr.Microphone() as source:
-        try:
+    try:
+        with sr.Microphone() as source:
             if _should_recalibrate(settings):
                 recognizer.adjust_for_ambient_noise(
                     source, duration=settings["ambient_duration"]
@@ -966,9 +966,11 @@ def listen(for_wake_word=False, for_follow_up=False):
             _last_stt_error = " | ".join(backend_errors[:2])
             return None
 
-        except sr.WaitTimeoutError:
-            return None
-        except sr.UnknownValueError:
-            return None
-        except Exception:
-            return None
+    except sr.WaitTimeoutError:
+        return None
+    except sr.UnknownValueError:
+        return None
+    except Exception as error:
+        _last_stt_backend_used = "unavailable"
+        _last_stt_error = str(error) or "Microphone input is not available."
+        return None

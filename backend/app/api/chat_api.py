@@ -387,6 +387,30 @@ def _compact_text(value: Any) -> str:
     return " ".join(str(value or "").split()).strip()
 
 
+def _sanitize_assistant_reply(reply: str, raw_user_message: str) -> str:
+    cleaned = _compact_text(reply)
+    user_message = _compact_text(raw_user_message)
+    lowered = cleaned.lower()
+    user_lowered = user_message.lower()
+    if not cleaned:
+        return "I could not generate a useful answer right now."
+    if user_message and (
+        lowered == user_lowered
+        or lowered == f"user question: {user_lowered}"
+        or lowered.startswith(f"user question: {user_lowered}\n")
+    ):
+        return "I could not generate a useful answer right now. Please rephrase it, or check the configured AI provider."
+    return cleaned
+
+
+def _looks_like_echo_prefix(reply: str, raw_user_message: str) -> bool:
+    cleaned = _compact_text(reply).lower()
+    user_message = _compact_text(raw_user_message).lower()
+    if not cleaned or not user_message:
+        return False
+    return user_message.startswith(cleaned) or f"user question: {user_message}".startswith(cleaned)
+
+
 def _recent_history_context(history: list[dict] | None, *, limit: int = 6) -> str:
     items = list(history or [])[-limit:]
     lines = []
@@ -514,7 +538,7 @@ def _run_online_ai(prompt_message: str) -> dict[str, Any]:
 
 def _run_legacy_ai(history: list[dict], prompt_message: str) -> dict[str, Any] | None:
     try:
-        reply = _compact_text(generate_chat_reply(history, prompt_message))
+        reply = _sanitize_assistant_reply(generate_chat_reply(history, prompt_message), prompt_message)
     except Exception as error:
         record_system_error("chat-api-legacy-fallback", str(error), metadata={"provider": "legacy-chat"})
         return None
@@ -1781,7 +1805,7 @@ def chat(request: ChatRequest, http_request: Request = None) -> dict:
             mood_snapshot=mood,
             context=context,
         )
-        reply = routed["reply"]
+        reply = _sanitize_assistant_reply(routed["reply"], message)
         assistant_item = _history_item("assistant", reply)
     except Exception as error:
         record_system_error("chat-api-chat", str(error), metadata={"context": context})
@@ -1878,15 +1902,21 @@ async def chat_stream(request: ChatRequest, http_request: Request = None) -> Str
 
     async def event_stream() -> AsyncGenerator[str, None]:
         full_reply = ""
+        emitted_length = 0
         prompt_message = _chat_prompt_with_memory(message, mood_snapshot=mood, context=context)
         try:
             yield f"data: {json.dumps({'type': 'emotion', 'emotion': emotion})}\n\n"
             yield f"data: {json.dumps({'type': 'mood', 'mood': mood})}\n\n"
             for chunk in stream_chat_reply(CHAT_HISTORY[:-1], prompt_message):
                 full_reply += chunk
-                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+                if _looks_like_echo_prefix(full_reply, message):
+                    continue
+                outgoing = full_reply[emitted_length:]
+                emitted_length = len(full_reply)
+                if outgoing:
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': outgoing})}\n\n"
 
-            assistant_item = _history_item("assistant", full_reply.strip() or "I could not generate a reply right now.")
+            assistant_item = _history_item("assistant", _sanitize_assistant_reply(full_reply, message))
             CHAT_HISTORY.append(assistant_item)
             _trim_history()
             append_chat_message(

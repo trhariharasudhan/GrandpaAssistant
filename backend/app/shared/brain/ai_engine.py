@@ -312,7 +312,10 @@ def _local_conversation_fallback(prompt, compact=False):
         return "Yeah, I get why you're upset. Want to tell me what happened?"
 
     if lowered.endswith("?"):
-        return "Yeah, ask it properly and I'll keep it simple."
+        return (
+            "I do not have a reliable local AI answer for that right now. "
+            "Check the configured AI provider, or ask a built-in assistant command."
+        )
 
     if compact:
         return "Got it. Tell me what you need."

@@ -18,6 +18,7 @@ OPENAI_RETRY_MAX_DELAY_ENV = "OPENAI_RETRY_MAX_DELAY_SECONDS"
 OPENAI_REQUEST_TIMEOUT_ENV = "OPENAI_REQUEST_TIMEOUT_SECONDS"
 OLLAMA_MODEL_ENV = "OLLAMA_MODEL"
 OLLAMA_BASE_URL_ENV = "OLLAMA_BASE_URL"
+OLLAMA_REQUEST_TIMEOUT_ENV = "OLLAMA_REQUEST_TIMEOUT_SECONDS"
 DEFAULT_LLM_PROVIDER = "auto"
 DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
@@ -27,6 +28,7 @@ DEFAULT_OPENAI_RETRY_MAX_DELAY_SECONDS = 20.0
 DEFAULT_OPENAI_REQUEST_TIMEOUT_SECONDS = 30.0
 DEFAULT_OLLAMA_MODEL = "llama3:8b"
 DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+DEFAULT_OLLAMA_REQUEST_TIMEOUT_SECONDS = 120.0
 RETRYABLE_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
 SYSTEM_PROMPT = (
@@ -76,6 +78,10 @@ def _chat_endpoint() -> str:
 def _ollama_generate_endpoint() -> str:
     base_url = os.getenv(OLLAMA_BASE_URL_ENV, DEFAULT_OLLAMA_BASE_URL).rstrip("/")
     return f"{base_url}/api/generate"
+
+
+def _ollama_request_timeout() -> float:
+    return _env_float(OLLAMA_REQUEST_TIMEOUT_ENV, DEFAULT_OLLAMA_REQUEST_TIMEOUT_SECONDS)
 
 
 def _resolved_provider() -> str:
@@ -385,7 +391,7 @@ def _generate_ollama_reply(history: list[dict], user_message: str, model: str | 
             "temperature": 0.7,
         },
     }
-    response = requests.post(_ollama_generate_endpoint(), json=payload, timeout=120)
+    response = requests.post(_ollama_generate_endpoint(), json=payload, timeout=_ollama_request_timeout())
     response.raise_for_status()
     data = response.json()
     return (data.get("response") or "").strip() or "I could not generate a reply right now."
@@ -467,7 +473,7 @@ def _stream_ollama_reply(
     response = requests.post(
         _ollama_generate_endpoint(),
         json=payload,
-        timeout=120,
+        timeout=_ollama_request_timeout(),
         stream=True,
     )
     response.raise_for_status()

@@ -1208,6 +1208,32 @@ def _friendly_ai_error(error):
     return f"AI request failed: {message or 'Unknown error.'}"
 
 
+def _sanitize_assistant_reply(reply: str, raw_user_message: str) -> str:
+    cleaned = _compact_text(reply)
+    user = _compact_text(raw_user_message)
+    if not cleaned:
+        return "I could not generate a useful answer right now."
+    normalized_reply = cleaned.lower().strip(" ?!.")
+    normalized_user = user.lower().strip(" ?!.")
+    echo_forms = {
+        normalized_user,
+        f"user question: {normalized_user}",
+        f"user: {normalized_user}",
+        f"question: {normalized_user}",
+    }
+    if normalized_reply in echo_forms:
+        return "I could not generate a useful answer right now. Please rephrase it, or check the configured AI provider."
+    return cleaned
+
+
+def _looks_like_echo_prefix(reply: str, raw_user_message: str) -> bool:
+    cleaned = _compact_text(reply).lower()
+    user_message = _compact_text(raw_user_message).lower()
+    if not cleaned or not user_message:
+        return False
+    return user_message.startswith(cleaned) or f"user question: {user_message}".startswith(cleaned)
+
+
 def _tool_prompt():
     return (
         "If the user asks for live assistant actions like tasks, notes, reminders, events, weather, settings, "
@@ -1440,8 +1466,8 @@ def _run_tool_aware_reply(history, user_message, raw_user_message=None, mood_sna
             model=model_name,
             system_prompt=_effective_system_prompt(source_message, mood_snapshot=mood_snapshot, context=context),
         )
-        return final_reply, command, tool_messages, None
-    return first_pass, None, [], None
+        return _sanitize_assistant_reply(final_reply, source_message), command, tool_messages, None
+    return _sanitize_assistant_reply(first_pass, source_message), None, [], None
 
 
 def _set_voice_state(activity=None, transcript=None, error=None):
@@ -2974,6 +3000,7 @@ async def chat_stream(request: ChatRequest, http_request: Request = None):
 
     async def event_stream():
         full_reply = ""
+        emitted_length = 0
         confirmation_id = None
         try:
             yield (
@@ -3061,7 +3088,12 @@ async def chat_stream(request: ChatRequest, http_request: Request = None):
                     yield f"data: {json.dumps({'type': 'cancelled'})}\n\n"
                     return
                 full_reply += chunk
-                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk, 'session_id': session_id})}\n\n"
+                if _looks_like_echo_prefix(full_reply, message):
+                    continue
+                outgoing = full_reply[emitted_length:]
+                emitted_length = len(full_reply)
+                if outgoing:
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': outgoing, 'session_id': session_id})}\n\n"
 
             tool_command = None
             tool_messages = []
@@ -3083,8 +3115,9 @@ async def chat_stream(request: ChatRequest, http_request: Request = None):
                         model=_active_chat_model(),
                         system_prompt=_effective_system_prompt(message, mood_snapshot=mood_snapshot, context=context),
                     )
+                    full_reply = _sanitize_assistant_reply(full_reply, message)
 
-            assistant_item = _history_item("assistant", full_reply.strip() or "I could not generate a reply right now.")
+            assistant_item = _history_item("assistant", _sanitize_assistant_reply(full_reply, message))
             if tool_command:
                 assistant_item["tool"] = {"command": tool_command, "messages": tool_messages}
             if confirmation_id:

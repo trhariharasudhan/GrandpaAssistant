@@ -6,6 +6,7 @@ import re
 import subprocess
 import threading
 import time
+import uuid
 import webbrowser
 
 import keyboard
@@ -345,12 +346,52 @@ mouse_stop_requested_by_command = False
 object_detection_stop_event = None
 object_detection_stop_requested_by_command = False
 pending_confirmation = None
+pending_confirmations = {}
 last_contact_context = {"name": "", "action": ""}
 security_bypass_context = {"command": "", "expires_at": 0.0}
 IOT_CREDENTIALS_PATH = config_path("iot_credentials.json")
 IOT_EXAMPLE_PATH = backend_path("assets", "iot_credentials.example.json")
 FACE_PROFILE_PATH = backend_data_path("face_profile.json")
 VOICE_IOT_SETUP_DOC_PATH = docs_path("local-voice-iot-setup.md")
+
+
+def _store_pending_confirmation(state):
+    global pending_confirmation
+    confirmation_id = state.get("id") or str(uuid.uuid4())[:8]
+    state["id"] = confirmation_id
+    state["created_at"] = datetime.datetime.now().isoformat(timespec="seconds")
+    pending_confirmations[confirmation_id] = state
+    pending_confirmation = state
+    message = state.get("message", "Please confirm.")
+    if confirmation_id not in message:
+        state["message"] = f"{message} Say allow {confirmation_id} to continue, or dismiss {confirmation_id} to cancel."
+    return state
+
+
+def _clear_pending_confirmation(state):
+    global pending_confirmation
+    if not state:
+        return
+    confirmation_id = state.get("id")
+    if confirmation_id:
+        pending_confirmations.pop(confirmation_id, None)
+    if pending_confirmation is state or (
+        pending_confirmation and confirmation_id and pending_confirmation.get("id") == confirmation_id
+    ):
+        pending_confirmation = None
+
+
+def _pending_action_from_command(command):
+    match = re.match(r"^(?:allow|approve|confirm|dismiss|cancel|deny)\s+([a-f0-9-]{4,36})$", command or "", flags=re.IGNORECASE)
+    if not match:
+        return None, None
+    verb = (command or "").split()[0].lower()
+    action = "allow" if verb in {"allow", "approve", "confirm"} else "dismiss"
+    return action, match.group(1)
+
+
+def _latest_pending_confirmation():
+    return pending_confirmation
 
 
 def _current_location_text():
@@ -1399,6 +1440,24 @@ def _is_negative_confirmation(command):
     )
 
 
+def _clean_ai_response(command, response):
+    cleaned = " ".join(str(response or "").split()).strip()
+    if not cleaned:
+        return ""
+    normalized_command = " ".join(str(command or "").lower().split()).strip(" ?!.")
+    normalized_response = " ".join(cleaned.lower().split()).strip(" ?!.")
+    echo_prefixes = (
+        f"user question: {normalized_command}",
+        f"user: {normalized_command}",
+        f"question: {normalized_command}",
+    )
+    if normalized_response == normalized_command or normalized_response in echo_prefixes:
+        if normalized_command.endswith(("your name", "who are you")) or "your name" in normalized_command:
+            return "I'm Grandpa Assistant. You can call me Grandpa."
+        return "I could not get a useful AI answer for that yet. Please rephrase it, or check whether the local AI provider is running."
+    return cleaned
+
+
 def _resume_secured_command(state, INSTALLED_APPS, input_mode):
     original_command = state.get("command", "")
     if not original_command:
@@ -1501,7 +1560,7 @@ def _best_contact_display_name(target_text, force_refresh=False):
 
 def _queue_contact_choice(kind, target, options, field=None, message_text=None, topic=None):
     global pending_confirmation
-    pending_confirmation = {
+    pending_confirmation = _store_pending_confirmation({
         "type": "contact_choice",
         "kind": kind,
         "target": target,
@@ -1509,7 +1568,7 @@ def _queue_contact_choice(kind, target, options, field=None, message_text=None, 
         "message_text": message_text,
         "topic": topic,
         "options": options,
-    }
+    })
     option_text = " | ".join(f"{index + 1}. {name}" for index, name in enumerate(options[:3]))
     return (
         f"I found multiple contacts for {target}. "
@@ -1652,21 +1711,21 @@ def _maybe_confirm_contact_intent(command):
     display_target = _best_contact_display_name(target)
 
     if action_kind == "message":
-        pending_confirmation = {
+        pending_confirmation = _store_pending_confirmation({
             "type": "contact_action_confirm",
             "kind": "message",
             "message": f"Should I message {display_target} now?",
             "action": lambda: (_remember_contact_context(target, "message") or quick_whatsapp_message(f"message {target} saying {content}")),
-        }
+        })
         return pending_confirmation["message"]
 
     if action_kind == "mail":
-        pending_confirmation = {
+        pending_confirmation = _store_pending_confirmation({
             "type": "contact_action_confirm",
             "kind": "mail",
             "message": f"Should I open a mail draft for {display_target}?",
             "action": lambda: (_remember_contact_context(target, "mail") or quick_email_shortcut(f"mail {target} {content}")),
-        }
+        })
         return pending_confirmation["message"]
 
     return None
@@ -1754,12 +1813,12 @@ def _handle_contact_action_command(command):
             ensure_google_contacts_fresh(force=True)
         if _should_confirm_contact_action("call"):
             global pending_confirmation
-            pending_confirmation = {
+            pending_confirmation = _store_pending_confirmation({
                 "type": "contact_action_confirm",
                 "kind": "call",
                 "message": f"Should I call {_best_contact_display_name(target, force_refresh=False)}?",
                 "action": lambda: _execute_contact_choice({"kind": "call"}, target),
-            }
+            })
             return pending_confirmation["message"]
         ensure_google_contacts_fresh(force=True)
         value, reply = get_named_contact_field(target, "phone")
@@ -3117,6 +3176,40 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
 
     command = _normalize_voice_friendly_command(command)
     command = _apply_contact_context(command)
+    pending_action, pending_id = _pending_action_from_command(command)
+    if pending_action and pending_id:
+        confirmation_state = pending_confirmations.get(pending_id)
+        if not confirmation_state:
+            speak("That pending action was not found or already handled.")
+            return
+        if pending_action == "dismiss":
+            _clear_pending_confirmation(confirmation_state)
+            speak("Cancelled.")
+            return
+        if confirmation_state.get("type") == "security_confirmation":
+            _clear_pending_confirmation(confirmation_state)
+            _resume_secured_command(confirmation_state, INSTALLED_APPS, input_mode)
+            return
+        if confirmation_state.get("type") == "security_auth":
+            speak(confirmation_state.get("message", "Authentication is still required."))
+            return
+        action = confirmation_state.get("action")
+        if callable(action):
+            _clear_pending_confirmation(confirmation_state)
+            reply = action()
+            if reply is not None:
+                speak(reply)
+                set_last_result(reply)
+            remaining_chain = confirmation_state.get("remaining_chain", [])
+            if remaining_chain:
+                _continue_remaining_chain(
+                    remaining_chain,
+                    confirmation_state.get("chain_apps", INSTALLED_APPS),
+                    confirmation_state.get("chain_input_mode", input_mode),
+                )
+            return
+        speak("That pending action cannot be resumed.")
+        return
     if not pending_confirmation and _maybe_run_multi_action_chain(command, INSTALLED_APPS, input_mode):
         return
     if command and _handle_learning_feedback_command(command, input_mode=input_mode):
@@ -3132,7 +3225,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         )
         if selected_name:
             choice_state = pending_confirmation
-            pending_confirmation = None
+            _clear_pending_confirmation(choice_state)
             reply = _execute_contact_choice(choice_state, selected_name)
             speak(reply)
             set_last_result(reply)
@@ -3149,7 +3242,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         if _is_positive_confirmation(command):
             confirmation_state = pending_confirmation
             action = confirmation_state["action"]
-            pending_confirmation = None
+            _clear_pending_confirmation(confirmation_state)
             reply = action()
             speak(reply)
             set_last_result(reply)
@@ -3162,24 +3255,24 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
                 )
             return
         if _is_negative_confirmation(command):
-            pending_confirmation = None
+            _clear_pending_confirmation(pending_confirmation)
             speak("Cancelled.")
             return
 
     if pending_confirmation and pending_confirmation.get("type") == "security_confirmation":
         if _is_positive_confirmation(command):
             confirmation_state = pending_confirmation
-            pending_confirmation = None
+            _clear_pending_confirmation(confirmation_state)
             _resume_secured_command(confirmation_state, INSTALLED_APPS, input_mode)
             return
         if _is_negative_confirmation(command):
-            pending_confirmation = None
+            _clear_pending_confirmation(pending_confirmation)
             speak("Cancelled.")
             return
 
     if pending_confirmation and pending_confirmation.get("type") == "security_auth":
         if _is_negative_confirmation(command):
-            pending_confirmation = None
+            _clear_pending_confirmation(pending_confirmation)
             speak("Cancelled.")
             return
 
@@ -3188,7 +3281,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             auth_state = pending_confirmation
             success, reply = verify_security_pin(pin_auth_match.group(1).strip(), admin=bool(auth_state.get("admin")))
             if success:
-                pending_confirmation = None
+                _clear_pending_confirmation(auth_state)
                 speak(reply)
                 _resume_secured_command(auth_state, INSTALLED_APPS, input_mode)
             else:
@@ -3200,23 +3293,23 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         if not security_decision.get("allowed", True):
             action = security_decision.get("action", "block")
             if action == "confirm":
-                pending_confirmation = {
+                confirmation_state = _store_pending_confirmation({
                     "type": "security_confirmation",
                     "message": security_decision.get("message", "Please confirm."),
                     "command": command,
                     "input_mode": input_mode,
-                }
-                speak(pending_confirmation["message"])
+                })
+                speak(confirmation_state["message"])
                 return
             if action == "authenticate":
-                pending_confirmation = {
+                confirmation_state = _store_pending_confirmation({
                     "type": "security_auth",
                     "message": security_decision.get("message", "Authentication required."),
                     "command": command,
                     "input_mode": input_mode,
                     "admin": bool(security_decision.get("permission", {}).get("requires_admin_mode")),
-                }
-                speak(pending_confirmation["message"])
+                })
+                speak(confirmation_state["message"])
                 return
             speak(security_decision.get("message", "That command was blocked for security reasons."))
             return
@@ -3889,7 +3982,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             speak(msg)
             if pending_confirmation and pending_confirmation.get("type") == "security_auth":
                 auth_state = pending_confirmation
-                pending_confirmation = None
+                _clear_pending_confirmation(auth_state)
                 if auth_state.get("admin"):
                     enable_admin_mode()
                 _resume_secured_command(auth_state, INSTALLED_APPS, input_mode)
@@ -3911,13 +4004,13 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     if command in ["enable security admin mode", "security admin mode on", "security admin mode"]:
         success, msg = enable_admin_mode()
         if not success:
-            pending_confirmation = {
+            pending_confirmation = _store_pending_confirmation({
                 "type": "security_auth",
                 "message": "Authentication is required for security admin mode. Verify your face, verify your voice, or use your security PIN.",
                 "command": "enable security admin mode",
                 "input_mode": input_mode,
                 "admin": True,
-            }
+            })
             speak(pending_confirmation["message"])
             return
         speak(msg)
@@ -3933,13 +4026,13 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
 
     if command in ["unlock assistant", "disable assistant lockdown", "assistant lockdown off"]:
         if not auth_status_payload().get("session_active"):
-            pending_confirmation = {
+            pending_confirmation = _store_pending_confirmation({
                 "type": "security_auth",
                 "message": "Authentication is required before I can unlock the assistant.",
                 "command": "disable assistant lockdown",
                 "input_mode": input_mode,
                 "admin": False,
-            }
+            })
             speak(pending_confirmation["message"])
             return
         speak(disable_lockdown()[1])
@@ -4050,12 +4143,12 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         iot_resolution = resolve_iot_command(command)
         if iot_resolution.get("matched"):
             if iot_resolution.get("requires_confirmation"):
-                pending_confirmation = {
+                pending_confirmation = _store_pending_confirmation({
                     "type": "iot_action_confirm",
                     "action": lambda: run_iot_command(command, confirm=True).get("message", "Smart Home command completed."),
                     "message": iot_resolution.get("message")
                     or f"Please confirm before I run {iot_resolution.get('matched_command', command)}.",
-                }
+                })
                 speak(pending_confirmation["message"])
                 return
 
@@ -4088,7 +4181,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             speak("Identity verified! Hello there.")
             if pending_confirmation and pending_confirmation.get("type") == "security_auth":
                 auth_state = pending_confirmation
-                pending_confirmation = None
+                _clear_pending_confirmation(auth_state)
                 if auth_state.get("admin"):
                     enable_admin_mode()
                 _resume_secured_command(auth_state, INSTALLED_APPS, input_mode)
@@ -4210,11 +4303,11 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
 
     if command in ["start emergency protocol", "trigger emergency protocol", "emergency protocol"]:
-        pending_confirmation = {
+        pending_confirmation = _store_pending_confirmation({
             "type": "contact_action_confirm",
             "message": "Should I start the emergency protocol now?",
             "action": _trigger_emergency_protocol,
-        }
+        })
         speak(pending_confirmation["message"])
         return
 
@@ -4245,11 +4338,11 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     if command in ["call emergency contact", "emergency call", "call my emergency contact"]:
         if _should_confirm_contact_action("call"):
             display_name = _best_contact_display_name("my emergency contact")
-            pending_confirmation = {
+            pending_confirmation = _store_pending_confirmation({
                 "type": "contact_action_confirm",
                 "message": f"Should I call {display_name}?",
                 "action": _call_emergency_contact,
-            }
+            })
             speak(pending_confirmation["message"])
             return
         speak(_call_emergency_contact())
@@ -4347,7 +4440,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         if _is_positive_confirmation(command):
             confirmation_state = pending_confirmation
             action = confirmation_state["action"]
-            pending_confirmation = None
+            _clear_pending_confirmation(confirmation_state)
             action()
             remaining_chain = confirmation_state.get("remaining_chain", [])
             if remaining_chain:
@@ -4359,7 +4452,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             return
 
         if _is_negative_confirmation(command):
-            pending_confirmation = None
+            _clear_pending_confirmation(pending_confirmation)
             speak("Cancelled.")
             return
 
@@ -5383,10 +5476,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
 
     if "clear memory" in command:
-        pending_confirmation = {
+        pending_confirmation = _store_pending_confirmation({
             "message": "Do you want to clear conversation memory?",
             "action": lambda: (clear_memory(), speak("Conversation memory cleared.")),
-        }
+        })
         speak(pending_confirmation["message"])
         return
 
@@ -5448,10 +5541,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
 
     if command.startswith("close"):
-        pending_confirmation = {
+        pending_confirmation = _store_pending_confirmation({
             "message": "Are you sure you want to close that application?",
             "action": lambda cmd=command: close_app(cmd),
-        }
+        })
         speak(pending_confirmation["message"])
         return
 
@@ -5472,10 +5565,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
 
     if "sleep" in command:
-        pending_confirmation = {
+        pending_confirmation = _store_pending_confirmation({
             "message": "Are you sure you want to put the system to sleep?",
             "action": lambda: sleep_system(),
-        }
+        })
         speak(pending_confirmation["message"])
         return
 
@@ -5488,26 +5581,26 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
 
     if "sign out" in command or "logout" in command:
-        pending_confirmation = {
+        pending_confirmation = _store_pending_confirmation({
             "message": "Are you sure you want to sign out?",
             "action": lambda: (speak("Signing out"), perform_sign_out()),
-        }
+        })
         speak(pending_confirmation["message"])
         return
 
     if command.strip() == "restart":
-        pending_confirmation = {
+        pending_confirmation = _store_pending_confirmation({
             "message": "Are you sure you want to restart?",
             "action": lambda: (speak("Restarting the system"), perform_restart()),
-        }
+        })
         speak(pending_confirmation["message"])
         return
 
     if command.strip() in ["shutdown", "shut down"]:
-        pending_confirmation = {
+        pending_confirmation = _store_pending_confirmation({
             "message": "Are you sure you want to shut down?",
             "action": lambda: (speak("Shutting down the system"), perform_shutdown()),
-        }
+        })
         speak(pending_confirmation["message"])
         return
 
@@ -5549,6 +5642,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         finally:
             if stream_output and streamed_any:
                 end_streaming_reply()
+        response = _clean_ai_response(command, response)
         speak(response, already_printed=stream_output and streamed_any)
         set_last_result(response)
         _remember_terminal_learning_turn(command, response, route="terminal-followup-ai", model="assistant")
@@ -5578,6 +5672,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         finally:
             if stream_output and streamed_any:
                 end_streaming_reply()
+        response = _clean_ai_response(command, response)
         if response:
             speak(response, already_printed=stream_output and streamed_any)
             set_last_result(response)
