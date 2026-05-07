@@ -60,6 +60,7 @@ from window_awareness import summarize_active_window
 from context_suggestions import build_context_suggestions
 from context_action_executor import execute_suggested_action
 from debug_assistant import build_debug_report
+from fix_plan_generator import build_fix_plan
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -2159,6 +2160,14 @@ def api_debug_report(request: Request, language: str = "auto"):
     if not _is_local_request(request) and not _is_admin_context(context):
         raise HTTPException(status_code=403, detail="Debug reports are only available from localhost or admin sessions.")
     return build_debug_report(language=language)
+
+
+@app.get("/api/debug/fix-plan")
+def api_debug_fix_plan(request: Request, language: str = "auto"):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Fix plans are only available from localhost or admin sessions.")
+    return build_fix_plan(language=language)
 
 
 

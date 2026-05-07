@@ -39,6 +39,7 @@ from brain.semantic_memory import (
 from context_action_executor import execute_suggested_action, explain_screen_error, summarize_visible_screen_text
 from context_suggestions import build_context_suggestions, summarize_context_suggestions
 from debug_assistant import build_debug_report, format_debug_report
+from fix_plan_generator import build_fix_plan, format_fix_plan
 from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
 from screen_awareness import explain_screen
 from window_awareness import summarize_active_window
@@ -4167,6 +4168,12 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         language = "ta" if command in ["idha debug pannu", "enna error idhu"] else "auto"
         report = build_debug_report(language=language)
         speak(format_debug_report(report, language=language))
+        return
+
+    if command in ["give fix plan", "how to fix this", "fix plan", "idha epdi fix panradhu", "solution steps"]:
+        language = "ta" if command == "idha epdi fix panradhu" else "auto"
+        plan = build_fix_plan(language=language)
+        speak(format_fix_plan(plan, language=language))
         return
 
     if command in ["summarize this screen"]:

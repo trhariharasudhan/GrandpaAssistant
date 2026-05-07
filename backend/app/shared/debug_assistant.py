@@ -223,9 +223,10 @@ def format_debug_report(report: dict[str, Any], language: str = "auto") -> str:
     parts = [summary or "I do not see clear error text right now."]
     if causes:
         parts.append("Likely cause: " + " | ".join(causes[:3]))
-    if steps:
-        parts.append("Safe steps: " + " | ".join(f"{index + 1}. {step}" for index, step in enumerate(steps[:4])))
-    if risky:
-        parts.append("Needs confirmation before doing: " + " | ".join(risky[:2]))
+        if steps:
+            parts.append("Safe steps: " + " | ".join(f"{index + 1}. {step}" for index, step in enumerate(steps[:4])))
+        parts.append("Need a plan? Ask for a fix plan before making changes.")
+        if risky:
+            parts.append("Needs confirmation before doing: " + " | ".join(risky[:2]))
     parts.append("I did not run commands or edit files.")
     return " ".join(parts)
