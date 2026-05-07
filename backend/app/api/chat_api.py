@@ -42,6 +42,7 @@ from brain.semantic_memory import (
 from iot_control import execute_iot_control, get_iot_action_history, resolve_iot_control_command
 from iot_registry import validate_iot_config
 from llm_client import generate_chat_reply, stream_chat_reply
+from local_knowledge import answer_if_confident
 from offline_multi_model import (
     OfflineAssistantError,
     generate_offline_reply,
@@ -569,6 +570,17 @@ def _generate_routed_reply(
     context: str = "casual",
     requested_mode: str | None = None,
 ) -> dict[str, Any]:
+    local_answer = answer_if_confident(message)
+    if local_answer:
+        return {
+            "reply": local_answer,
+            "model": "local-knowledge",
+            "mode": "offline",
+            "route": "local-knowledge",
+            "hardware_context_used": False,
+            "requested_route": "local-knowledge",
+        }
+
     prompt_message, hardware_context = _build_ai_prompt(
         message,
         history=history,

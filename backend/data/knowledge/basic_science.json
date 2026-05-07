@@ -1,0 +1,26 @@
+[
+  {
+    "id": "water_formula",
+    "patterns": ["formula of water", "chemical formula of water", "water formula", "h2o", "நீரின் வாய்பாடு", "தண்ணீரின் வாய்பாடு"],
+    "answer_en": "The chemical formula of water is H2O.",
+    "answer_ta": "நீரின் வேதியியல் வாய்பாடு H2O."
+  },
+  {
+    "id": "photosynthesis",
+    "patterns": ["what is photosynthesis", "photosynthesis meaning", "ஒளிச்சேர்க்கை"],
+    "answer_en": "Photosynthesis is the process plants use to make food from sunlight, carbon dioxide, and water.",
+    "answer_ta": "ஒளிச்சேர்க்கை என்பது தாவரங்கள் சூரியஒளி, கார்பன் டை ஆக்சைடு, நீர் ஆகியவற்றைப் பயன்படுத்தி உணவு தயாரிக்கும் செயல்முறை."
+  },
+  {
+    "id": "earth_planet",
+    "patterns": ["which planet do we live on", "what planet is earth", "earth planet", "பூமி"],
+    "answer_en": "We live on Earth, the third planet from the Sun.",
+    "answer_ta": "நாம் வாழும் கோள் பூமி; அது சூரியனிலிருந்து மூன்றாவது கோள்."
+  },
+  {
+    "id": "speed_of_light",
+    "patterns": ["speed of light", "light speed", "ஒளியின் வேகம்"],
+    "answer_en": "The speed of light in vacuum is about 299,792 kilometers per second.",
+    "answer_ta": "வெற்றிடத்தில் ஒளியின் வேகம் சுமார் 299,792 கிலோமீட்டர்/வினாடி."
+  }
+]

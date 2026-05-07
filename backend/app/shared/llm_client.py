@@ -6,6 +6,8 @@ from typing import Generator
 
 import requests
 
+from local_knowledge import answer_if_confident
+
 
 LLM_PROVIDER_ENV = "LLM_PROVIDER"
 OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
@@ -398,6 +400,10 @@ def _generate_ollama_reply(history: list[dict], user_message: str, model: str | 
 
 
 def generate_chat_reply(history: list[dict], user_message: str, model: str | None = None, system_prompt: str | None = None) -> str:
+    local_answer = answer_if_confident(user_message)
+    if local_answer:
+        return local_answer
+
     provider = _resolved_provider()
     if provider == "ollama":
         return _generate_ollama_reply(history, user_message, model=model, system_prompt=system_prompt)
@@ -498,6 +504,11 @@ def stream_chat_reply(
     model: str | None = None,
     system_prompt: str | None = None,
 ) -> Generator[str, None, None]:
+    local_answer = answer_if_confident(user_message)
+    if local_answer:
+        yield local_answer
+        return
+
     provider = _resolved_provider()
     if provider == "ollama":
         yield from _stream_ollama_reply(history, user_message, model=model, system_prompt=system_prompt)

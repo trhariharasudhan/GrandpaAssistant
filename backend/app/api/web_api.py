@@ -54,6 +54,7 @@ from llm_client import (
     load_env_file,
     stream_chat_reply,
 )
+from local_knowledge import answer_if_confident
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -1467,6 +1468,10 @@ def _execute_tool_command_for_chat(command, source="chat-tool"):
 
 def _run_tool_aware_reply(history, user_message, raw_user_message=None, mood_snapshot=None, context="casual"):
     source_message = _compact_text(raw_user_message or user_message)
+    local_answer = answer_if_confident(source_message)
+    if local_answer:
+        return local_answer, None, [], None
+
     model_name = _active_chat_model()
     if _looks_like_direct_action_input(source_message):
         command = source_message

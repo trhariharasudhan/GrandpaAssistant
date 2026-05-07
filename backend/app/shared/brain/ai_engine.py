@@ -9,6 +9,7 @@ import requests
 from brain.memory_engine import get_memory
 from brain.semantic_memory import get_semantic_memory_lines
 from cognition.hub import build_intelligence_prompt_boost
+from local_knowledge import answer_if_confident
 from llm_client import generate_chat_reply, load_env_file
 from utils.config import get_setting
 from utils.emotion import build_emotion_prompt_context, detect_emotion
@@ -566,6 +567,16 @@ def ask_ollama(prompt, stream_callback=None, compact=False):
     global conversation_history
 
     prompt_text = str(prompt or "").strip()
+    local_answer = answer_if_confident(prompt_text)
+    if local_answer:
+        if stream_callback:
+            stream_callback(local_answer)
+        conversation_history.append({"role": "user", "content": prompt_text})
+        conversation_history.append({"role": "assistant", "content": local_answer})
+        conversation_history = conversation_history[-MAX_MESSAGES:]
+        save_history()
+        return local_answer
+
     normalized_prompt = " ".join(prompt_text.lower().split())
     quick_local_tokens = {
         "hi",
