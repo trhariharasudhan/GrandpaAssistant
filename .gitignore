@@ -6,7 +6,15 @@ __pycache__/
 *.pyo
 *.pyd
 .env
+.env.*
+!.env.example
 runtime/
+backend/data/app_auth_secret.txt
+backend/data/*.secret
+backend/data/*token*
+backend/data/*credential*
+backend/data/*credentials*
+backend/data/*.db
 node_modules/
 frontend/dist/
 frontend/release/
