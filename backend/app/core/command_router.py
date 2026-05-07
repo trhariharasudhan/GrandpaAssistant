@@ -36,6 +36,8 @@ from brain.semantic_memory import (
     semantic_memory_search_summary,
     semantic_memory_status_summary,
 )
+from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
+from screen_awareness import explain_screen
 import pyperclip
 from brain.question_analyzer import is_personal_question
 from core.intent_router import try_handle_intent
@@ -921,6 +923,42 @@ def _backend_stability_summary():
         latest_pending_confirmation=pending_confirmation if isinstance(pending_confirmation, dict) else None,
     )
     return format_backend_stability_text(payload)
+
+
+def _knowledge_review_queue_summary(limit=10):
+    items = list_knowledge_review_queue(limit=limit)
+    if not items:
+        return "Knowledge review queue is empty."
+    parts = [f"Knowledge review queue has {len(items)} recent item(s)."]
+    for item in items[:limit]:
+        parts.append(f"{item.get('id')}: {item.get('question')}")
+    return " ".join(parts)
+
+
+def _knowledge_add_format_example():
+    return (
+        "Use this exact format: add knowledge answer category=science; "
+        "patterns=formula of salt|chemical formula of salt; "
+        "answer_en=The chemical formula of salt is NaCl.; "
+        "answer_ta=உப்பின் வேதியியல் வாய்பாடு NaCl."
+    )
+
+
+def _parse_add_knowledge_command(command):
+    prefix = "add knowledge answer"
+    remainder = _compact_text(command[len(prefix):])
+    if not remainder:
+        return None
+    fields = {}
+    for part in remainder.split(";"):
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        fields[_compact_text(key).lower()] = _compact_text(value)
+    required = {"category", "patterns", "answer_en"}
+    if not required.issubset(fields):
+        return None
+    return fields
 
 
 def _learning_context_for_text(text):
@@ -4086,6 +4124,43 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         "backend stability dashboard",
     ]:
         speak(_backend_stability_summary())
+        return
+
+    if command in ["show knowledge review queue", "knowledge misses"]:
+        speak(_knowledge_review_queue_summary())
+        return
+
+    if command in [
+        "what is on my screen",
+        "explain my screen",
+        "screen la enna iruku",
+        "read my screen",
+        "any error on screen",
+    ]:
+        language = "ta" if command == "screen la enna iruku" else "auto"
+        speak(explain_screen(language=language))
+        return
+
+    if command.startswith("clear knowledge review item "):
+        item_id = _compact_text(command.replace("clear knowledge review item ", "", 1))
+        speak("Knowledge review item cleared." if clear_review_queue_item(item_id) else "I could not find that knowledge review item.")
+        return
+
+    if command.startswith("add knowledge answer"):
+        fields = _parse_add_knowledge_command(command)
+        if not fields:
+            speak(_knowledge_add_format_example())
+            return
+        try:
+            entry = add_local_knowledge_entry(
+                fields["category"],
+                fields["patterns"],
+                fields["answer_en"],
+                answer_ta=fields.get("answer_ta"),
+            )
+            speak(f"Knowledge answer added to {fields['category']} with id {entry.get('id')}.")
+        except ValueError as error:
+            speak(f"I could not add that knowledge answer. {error}")
         return
 
     if command in [

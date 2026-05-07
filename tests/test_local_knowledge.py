@@ -1,6 +1,8 @@
 import os
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -10,10 +12,24 @@ for path in [APP_DIR, SHARED_DIR]:
     if path not in sys.path:
         sys.path.insert(0, path)
 
+import local_knowledge
 from local_knowledge import answer_if_confident, lookup_local_knowledge
 
 
 class LocalKnowledgeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.queue_patch = patch.object(
+            local_knowledge,
+            "REVIEW_QUEUE_PATH",
+            os.path.join(self.temp_dir.name, "review_queue.jsonl"),
+        )
+        self.queue_patch.start()
+
+    def tearDown(self) -> None:
+        self.queue_patch.stop()
+        self.temp_dir.cleanup()
+
     def test_water_formula_returns_h2o(self) -> None:
         result = lookup_local_knowledge("what is the formula of water")
 

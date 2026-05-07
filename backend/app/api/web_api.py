@@ -54,7 +54,8 @@ from llm_client import (
     load_env_file,
     stream_chat_reply,
 )
-from local_knowledge import answer_if_confident
+from local_knowledge import answer_if_confident, list_knowledge_review_queue
+from screen_awareness import summarize_screen_context
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -2096,6 +2097,25 @@ def api_backend_stability(request: Request):
             "detail": "API health is responding through the active backend process.",
         },
     )
+
+
+@app.get("/api/knowledge/review-queue")
+def api_knowledge_review_queue(request: Request, limit: int = 20):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Knowledge review queue is only available from localhost or admin sessions.")
+    return {
+        "ok": True,
+        "items": list_knowledge_review_queue(limit=limit),
+    }
+
+
+@app.get("/api/screen/summary")
+def api_screen_summary(request: Request, language: str = "auto"):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Screen summary is only available from localhost or admin sessions.")
+    return summarize_screen_context(language=language)
 
 
 
