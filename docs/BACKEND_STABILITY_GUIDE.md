@@ -37,6 +37,16 @@ release lock status
 
 The command reports API health, voice dependencies, Ollama, OCR, camera/vision, runtime data paths, command confirmation state, and the last full validation result when available.
 
+## Stability API
+
+The same release-lock dashboard is available as JSON:
+
+```text
+GET /api/backend/stability
+```
+
+The response includes `overall_ok`, `checks`, `warnings`, `timestamp`, and `next_actions`. Optional hardware and local AI readiness issues, such as missing camera, microphone, OCR, or Ollama, are reported as warnings instead of route failures.
+
 ## What Each Check Means
 
 `unittest discover` runs backend regression tests. These cover chat behavior, command confirmation IDs, CORS safety, optional dependency guards, startup diagnostics, security classification, IoT control, and productivity storage.

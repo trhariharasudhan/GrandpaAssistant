@@ -79,6 +79,7 @@ from app_data_store import (
     upsert_chat_session,
 )
 from api_cors import localhost_cors_origins
+from backend_stability import build_backend_stability_payload
 from startup_diagnostics import collect_startup_diagnostics
 from modules.event_module import get_event_data
 from modules.google_contacts_module import CACHE_PATH as GOOGLE_CONTACTS_CACHE_PATH
@@ -2040,6 +2041,19 @@ def api_doctor():
         "ok": True,
         "doctor": collect_startup_diagnostics(use_cache=False),
     }
+
+
+@app.get("/api/backend/stability")
+def api_backend_stability():
+    return build_backend_stability_payload(
+        pending_confirmations=_pending_confirmations,
+        api_health={
+            "key": "api_health",
+            "name": "API health",
+            "status": "ok",
+            "detail": "API health is responding through the active backend process.",
+        },
+    )
 
 
 
