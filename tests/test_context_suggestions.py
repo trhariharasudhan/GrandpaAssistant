@@ -107,7 +107,7 @@ class ContextSuggestionsTests(unittest.TestCase):
     def test_tamil_command_returns_tamil_friendly_output(self) -> None:
         spoken = []
         with patch.object(command_router, "speak", side_effect=spoken.append), \
-            patch.object(command_router, "summarize_context_suggestions", return_value="Ippo error explain pannalaam.") as summary:
+            patch.object(command_router, "build_context_suggestions", return_value={"suggestion": "Ippo error explain pannalaam."}) as summary:
             command_router.process_command("enna next pannalam", {}, input_mode="text")
 
         summary.assert_called_with(language="ta")
@@ -116,7 +116,7 @@ class ContextSuggestionsTests(unittest.TestCase):
     def test_command_router_handles_suggestion_commands(self) -> None:
         spoken = []
         with patch.object(command_router, "speak", side_effect=spoken.append), \
-            patch.object(command_router, "summarize_context_suggestions", return_value="I can summarize this page."):
+            patch.object(command_router, "build_context_suggestions", return_value={"suggestion": "I can summarize this page."}):
             command_router.process_command("suggest next action", {}, input_mode="text")
 
         self.assertEqual(spoken[-1], "I can summarize this page.")

@@ -36,13 +36,17 @@ from brain.semantic_memory import (
     semantic_memory_search_summary,
     semantic_memory_status_summary,
 )
-from context_suggestions import summarize_context_suggestions
+from context_action_executor import execute_suggested_action, explain_screen_error, summarize_visible_screen_text
+from context_suggestions import build_context_suggestions, summarize_context_suggestions
 from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
 from screen_awareness import explain_screen
 from window_awareness import summarize_active_window
 import pyperclip
 from brain.question_analyzer import is_personal_question
 from core.intent_router import try_handle_intent
+
+
+_last_context_suggestion = None
 # UI/overlay/tray removed: provide lightweight stubs to avoid import failures
 def get_pinned_commands():
     return []
@@ -1595,6 +1599,21 @@ def _extract_contact_suggestions(reply):
     if not match:
         return []
     return [item.strip() for item in match.group(1).split("|") if item.strip()]
+
+
+def _remember_context_suggestion(payload):
+    global _last_context_suggestion
+    _last_context_suggestion = payload if isinstance(payload, dict) else None
+
+
+def _latest_context_suggestion():
+    return _last_context_suggestion if isinstance(_last_context_suggestion, dict) else None
+
+
+def _build_and_remember_context_suggestion(language="auto"):
+    payload = build_context_suggestions(language=language)
+    _remember_context_suggestion(payload)
+    return payload
 
 
 def _best_contact_display_name(target_text, force_refresh=False):
@@ -4143,6 +4162,14 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(explain_screen(language=language))
         return
 
+    if command in ["explain this error"]:
+        speak(explain_screen_error(language="auto").get("message"))
+        return
+
+    if command in ["summarize this screen"]:
+        speak(summarize_visible_screen_text(language="auto").get("message"))
+        return
+
     if command in [
         "what should i do next",
         "suggest next action",
@@ -4151,7 +4178,18 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         "help me with this screen",
     ]:
         language = "ta" if command == "enna next pannalam" else "auto"
-        speak(summarize_context_suggestions(language=language))
+        payload = _build_and_remember_context_suggestion(language=language)
+        speak(payload.get("suggestion") or summarize_context_suggestions(language=language))
+        return
+
+    if command in ["do it", "yes do that", "go ahead", "seri pannu"]:
+        language = "ta" if command == "seri pannu" else "auto"
+        payload = _latest_context_suggestion()
+        if not payload:
+            speak("Ask me for a context suggestion first, then say do it.")
+            return
+        result = execute_suggested_action(payload, user_confirmation=True, language=language)
+        speak(result.get("message") or "I could not execute that suggestion safely.")
         return
 
     if command.startswith("clear knowledge review item "):

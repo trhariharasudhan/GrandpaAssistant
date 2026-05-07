@@ -58,6 +58,7 @@ from local_knowledge import answer_if_confident, list_knowledge_review_queue
 from screen_awareness import summarize_screen_context
 from window_awareness import summarize_active_window
 from context_suggestions import build_context_suggestions
+from context_action_executor import execute_suggested_action
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -336,6 +337,11 @@ class AuthProfileUpdateRequest(BaseModel):
     tone: str | None = None
     theme: str | None = None
     short_answers: bool | None = None
+
+
+class ContextExecuteSuggestionRequest(BaseModel):
+    action_payload: dict[str, Any] | None = None
+    language: str | None = "auto"
 
 
 def _compact_text(value):
@@ -2134,6 +2140,16 @@ def api_context_suggestions(request: Request, language: str = "auto"):
     if not _is_local_request(request) and not _is_admin_context(context):
         raise HTTPException(status_code=403, detail="Context suggestions are only available from localhost or admin sessions.")
     return build_context_suggestions(language=language)
+
+
+@app.post("/api/context/execute-suggestion")
+def api_context_execute_suggestion(request: Request, payload: ContextExecuteSuggestionRequest | None = None):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Context suggestion execution is only available from localhost or admin sessions.")
+    language = (payload.language if payload else "auto") or "auto"
+    action_payload = payload.action_payload if payload and payload.action_payload else build_context_suggestions(language=language)
+    return execute_suggested_action(action_payload, user_confirmation=True, language=language)
 
 
 
