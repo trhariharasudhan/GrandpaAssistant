@@ -61,6 +61,7 @@ from debug_session_search import search_debug_sessions, summarize_debug_search_r
 from debug_knowledge_reuse import build_reuse_suggestions, summarize_reuse_suggestions
 from debug_learning_summary import build_debug_learning_summary, summarize_debug_learning
 from debug_preflight_checklist import run_preflight_checklist, summarize_preflight_checklist
+from debug_health_dashboard import build_debug_health_dashboard, summarize_debug_health_dashboard
 from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
 from screen_awareness import explain_screen
 from window_awareness import summarize_active_window
@@ -3511,6 +3512,11 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         language = "ta" if command == "issue varama check pannu" else "auto"
         payload = run_preflight_checklist(language=language)
         speak(summarize_preflight_checklist(payload, language=language))
+        return
+
+    if command in ["debug dashboard", "debug health", "debug status", "troubleshooting dashboard"]:
+        payload = build_debug_health_dashboard(language="auto")
+        speak(summarize_debug_health_dashboard(payload, language="auto"))
         return
 
     if command and not _consume_security_bypass(command):

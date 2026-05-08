@@ -80,6 +80,7 @@ from debug_session_search import search_debug_sessions
 from debug_knowledge_reuse import build_reuse_suggestions
 from debug_learning_summary import build_debug_learning_summary
 from debug_preflight_checklist import run_preflight_checklist
+from debug_health_dashboard import build_debug_health_dashboard
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -2340,6 +2341,14 @@ def api_debug_preflight_checklist(request: Request, language: str = "auto"):
     if not _is_local_request(request) and not _is_admin_context(context):
         raise HTTPException(status_code=403, detail="Debug preflight checklist is only available from localhost or admin sessions.")
     return run_preflight_checklist(language=language)
+
+
+@app.get("/api/debug/dashboard")
+def api_debug_dashboard(request: Request, language: str = "auto"):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Debug dashboard is only available from localhost or admin sessions.")
+    return build_debug_health_dashboard(language=language)
 
 
 
