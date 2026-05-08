@@ -5,6 +5,7 @@ from typing import Any
 
 from debug_assistant import build_debug_report
 from debug_session import attach_fix_plan
+from debug_knowledge_reuse import build_reuse_suggestions
 
 
 def _utc_now() -> str:
@@ -135,6 +136,7 @@ def build_fix_plan_from_debug_report(report, language: str = "auto") -> dict[str
     )
     if report.get("summary"):
         summary += " " + _compact_text(report.get("summary"))
+    reuse = build_reuse_suggestions(report=report, language=resolved)
     return {
         "ok": True,
         "language": resolved,
@@ -144,6 +146,7 @@ def build_fix_plan_from_debug_report(report, language: str = "auto") -> dict[str
         "risky_commands": command_plan["risky_commands"],
         "suggested_file_checks": suggest_file_checks(error_text, active_window=active_window, language=resolved),
         "requires_confirmation": bool(command_plan["suggested_commands"] or command_plan["risky_commands"]),
+        "previous_similar_fix_hints": reuse,
         "no_command_executed": True,
         "no_file_edited": True,
         "timestamp": _utc_now(),

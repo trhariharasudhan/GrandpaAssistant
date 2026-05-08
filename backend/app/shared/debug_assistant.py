@@ -7,6 +7,7 @@ from typing import Any
 from screen_awareness import summarize_screen_context
 from window_awareness import summarize_active_window
 from debug_session import attach_debug_report
+from debug_knowledge_reuse import build_reuse_suggestions
 
 
 ERROR_FAMILIES = (
@@ -189,6 +190,7 @@ def build_debug_report(language: str = "auto") -> dict[str, Any]:
             "no_command_executed": True,
             "timestamp": _utc_now(),
         }
+        report["reuse_suggestions"] = build_reuse_suggestions(report=report, language=resolved)
         attach_debug_report(report)
         return report
     steps = suggest_safe_debug_steps(error_text, window_payload=window_payload, language=resolved)
@@ -205,6 +207,7 @@ def build_debug_report(language: str = "auto") -> dict[str, Any]:
         "no_command_executed": True,
         "timestamp": _utc_now(),
     }
+    report["reuse_suggestions"] = build_reuse_suggestions(report=report, language=resolved)
     attach_debug_report(report)
     return report
 
