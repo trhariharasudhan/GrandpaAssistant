@@ -19,6 +19,7 @@ backend/data/*.db
 backend/data/knowledge/review_queue.jsonl
 backend/data/audit/*.jsonl
 backend/data/debug/*.jsonl
+backend/data/debug/exports/
 node_modules/
 build/
 dist/

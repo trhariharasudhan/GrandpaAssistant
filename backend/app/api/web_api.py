@@ -74,6 +74,7 @@ from debug_session import (
     list_debug_sessions,
     start_debug_session,
 )
+from debug_session_export import export_current_debug_session, list_debug_exports
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -2278,6 +2279,22 @@ def api_debug_session_close(request: Request, payload: DebugSessionCloseRequest 
         status=(payload.status if payload else "closed") or "closed",
         note=(payload.note if payload else "") or "",
     )
+
+
+@app.post("/api/debug/session/export")
+def api_debug_session_export(request: Request):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Debug session exports are only available from localhost or admin sessions.")
+    return export_current_debug_session(format="markdown")
+
+
+@app.get("/api/debug/session/exports")
+def api_debug_session_exports(request: Request, limit: int = 20):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Debug session exports are only available from localhost or admin sessions.")
+    return {"ok": True, "items": list_debug_exports(limit=limit)}
 
 
 
