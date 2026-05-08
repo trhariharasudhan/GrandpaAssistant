@@ -78,6 +78,7 @@ from debug_session_export import export_current_debug_session, list_debug_export
 from debug_timeline import get_current_debug_timeline
 from debug_session_search import search_debug_sessions
 from debug_knowledge_reuse import build_reuse_suggestions
+from debug_learning_summary import build_debug_learning_summary
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -2322,6 +2323,14 @@ def api_debug_reuse_suggestions(request: Request, q: str = "", language: str = "
     if not _is_local_request(request) and not _is_admin_context(context):
         raise HTTPException(status_code=403, detail="Debug reuse suggestions are only available from localhost or admin sessions.")
     return build_reuse_suggestions(report=None, language=language) if not q else build_reuse_suggestions(report={"summary": q}, language=language)
+
+
+@app.get("/api/debug/learning-summary")
+def api_debug_learning_summary(request: Request, limit: int = 100, language: str = "auto"):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Debug learning summary is only available from localhost or admin sessions.")
+    return build_debug_learning_summary(limit=limit, language=language)
 
 
 

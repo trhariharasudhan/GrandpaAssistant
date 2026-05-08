@@ -59,6 +59,7 @@ from debug_session_export import export_current_debug_session
 from debug_timeline import format_debug_timeline, get_current_debug_timeline
 from debug_session_search import search_debug_sessions, summarize_debug_search_results
 from debug_knowledge_reuse import build_reuse_suggestions, summarize_reuse_suggestions
+from debug_learning_summary import build_debug_learning_summary, summarize_debug_learning
 from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
 from screen_awareness import explain_screen
 from window_awareness import summarize_active_window
@@ -3486,6 +3487,17 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     if command in ["seen this before", "similar debug history", "previous fix for this", "idhu munnadi vandhucha"]:
         language = "ta" if command == "idhu munnadi vandhucha" else "auto"
         speak(summarize_reuse_suggestions(build_reuse_suggestions(language=language), language=language))
+        return
+
+    if command in [
+        "debug learning summary",
+        "what did we learn from debug history",
+        "common debug errors",
+        "repeated issues",
+        "debug insights",
+    ]:
+        payload = build_debug_learning_summary(language="auto")
+        speak(summarize_debug_learning(payload, language="auto"))
         return
 
     if command and not _consume_security_bypass(command):
