@@ -71,6 +71,16 @@ scripts\windows\start_assistant_admin.cmd
 scripts\windows\check_assistant_health.cmd
 ```
 
+## Runtime Testing
+
+To start the backend, probe health/debug endpoints, and see a clear PASS/FAIL report:
+
+```bat
+scripts\dev\runtime_backend_check.cmd
+```
+
+See `docs\RUNTIME_TESTING_GUIDE.md` for manual startup, stop instructions, and local URLs to test.
+
 ## API Surface
 
 Desktop API examples:
