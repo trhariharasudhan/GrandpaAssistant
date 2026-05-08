@@ -7,6 +7,7 @@ Use this checklist before tagging or sharing a GrandpaAssistant backend release 
 Run from the repository root:
 
 ```powershell
+.\.venv\Scripts\python.exe scripts\dev\generate_debug_docs.py
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 .\.venv\Scripts\python.exe scripts\dev\full_backend_validation.py
 .\.venv\Scripts\python.exe scripts\dev\startup_smoke_check.py
@@ -32,9 +33,41 @@ GET /api/backend/stability
 
 The endpoint returns full detail for localhost or authenticated admin requests. Remote unauthenticated requests receive a trimmed restricted payload.
 
+## Protected Local APIs
+
+Verify these routes exist and remain protected for localhost or authenticated admin use:
+
+```text
+GET /api/backend/stability
+GET /api/screen/summary
+GET /api/window/context
+GET /api/context/suggestions
+POST /api/context/execute-suggestion
+GET /api/debug/dashboard
+GET /api/debug/docs-summary
+```
+
+Remote unauthenticated requests should be blocked or restricted according to each route's safety contract.
+
+## Debug Assistant Docs
+
+Regenerate and review the debug assistant guide before tagging:
+
+```text
+docs/DEBUG_ASSISTANT_GUIDE.md
+```
+
+The guide should describe debug reports, fix plans, approvals, audit logs, sessions, exports, timelines, search/reuse, learning summaries, preflight checks, the debug dashboard, and safety constraints.
+
 ## Security
 
 - Confirm `.gitignore` covers auth secrets, tokens, credential files, local databases, logs, and runtime validation state.
+- Confirm these private/runtime paths are ignored and not tracked:
+  - `backend/data/audit/*.jsonl`
+  - `backend/data/debug/*.jsonl`
+  - `backend/data/debug/exports/`
+  - `backend/data/knowledge/review_queue.jsonl`
+  - `backend/data/app_auth_secret.txt`
 - Do not include real files from `runtime/` or local credential/config directories.
 - Dangerous commands must require confirmation and, where appropriate, authentication/admin mode.
 - CORS must remain localhost-safe.
