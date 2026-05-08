@@ -81,6 +81,16 @@ scripts\dev\runtime_backend_check.cmd
 
 See `docs\RUNTIME_TESTING_GUIDE.md` for manual startup, stop instructions, and local URLs to test.
 
+## Windows Controls Audit
+
+To review implemented Windows controls, safety levels, direct call behavior, and test status:
+
+```bat
+.venv\Scripts\python.exe scripts\dev\windows_controls_audit.py
+```
+
+See `docs\WINDOWS_CONTROL_AUDIT.md`.
+
 ## API Surface
 
 Desktop API examples:

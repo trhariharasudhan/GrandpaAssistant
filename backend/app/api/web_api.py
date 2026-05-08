@@ -81,6 +81,7 @@ from debug_knowledge_reuse import build_reuse_suggestions
 from debug_learning_summary import build_debug_learning_summary
 from debug_preflight_checklist import run_preflight_checklist
 from debug_health_dashboard import build_debug_health_dashboard
+from windows_control_audit import build_windows_control_audit
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -2377,6 +2378,14 @@ def api_debug_docs_summary(request: Request):
         ],
         "safety": "Debug docs do not include secrets, screenshots, or runtime audit/session data.",
     }
+
+
+@app.get("/api/windows/controls/audit")
+def api_windows_controls_audit(request: Request, language: str = "auto"):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Windows controls audit is only available from localhost or admin sessions.")
+    return build_windows_control_audit(language=language)
 
 
 

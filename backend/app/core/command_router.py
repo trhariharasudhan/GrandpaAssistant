@@ -62,6 +62,8 @@ from debug_knowledge_reuse import build_reuse_suggestions, summarize_reuse_sugge
 from debug_learning_summary import build_debug_learning_summary, summarize_debug_learning
 from debug_preflight_checklist import run_preflight_checklist, summarize_preflight_checklist
 from debug_health_dashboard import build_debug_health_dashboard, summarize_debug_health_dashboard
+from call_control import detect_call_intent, initiate_call
+from windows_control_audit import build_windows_control_audit, summarize_windows_control_audit
 from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
 from screen_awareness import explain_screen
 from window_awareness import summarize_active_window
@@ -3525,6 +3527,18 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             "Key commands include debug this, give fix plan, apply fix, debug timeline, debug checklist, and debug dashboard. "
             "Regenerate them with scripts/dev/generate_debug_docs.py."
         )
+        return
+
+    if command in ["windows controls audit", "full control check", "enna enna control panna mudiyum", "control list"]:
+        language = "ta" if command == "enna enna control panna mudiyum" else "auto"
+        speak(summarize_windows_control_audit(build_windows_control_audit(language=language), language=language))
+        return
+
+    call_intent = detect_call_intent(command)
+    if call_intent.get("is_call"):
+        result = initiate_call(call_intent.get("target_text", ""), language="auto")
+        speak(result.get("message", "I could not start the call flow."))
+        set_last_result(result.get("message", ""))
         return
 
     if command and not _consume_security_bypass(command):
