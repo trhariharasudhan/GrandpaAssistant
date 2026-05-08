@@ -8,6 +8,7 @@ import uuid
 from typing import Any
 
 from fix_audit_log import append_fix_audit_event
+from debug_session import attach_fix_approval
 
 
 _PENDING_FIX_APPROVALS: dict[str, dict[str, Any]] = {}
@@ -121,6 +122,7 @@ def create_fix_approval(action_type, payload, reason, language: str = "auto") ->
         ),
     }
     _PENDING_FIX_APPROVALS[approval_id] = approval
+    attach_fix_approval(approval)
     append_fix_audit_event("created", approval=approval, message=approval["message"])
     return approval
 

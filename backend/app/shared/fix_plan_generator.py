@@ -4,6 +4,7 @@ import datetime
 from typing import Any
 
 from debug_assistant import build_debug_report
+from debug_session import attach_fix_plan
 
 
 def _utc_now() -> str:
@@ -152,7 +153,9 @@ def build_fix_plan_from_debug_report(report, language: str = "auto") -> dict[str
 def build_fix_plan(language: str = "auto") -> dict[str, Any]:
     resolved = _resolve_language(language, "idha epdi fix panradhu" if str(language).lower() in {"ta", "tamil"} else "")
     report = build_debug_report(language=resolved)
-    return build_fix_plan_from_debug_report(report, language=resolved)
+    plan = build_fix_plan_from_debug_report(report, language=resolved)
+    attach_fix_plan(plan)
+    return plan
 
 
 def format_fix_plan(plan, language: str = "auto") -> str:

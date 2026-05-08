@@ -18,6 +18,7 @@ backend/data/last_backend_validation.json
 backend/data/*.db
 backend/data/knowledge/review_queue.jsonl
 backend/data/audit/*.jsonl
+backend/data/debug/*.jsonl
 node_modules/
 build/
 dist/

@@ -94,6 +94,12 @@ def append_fix_audit_event(event_type, approval=None, result=None, message="", m
     _ensure_log_dir()
     with open(FIX_AUDIT_LOG_PATH, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(event, ensure_ascii=True, sort_keys=True) + "\n")
+    try:
+        from debug_session import attach_audit_event
+
+        attach_audit_event(event)
+    except Exception:
+        pass
     return event
 
 

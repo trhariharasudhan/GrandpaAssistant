@@ -68,6 +68,12 @@ from fix_approval_flow import (
     list_pending_fix_approvals,
 )
 from fix_audit_log import list_fix_audit_events
+from debug_session import (
+    close_debug_session,
+    get_current_debug_session,
+    list_debug_sessions,
+    start_debug_session,
+)
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -358,6 +364,17 @@ class FixApprovalCreateRequest(BaseModel):
     payload: dict[str, Any] | None = None
     reason: str | None = ""
     language: str | None = "auto"
+
+
+class DebugSessionStartRequest(BaseModel):
+    title: str | None = ""
+    source: str | None = "api"
+    language: str | None = "auto"
+
+
+class DebugSessionCloseRequest(BaseModel):
+    status: str | None = "closed"
+    note: str | None = ""
 
 
 def _compact_text(value):
@@ -2222,6 +2239,45 @@ def api_fix_audit(request: Request, limit: int = 50):
     if not _is_local_request(request) and not _is_admin_context(context):
         raise HTTPException(status_code=403, detail="Fix audit log is only available from localhost or admin sessions.")
     return {"ok": True, "items": list_fix_audit_events(limit=limit)}
+
+
+@app.get("/api/debug/session/current")
+def api_debug_session_current(request: Request):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Debug sessions are only available from localhost or admin sessions.")
+    return {"ok": True, "session": get_current_debug_session()}
+
+
+@app.get("/api/debug/sessions")
+def api_debug_sessions(request: Request, limit: int = 20):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Debug sessions are only available from localhost or admin sessions.")
+    return {"ok": True, "items": list_debug_sessions(limit=limit)}
+
+
+@app.post("/api/debug/session/start")
+def api_debug_session_start(request: Request, payload: DebugSessionStartRequest | None = None):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Debug sessions are only available from localhost or admin sessions.")
+    return start_debug_session(
+        title=(payload.title if payload else "") or "",
+        source=(payload.source if payload else "api") or "api",
+        language=(payload.language if payload else "auto") or "auto",
+    )
+
+
+@app.post("/api/debug/session/close")
+def api_debug_session_close(request: Request, payload: DebugSessionCloseRequest | None = None):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Debug sessions are only available from localhost or admin sessions.")
+    return close_debug_session(
+        status=(payload.status if payload else "closed") or "closed",
+        note=(payload.note if payload else "") or "",
+    )
 
 
 

@@ -6,6 +6,7 @@ from typing import Any
 
 from screen_awareness import summarize_screen_context
 from window_awareness import summarize_active_window
+from debug_session import attach_debug_report
 
 
 ERROR_FAMILIES = (
@@ -176,7 +177,7 @@ def build_debug_report(language: str = "auto") -> dict[str, Any]:
     error_text = _extract_error_text(screen_payload) if screen_payload.get("ok") else ""
     if not error_text:
         summary = "Visible-a clear error text illa." if resolved == "ta" else "I do not see a clear visible error right now."
-        return {
+        report = {
             "ok": False,
             "language": resolved,
             "summary": summary,
@@ -188,8 +189,10 @@ def build_debug_report(language: str = "auto") -> dict[str, Any]:
             "no_command_executed": True,
             "timestamp": _utc_now(),
         }
+        attach_debug_report(report)
+        return report
     steps = suggest_safe_debug_steps(error_text, window_payload=window_payload, language=resolved)
-    return {
+    report = {
         "ok": True,
         "language": resolved,
         "summary": summarize_error_text(error_text, language=resolved),
@@ -202,6 +205,8 @@ def build_debug_report(language: str = "auto") -> dict[str, Any]:
         "no_command_executed": True,
         "timestamp": _utc_now(),
     }
+    attach_debug_report(report)
+    return report
 
 
 def format_debug_report(report: dict[str, Any], language: str = "auto") -> str:

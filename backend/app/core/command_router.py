@@ -49,6 +49,12 @@ from fix_approval_flow import (
 )
 from fix_audit_log import summarize_fix_audit_log
 from fix_plan_generator import build_fix_plan, format_fix_plan
+from debug_session import (
+    close_debug_session,
+    list_debug_sessions,
+    start_debug_session,
+    summarize_current_debug_session,
+)
 from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
 from screen_awareness import explain_screen
 from window_awareness import summarize_active_window
@@ -3432,6 +3438,28 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             else:
                 speak(reply)
             return
+
+    if command == "start debug session":
+        session = start_debug_session(title="Manual debug session", source="command", language="auto")
+        speak(f"Started debug session {session.get('id')}.")
+        return
+
+    if command in ["current debug session", "debug session summary"]:
+        speak(summarize_current_debug_session(language="auto"))
+        return
+
+    if command == "close debug session":
+        session = close_debug_session(status="closed", note="Closed by command.")
+        speak(f"Closed debug session {session.get('id')}." if session else "No active debug session to close.")
+        return
+
+    if command == "list debug sessions":
+        sessions = list_debug_sessions(limit=5)
+        if not sessions:
+            speak("No debug sessions recorded yet.")
+        else:
+            speak("Recent debug sessions: " + " | ".join(f"{item.get('id')}: {item.get('status')}" for item in sessions))
+        return
 
     if command and not _consume_security_bypass(command):
         security_decision = validate_command(command, source=f"command-{input_mode}")
