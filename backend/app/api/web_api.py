@@ -61,6 +61,12 @@ from context_suggestions import build_context_suggestions
 from context_action_executor import execute_suggested_action
 from debug_assistant import build_debug_report
 from fix_plan_generator import build_fix_plan
+from fix_approval_flow import (
+    create_fix_approval,
+    dismiss_fix_approval,
+    execute_fix_approval,
+    list_pending_fix_approvals,
+)
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -343,6 +349,13 @@ class AuthProfileUpdateRequest(BaseModel):
 
 class ContextExecuteSuggestionRequest(BaseModel):
     action_payload: dict[str, Any] | None = None
+    language: str | None = "auto"
+
+
+class FixApprovalCreateRequest(BaseModel):
+    action_type: str = "command_suggestion"
+    payload: dict[str, Any] | None = None
+    reason: str | None = ""
     language: str | None = "auto"
 
 
@@ -2168,6 +2181,38 @@ def api_debug_fix_plan(request: Request, language: str = "auto"):
     if not _is_local_request(request) and not _is_admin_context(context):
         raise HTTPException(status_code=403, detail="Fix plans are only available from localhost or admin sessions.")
     return build_fix_plan(language=language)
+
+
+@app.get("/api/debug/fix-approvals")
+def api_fix_approvals(request: Request, limit: int = 20):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Fix approvals are only available from localhost or admin sessions.")
+    return {"ok": True, "items": list_pending_fix_approvals(limit=limit)}
+
+
+@app.post("/api/debug/fix-approvals")
+def api_create_fix_approval(request: Request, payload: FixApprovalCreateRequest):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Fix approvals are only available from localhost or admin sessions.")
+    return create_fix_approval(payload.action_type, payload.payload or {}, payload.reason or "", language=payload.language or "auto")
+
+
+@app.post("/api/debug/fix-approvals/{approval_id}/allow")
+def api_allow_fix_approval(request: Request, approval_id: str):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Fix approvals are only available from localhost or admin sessions.")
+    return execute_fix_approval(approval_id)
+
+
+@app.post("/api/debug/fix-approvals/{approval_id}/dismiss")
+def api_dismiss_fix_approval(request: Request, approval_id: str):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Fix approvals are only available from localhost or admin sessions.")
+    return {"ok": dismiss_fix_approval(approval_id)}
 
 
 

@@ -39,6 +39,14 @@ from brain.semantic_memory import (
 from context_action_executor import execute_suggested_action, explain_screen_error, summarize_visible_screen_text
 from context_suggestions import build_context_suggestions, summarize_context_suggestions
 from debug_assistant import build_debug_report, format_debug_report
+from fix_approval_flow import (
+    create_fix_approval,
+    dismiss_fix_approval,
+    execute_fix_approval,
+    get_fix_approval,
+    list_pending_fix_approvals,
+    validate_fix_action,
+)
 from fix_plan_generator import build_fix_plan, format_fix_plan
 from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
 from screen_awareness import explain_screen
@@ -49,6 +57,11 @@ from core.intent_router import try_handle_intent
 
 
 _last_context_suggestion = None
+_last_fix_plan = None
+
+
+def _compact_text(value):
+    return " ".join(str(value or "").split()).strip()
 # UI/overlay/tray removed: provide lightweight stubs to avoid import failures
 def get_pinned_commands():
     return []
@@ -1616,6 +1629,51 @@ def _build_and_remember_context_suggestion(language="auto"):
     payload = build_context_suggestions(language=language)
     _remember_context_suggestion(payload)
     return payload
+
+
+def _remember_fix_plan(plan):
+    global _last_fix_plan
+    _last_fix_plan = plan if isinstance(plan, dict) else None
+
+
+def _latest_fix_plan():
+    return _last_fix_plan if isinstance(_last_fix_plan, dict) else None
+
+
+def _first_safe_fix_command(plan):
+    for item in (plan or {}).get("suggested_commands", []) or []:
+        payload = {"action_type": "command_suggestion", "command": item.get("command"), "reason": item.get("reason")}
+        validation = validate_fix_action(payload)
+        if validation.get("ok") and validation.get("runnable"):
+            return item
+    return None
+
+
+def _fix_approval_summary(limit=20):
+    approvals = list_pending_fix_approvals(limit=limit)
+    if not approvals:
+        return "No pending fix approvals."
+    lines = []
+    for item in approvals:
+        payload = item.get("payload") or {}
+        lines.append(f"{item.get('id')}: {payload.get('command') or payload.get('description') or item.get('action_type')}")
+    return "Pending fix approvals: " + " | ".join(lines)
+
+
+def _create_fix_approval_from_latest_plan(language="auto"):
+    plan = _latest_fix_plan()
+    if not plan:
+        return "Ask for a fix plan first, then say apply fix."
+    command_item = _first_safe_fix_command(plan)
+    if not command_item:
+        return "I do not see a runnable safe read-only command in the latest fix plan."
+    approval = create_fix_approval(
+        "command_suggestion",
+        {"command": command_item.get("command"), "reason": command_item.get("reason")},
+        command_item.get("reason") or "Apply the first safe suggested fix check.",
+        language=language,
+    )
+    return approval.get("message") or f"Created fix approval {approval.get('id')}."
 
 
 def _best_contact_display_name(target_text, force_refresh=False):
@@ -3248,6 +3306,22 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     command = _apply_contact_context(command)
     pending_action, pending_id = _pending_action_from_command(command)
     if pending_action and pending_id:
+        fix_approval = get_fix_approval(pending_id)
+        if fix_approval:
+            if pending_action == "dismiss":
+                speak("Fix approval dismissed." if dismiss_fix_approval(pending_id) else "That fix approval was not found.")
+                return
+            result = execute_fix_approval(pending_id)
+            message = result.get("message")
+            if not message:
+                message = "Fix approval executed." if result.get("executed") else "Fix approval was not executed."
+                if result.get("stdout"):
+                    message += " Output: " + _compact_text(result.get("stdout"))[:500]
+                if result.get("stderr"):
+                    message += " Error: " + _compact_text(result.get("stderr"))[:500]
+            speak(message)
+            set_last_result(message)
+            return
         confirmation_state = pending_confirmations.get(pending_id)
         if not confirmation_state:
             speak("That pending action was not found or already handled.")
@@ -4173,7 +4247,22 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     if command in ["give fix plan", "how to fix this", "fix plan", "idha epdi fix panradhu", "solution steps"]:
         language = "ta" if command == "idha epdi fix panradhu" else "auto"
         plan = build_fix_plan(language=language)
+        _remember_fix_plan(plan)
         speak(format_fix_plan(plan, language=language))
+        return
+
+    if command in ["apply fix", "apply suggested fix"]:
+        speak(_create_fix_approval_from_latest_plan(language="auto"))
+        return
+
+    if command == "show fix approvals":
+        speak(_fix_approval_summary())
+        return
+
+    dismiss_fix_match = re.fullmatch(r"dismiss fix\s+([A-Za-z0-9_-]+)", command)
+    if dismiss_fix_match:
+        approval_id = dismiss_fix_match.group(1)
+        speak("Fix approval dismissed." if dismiss_fix_approval(approval_id) else "That fix approval was not found.")
         return
 
     if command in ["summarize this screen"]:
