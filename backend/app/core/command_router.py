@@ -3519,6 +3519,14 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(summarize_debug_health_dashboard(payload, language="auto"))
         return
 
+    if command == "debug docs summary":
+        speak(
+            "Debug assistant docs are in docs/DEBUG_ASSISTANT_GUIDE.md. "
+            "Key commands include debug this, give fix plan, apply fix, debug timeline, debug checklist, and debug dashboard. "
+            "Regenerate them with scripts/dev/generate_debug_docs.py."
+        )
+        return
+
     if command and not _consume_security_bypass(command):
         security_decision = validate_command(command, source=f"command-{input_mode}")
         if not security_decision.get("allowed", True):

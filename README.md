@@ -117,6 +117,18 @@ GET /api/backend/stability
 
 The stability route returns full details for localhost or authenticated admin requests. Remote unauthenticated requests receive a trimmed restricted payload. The same release-lock summary is available through assistant commands such as `backend health summary` and `release lock status`.
 
+## Debug Assistant System
+
+GrandpaAssistant includes a local debug assistant system for reports, fix plans, approvals, audit logs, sessions, exports, timelines, search/reuse, learning summaries, preflight checks, and the debug health dashboard.
+
+See `docs\DEBUG_ASSISTANT_GUIDE.md`. Regenerate it with:
+
+```bat
+python scripts\dev\generate_debug_docs.py
+```
+
+Useful commands include `debug this`, `give fix plan`, `apply fix`, `debug timeline`, `debug checklist`, `debug dashboard`, and `debug docs summary`.
+
 Release candidate checklist:
 
 ```text

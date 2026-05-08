@@ -2351,6 +2351,34 @@ def api_debug_dashboard(request: Request, language: str = "auto"):
     return build_debug_health_dashboard(language=language)
 
 
+@app.get("/api/debug/docs-summary")
+def api_debug_docs_summary(request: Request):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Debug docs summary is only available from localhost or admin sessions.")
+    return {
+        "ok": True,
+        "guide": "docs/DEBUG_ASSISTANT_GUIDE.md",
+        "generator": "scripts/dev/generate_debug_docs.py",
+        "key_commands": [
+            "debug this",
+            "fix plan",
+            "apply fix",
+            "debug timeline",
+            "debug learning summary",
+            "debug checklist",
+            "debug dashboard",
+        ],
+        "key_routes": [
+            "GET /api/debug/report",
+            "GET /api/debug/fix-plan",
+            "GET /api/debug/dashboard",
+            "GET /api/debug/docs-summary",
+        ],
+        "safety": "Debug docs do not include secrets, screenshots, or runtime audit/session data.",
+    }
+
+
 
 
 
