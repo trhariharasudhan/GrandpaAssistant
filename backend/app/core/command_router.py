@@ -60,6 +60,7 @@ from debug_timeline import format_debug_timeline, get_current_debug_timeline
 from debug_session_search import search_debug_sessions, summarize_debug_search_results
 from debug_knowledge_reuse import build_reuse_suggestions, summarize_reuse_suggestions
 from debug_learning_summary import build_debug_learning_summary, summarize_debug_learning
+from debug_preflight_checklist import run_preflight_checklist, summarize_preflight_checklist
 from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
 from screen_awareness import explain_screen
 from window_awareness import summarize_active_window
@@ -3498,6 +3499,18 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     ]:
         payload = build_debug_learning_summary(language="auto")
         speak(summarize_debug_learning(payload, language="auto"))
+        return
+
+    if command in [
+        "run debug checklist",
+        "preflight debug check",
+        "preventive debug check",
+        "debug checklist",
+        "issue varama check pannu",
+    ]:
+        language = "ta" if command == "issue varama check pannu" else "auto"
+        payload = run_preflight_checklist(language=language)
+        speak(summarize_preflight_checklist(payload, language=language))
         return
 
     if command and not _consume_security_bypass(command):

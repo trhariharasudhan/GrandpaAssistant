@@ -79,6 +79,7 @@ from debug_timeline import get_current_debug_timeline
 from debug_session_search import search_debug_sessions
 from debug_knowledge_reuse import build_reuse_suggestions
 from debug_learning_summary import build_debug_learning_summary
+from debug_preflight_checklist import run_preflight_checklist
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -2331,6 +2332,14 @@ def api_debug_learning_summary(request: Request, limit: int = 100, language: str
     if not _is_local_request(request) and not _is_admin_context(context):
         raise HTTPException(status_code=403, detail="Debug learning summary is only available from localhost or admin sessions.")
     return build_debug_learning_summary(limit=limit, language=language)
+
+
+@app.get("/api/debug/preflight-checklist")
+def api_debug_preflight_checklist(request: Request, language: str = "auto"):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Debug preflight checklist is only available from localhost or admin sessions.")
+    return run_preflight_checklist(language=language)
 
 
 
