@@ -82,6 +82,8 @@ from debug_learning_summary import build_debug_learning_summary
 from debug_preflight_checklist import run_preflight_checklist
 from debug_health_dashboard import build_debug_health_dashboard
 from windows_control_audit import build_windows_control_audit
+from contact_manager import add_contact, delete_contact, find_contact, list_contacts, redact_contact_for_display
+from phone_link_readiness import check_tel_handler_readiness
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -269,6 +271,12 @@ class PortableSetupRequest(BaseModel):
 class CommandRequest(BaseModel):
     command: str
     confirmation_id: str | None = None
+
+
+class ContactCreateRequest(BaseModel):
+    name: str
+    phone: str
+    labels: list[str] | None = None
 
 
 class ChatRequest(BaseModel):
@@ -2386,6 +2394,57 @@ def api_windows_controls_audit(request: Request, language: str = "auto"):
     if not _is_local_request(request) and not _is_admin_context(context):
         raise HTTPException(status_code=403, detail="Windows controls audit is only available from localhost or admin sessions.")
     return build_windows_control_audit(language=language)
+
+
+@app.get("/api/contacts")
+def api_contacts(request: Request, limit: int = 50):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Contacts are only available from localhost or admin sessions.")
+    return {"ok": True, "items": list_contacts(limit=limit)}
+
+
+@app.post("/api/contacts")
+def api_add_contact(request: Request, payload: ContactCreateRequest):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Contacts are only available from localhost or admin sessions.")
+    result = add_contact(payload.name, payload.phone, labels=payload.labels or [])
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("message", "Could not add contact."))
+    return result
+
+
+@app.get("/api/contacts/search")
+def api_search_contacts(request: Request, q: str = ""):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Contact search is only available from localhost or admin sessions.")
+    result = find_contact(q)
+    if result.get("contact"):
+        result = {**result, "contact": redact_contact_for_display(result.get("contact"))}
+    if result.get("matches"):
+        result = {**result, "matches": [redact_contact_for_display(item) for item in result.get("matches", [])]}
+    return result
+
+
+@app.delete("/api/contacts/{name}")
+def api_delete_contact(request: Request, name: str):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Contacts are only available from localhost or admin sessions.")
+    result = delete_contact(name)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result.get("message", "Contact not found."))
+    return result
+
+
+@app.get("/api/phone-link/status")
+def api_phone_link_status(request: Request):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Phone Link status is only available from localhost or admin sessions.")
+    return check_tel_handler_readiness()
 
 
 

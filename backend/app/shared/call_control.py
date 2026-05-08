@@ -60,6 +60,24 @@ def detect_call_intent(command):
 
 def _resolve_contact_phone(name_or_number: str) -> dict[str, Any]:
     try:
+        from contact_manager import find_contact
+
+        local = find_contact(name_or_number)
+        if local.get("ok") and local.get("contact"):
+            contact = local["contact"]
+            return {
+                "ok": True,
+                "type": "local_contact",
+                "display_name": contact.get("name") or _compact_text(name_or_number),
+                "phone_number": normalize_phone_number(contact.get("phone")),
+                "message": f"Found local contact {contact.get('name')}.",
+            }
+        if local.get("status") == "ambiguous":
+            return {"ok": False, "status": "ambiguous", "message": local.get("message", "I found multiple matching local contacts.")}
+    except Exception:
+        pass
+
+    try:
         from brain.memory_engine import get_named_contact_field
 
         value, reply = get_named_contact_field(name_or_number, "phone")
@@ -74,7 +92,7 @@ def _resolve_contact_phone(name_or_number: str) -> dict[str, Any]:
         reply_text = _compact_text(reply)
         if "found multiple" in reply_text.lower():
             return {"ok": False, "status": "ambiguous", "message": reply_text}
-        return {"ok": False, "status": "not_found", "message": reply_text or f"I could not find a saved contact matching {name_or_number}."}
+        return {"ok": False, "status": "not_found", "message": reply_text or f"I could not find a saved contact matching {name_or_number}. Add the contact or provide a phone number."}
     except Exception as error:
         return {
             "ok": False,

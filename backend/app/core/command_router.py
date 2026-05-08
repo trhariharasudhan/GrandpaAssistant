@@ -63,6 +63,8 @@ from debug_learning_summary import build_debug_learning_summary, summarize_debug
 from debug_preflight_checklist import run_preflight_checklist, summarize_preflight_checklist
 from debug_health_dashboard import build_debug_health_dashboard, summarize_debug_health_dashboard
 from call_control import detect_call_intent, initiate_call
+from contact_manager import add_contact, delete_contact, find_contact, list_contacts, redact_contact_for_display
+from phone_link_readiness import check_tel_handler_readiness, summarize_phone_link_readiness
 from windows_control_audit import build_windows_control_audit, summarize_windows_control_audit
 from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
 from screen_awareness import explain_screen
@@ -3532,6 +3534,45 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     if command in ["windows controls audit", "full control check", "enna enna control panna mudiyum", "control list"]:
         language = "ta" if command == "enna enna control panna mudiyum" else "auto"
         speak(summarize_windows_control_audit(build_windows_control_audit(language=language), language=language))
+        return
+
+    add_contact_match = re.match(r"^add contact\s+(.+?)\s+(\+?[\d\s().-]{7,})$", command)
+    if add_contact_match:
+        result = add_contact(add_contact_match.group(1).strip(), add_contact_match.group(2).strip())
+        speak(result.get("message", "Could not add contact."))
+        return
+
+    if command == "show contacts":
+        contacts = list_contacts(limit=20)
+        if not contacts:
+            speak("No local contacts saved yet.")
+        else:
+            speak("Local contacts: " + " | ".join(f"{item['name']} {item['phone']}" for item in contacts))
+        return
+
+    find_contact_match = re.match(r"^find contact\s+(.+)$", command)
+    if find_contact_match:
+        result = find_contact(find_contact_match.group(1).strip())
+        if result.get("ok"):
+            contact = redact_contact_for_display(result.get("contact"))
+            speak(f"Found {contact.get('name')} {contact.get('phone')}.")
+        else:
+            speak(result.get("message", "Contact not found."))
+        return
+
+    delete_contact_match = re.match(r"^delete contact\s+(.+)$", command)
+    if delete_contact_match:
+        target = delete_contact_match.group(1).strip()
+        pending_confirmation = _store_pending_confirmation({
+            "type": "contact_action_confirm",
+            "message": f"Delete local contact {target}? Say yes to confirm or no to cancel.",
+            "action": lambda target=target: delete_contact(target).get("message", "Could not delete contact."),
+        })
+        speak(pending_confirmation["message"])
+        return
+
+    if command == "phone link status":
+        speak(summarize_phone_link_readiness(check_tel_handler_readiness()))
         return
 
     call_intent = detect_call_intent(command)

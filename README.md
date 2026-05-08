@@ -91,6 +91,17 @@ To review implemented Windows controls, safety levels, direct call behavior, and
 
 See `docs\WINDOWS_CONTROL_AUDIT.md`.
 
+## Contacts And Calling
+
+Local contacts make `call <name>` reliable without syncing contact data outside this machine:
+
+```bat
+add contact Riyaa 9876543210
+phone link status
+```
+
+See `docs\CONTACTS_AND_CALLING.md`.
+
 ## API Surface
 
 Desktop API examples:
