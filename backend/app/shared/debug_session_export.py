@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from debug_session import get_current_debug_session, list_debug_sessions
+from debug_timeline import build_debug_timeline
 
 try:
     from utils.paths import backend_data_path
@@ -99,8 +100,20 @@ def build_debug_session_markdown(session) -> str:
         f"- Created: {_line(session.get('created_at'), 'unknown')}",
         f"- Updated: {_line(session.get('updated_at'), 'unknown')}",
         "",
-        "## Debug Reports",
+        "## Timeline",
     ]
+    timeline = build_debug_timeline(session=session)
+    timeline_items = timeline.get("items") or []
+    lines.extend(
+        _bullet_lines(
+            timeline_items,
+            lambda item: _line(f"{item.get('timestamp')} - {item.get('title')}: {item.get('summary')}", "Timeline event"),
+        )
+    )
+    lines.extend([
+        "",
+        "## Debug Reports",
+    ])
     lines.extend(_bullet_lines(session.get("debug_reports") or [], lambda item: _line(item.get("summary") or item.get("error_text"), "Debug report")))
     lines.extend(["", "## Fix Plans"])
     lines.extend(_bullet_lines(session.get("fix_plans") or [], lambda item: _line(item.get("summary"), "Fix plan")))

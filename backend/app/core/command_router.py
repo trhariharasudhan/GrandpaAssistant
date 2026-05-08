@@ -56,6 +56,7 @@ from debug_session import (
     summarize_current_debug_session,
 )
 from debug_session_export import export_current_debug_session
+from debug_timeline import format_debug_timeline, get_current_debug_timeline
 from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
 from screen_awareness import explain_screen
 from window_awareness import summarize_active_window
@@ -3465,6 +3466,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     if command in ["export debug session", "save debug report", "export latest debug", "debug report file"]:
         result = export_current_debug_session(format="markdown")
         speak(f"Debug session exported to {result.get('path')}." if result.get("ok") else result.get("message", "Debug session export failed."))
+        return
+
+    if command in ["debug timeline", "show debug timeline", "what happened in debug session", "debug history"]:
+        speak(format_debug_timeline(get_current_debug_timeline(language="auto"), language="auto"))
         return
 
     if command and not _consume_security_bypass(command):
