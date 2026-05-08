@@ -47,6 +47,7 @@ from fix_approval_flow import (
     list_pending_fix_approvals,
     validate_fix_action,
 )
+from fix_audit_log import summarize_fix_audit_log
 from fix_plan_generator import build_fix_plan, format_fix_plan
 from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
 from screen_awareness import explain_screen
@@ -4257,6 +4258,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
 
     if command == "show fix approvals":
         speak(_fix_approval_summary())
+        return
+
+    if command in ["show fix audit log", "fix audit", "last fix actions"]:
+        speak(summarize_fix_audit_log(language="auto"))
         return
 
     dismiss_fix_match = re.fullmatch(r"dismiss fix\s+([A-Za-z0-9_-]+)", command)

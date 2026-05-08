@@ -67,6 +67,7 @@ from fix_approval_flow import (
     execute_fix_approval,
     list_pending_fix_approvals,
 )
+from fix_audit_log import list_fix_audit_events
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -2213,6 +2214,14 @@ def api_dismiss_fix_approval(request: Request, approval_id: str):
     if not _is_local_request(request) and not _is_admin_context(context):
         raise HTTPException(status_code=403, detail="Fix approvals are only available from localhost or admin sessions.")
     return {"ok": dismiss_fix_approval(approval_id)}
+
+
+@app.get("/api/debug/fix-audit")
+def api_fix_audit(request: Request, limit: int = 50):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Fix audit log is only available from localhost or admin sessions.")
+    return {"ok": True, "items": list_fix_audit_events(limit=limit)}
 
 
 

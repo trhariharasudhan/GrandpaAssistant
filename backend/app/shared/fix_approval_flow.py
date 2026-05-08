@@ -7,6 +7,8 @@ import subprocess
 import uuid
 from typing import Any
 
+from fix_audit_log import append_fix_audit_event
+
 
 _PENDING_FIX_APPROVALS: dict[str, dict[str, Any]] = {}
 
@@ -119,6 +121,7 @@ def create_fix_approval(action_type, payload, reason, language: str = "auto") ->
         ),
     }
     _PENDING_FIX_APPROVALS[approval_id] = approval
+    append_fix_audit_event("created", approval=approval, message=approval["message"])
     return approval
 
 
@@ -142,6 +145,7 @@ def dismiss_fix_approval(approval_id):
     approval["status"] = "dismissed"
     approval["dismissed_at"] = _utc_now()
     _PENDING_FIX_APPROVALS.pop(approval["id"], None)
+    append_fix_audit_event("dismissed", approval=approval, message="Fix approval dismissed.")
     return True
 
 
@@ -184,16 +188,20 @@ def execute_fix_approval(approval_id, timeout_seconds: int = 10) -> dict[str, An
         return {"ok": False, "executed": False, "message": "Fix approval was not found or already handled."}
     validation = validate_fix_action(approval.get("payload"))
     if not validation.get("ok") or not validation.get("runnable"):
-        return {
+        result = {
             "ok": False,
             "executed": False,
             "message": validation.get("reason") or "This fix action is not runnable.",
             "validation": validation,
         }
+        append_fix_audit_event("blocked", approval=approval, result=result, message=result["message"])
+        return result
     command = _command_payload(approval.get("payload"))
     argv = _argv_for_command(command)
     if not argv:
-        return {"ok": False, "executed": False, "message": "This command could not be converted into a safe argument list."}
+        result = {"ok": False, "executed": False, "message": "This command could not be converted into a safe argument list."}
+        append_fix_audit_event("blocked", approval=approval, result=result, message=result["message"])
+        return result
     try:
         completed = subprocess.run(
             argv,
@@ -221,6 +229,9 @@ def execute_fix_approval(approval_id, timeout_seconds: int = 10) -> dict[str, An
             "stdout": (error.stdout or "")[-4000:] if isinstance(error.stdout, str) else "",
             "stderr": (error.stderr or "")[-4000:] if isinstance(error.stderr, str) else "",
         }
+        append_fix_audit_event("failed", approval=approval, result=result, message=result.get("message", "Fix command failed."))
+        mark_fix_approval_executed(approval_id, result)
+        return result
     except Exception as error:
         result = {
             "ok": False,
@@ -228,6 +239,10 @@ def execute_fix_approval(approval_id, timeout_seconds: int = 10) -> dict[str, An
             "command": command,
             "message": _compact_text(error),
         }
+        append_fix_audit_event("failed", approval=approval, result=result, message=result.get("message", "Fix command failed."))
+        mark_fix_approval_executed(approval_id, result)
+        return result
+    append_fix_audit_event("executed", approval=approval, result=result, message="Fix approval command executed.")
     mark_fix_approval_executed(approval_id, result)
     return result
 
