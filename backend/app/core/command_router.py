@@ -57,6 +57,7 @@ from debug_session import (
 )
 from debug_session_export import export_current_debug_session
 from debug_timeline import format_debug_timeline, get_current_debug_timeline
+from debug_session_search import search_debug_sessions, summarize_debug_search_results
 from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
 from screen_awareness import explain_screen
 from window_awareness import summarize_active_window
@@ -3470,6 +3471,15 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
 
     if command in ["debug timeline", "show debug timeline", "what happened in debug session", "debug history"]:
         speak(format_debug_timeline(get_current_debug_timeline(language="auto"), language="auto"))
+        return
+
+    debug_search_match = re.fullmatch(
+        r"(?:search debug sessions for|find debug session|old debug issue|previous error)\s+(.+)",
+        command,
+    )
+    if debug_search_match:
+        results = search_debug_sessions(debug_search_match.group(1), limit=5, language="auto")
+        speak(summarize_debug_search_results(results, language="auto"))
         return
 
     if command and not _consume_security_bypass(command):

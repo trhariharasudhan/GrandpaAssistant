@@ -76,6 +76,7 @@ from debug_session import (
 )
 from debug_session_export import export_current_debug_session, list_debug_exports
 from debug_timeline import get_current_debug_timeline
+from debug_session_search import search_debug_sessions
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -2304,6 +2305,14 @@ def api_debug_timeline(request: Request, language: str = "auto"):
     if not _is_local_request(request) and not _is_admin_context(context):
         raise HTTPException(status_code=403, detail="Debug timeline is only available from localhost or admin sessions.")
     return get_current_debug_timeline(language=language)
+
+
+@app.get("/api/debug/sessions/search")
+def api_debug_session_search(request: Request, q: str = "", limit: int = 20, language: str = "auto"):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Debug session search is only available from localhost or admin sessions.")
+    return search_debug_sessions(q, limit=limit, language=language)
 
 
 
