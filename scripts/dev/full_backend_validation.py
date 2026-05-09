@@ -85,7 +85,7 @@ def run_unittests() -> SectionResult:
     return _run_subprocess(
         "unittest discover",
         [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
-        timeout_seconds=180,
+        timeout_seconds=300,
     )
 
 

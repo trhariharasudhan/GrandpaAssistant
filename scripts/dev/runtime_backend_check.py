@@ -153,11 +153,15 @@ def check_port(port: int) -> dict[str, Any]:
     }
 
 
+def check_health_only(port: int) -> dict[str, Any]:
+    return check_endpoint(port, "/api/health")
+
+
 def _any_port_ready() -> dict[str, Any] | None:
     for port in PORTS_TO_CHECK:
-        result = check_port(port)
-        if result["ok"]:
-            return result
+        health = check_health_only(port)
+        if health["ok"]:
+            return {"port": port, "ok": True, "endpoints": [health]}
     return None
 
 
@@ -235,8 +239,15 @@ def run_runtime_check() -> dict[str, Any]:
         time.sleep(1)
         started = process.poll() is None
         detected = wait_for_backend(process) if started else None
-        port_results = [detected] if detected else [check_port(port) for port in PORTS_TO_CHECK]
-        overall_ok = bool(started and detected and detected.get("ok"))
+        if detected:
+            full_detected = check_port(detected["port"])
+            port_results = [full_detected]
+            overall_ok = bool(started and full_detected.get("ok"))
+        else:
+            port_results = [check_port(port) for port in PORTS_TO_CHECK]
+            full_detected = next((item for item in port_results if item.get("ok")), None)
+            detected = full_detected
+            overall_ok = bool(started and full_detected)
         return {
             "overall_ok": overall_ok,
             "backend_process_started": started,

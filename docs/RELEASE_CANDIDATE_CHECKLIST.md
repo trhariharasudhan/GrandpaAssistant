@@ -7,6 +7,8 @@ Use this checklist before tagging or sharing a GrandpaAssistant backend release 
 Run from the repository root:
 
 ```powershell
+.\.venv\Scripts\python.exe scripts\dev\windows_controls_audit.py
+.\.venv\Scripts\python.exe scripts\dev\runtime_backend_check.py
 .\.venv\Scripts\python.exe scripts\dev\generate_debug_docs.py
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 .\.venv\Scripts\python.exe scripts\dev\full_backend_validation.py
@@ -45,6 +47,12 @@ GET /api/context/suggestions
 POST /api/context/execute-suggestion
 GET /api/debug/dashboard
 GET /api/debug/docs-summary
+GET /api/windows/controls/audit
+GET /api/contacts
+POST /api/contacts
+GET /api/contacts/search?q=...
+DELETE /api/contacts/{name}
+GET /api/phone-link/status
 ```
 
 Remote unauthenticated requests should be blocked or restricted according to each route's safety contract.
@@ -59,6 +67,17 @@ docs/DEBUG_ASSISTANT_GUIDE.md
 
 The guide should describe debug reports, fix plans, approvals, audit logs, sessions, exports, timelines, search/reuse, learning summaries, preflight checks, the debug dashboard, and safety constraints.
 
+## Windows Controls And Calling
+
+Run and review:
+
+```text
+docs/WINDOWS_CONTROL_AUDIT.md
+docs/CONTACTS_AND_CALLING.md
+```
+
+Confirm the Windows controls audit reports no critical failures, direct clear call intents do not ask an extra confirmation, ambiguous or missing call targets ask for clarification, emergency numbers are blocked from automatic calling, and Phone Link/default `tel:` handler readiness gives setup guidance without placing a call.
+
 ## Security
 
 - Confirm `.gitignore` covers auth secrets, tokens, credential files, local databases, logs, and runtime validation state.
@@ -67,6 +86,7 @@ The guide should describe debug reports, fix plans, approvals, audit logs, sessi
   - `backend/data/debug/*.jsonl`
   - `backend/data/debug/exports/`
   - `backend/data/knowledge/review_queue.jsonl`
+  - `backend/data/contacts/*.json`
   - `backend/data/app_auth_secret.txt`
 - Do not include real files from `runtime/` or local credential/config directories.
 - Dangerous commands must require confirmation and, where appropriate, authentication/admin mode.
