@@ -80,6 +80,30 @@ _last_fix_plan = None
 
 def _compact_text(value):
     return " ".join(str(value or "").split()).strip()
+
+
+def _format_redacted_contacts(contacts):
+    if not contacts:
+        return "No contacts saved yet. Say add contact <name> <phone>."
+    return "Local contacts: " + " | ".join(
+        f"{item.get('name', 'Unknown')} {item.get('phone', '')}".strip()
+        for item in contacts
+    )
+
+
+def _format_contact_find_result(result):
+    result = result or {}
+    matches = result.get("matches") or []
+    if result.get("ok") and result.get("contact"):
+        contact = redact_contact_for_display(result.get("contact"))
+        return f"Found {contact.get('name')} {contact.get('phone')}."
+    if matches:
+        redacted = [redact_contact_for_display(item) for item in matches[:5]]
+        return "Matching contacts: " + " | ".join(
+            f"{item.get('name', 'Unknown')} {item.get('phone', '')}".strip()
+            for item in redacted
+        )
+    return result.get("message") or "Contact not found. Say add contact <name> <phone>."
 # UI/overlay/tray removed: provide lightweight stubs to avoid import failures
 def get_pinned_commands():
     return []
@@ -434,6 +458,44 @@ def _pending_action_from_command(command):
 
 def _latest_pending_confirmation():
     return pending_confirmation
+
+
+def _handle_latest_pending_confirmation_response(command, INSTALLED_APPS, input_mode):
+    confirmation_state = _latest_pending_confirmation()
+    if not confirmation_state:
+        return False
+    if _is_negative_confirmation(command):
+        _clear_pending_confirmation(confirmation_state)
+        speak("Cancelled.")
+        return True
+    if not _is_positive_confirmation(command):
+        return False
+    if confirmation_state.get("type") == "security_confirmation":
+        _clear_pending_confirmation(confirmation_state)
+        _resume_secured_command(confirmation_state, INSTALLED_APPS, input_mode)
+        return True
+    if confirmation_state.get("type") == "security_auth":
+        speak(confirmation_state.get("message", "Authentication is still required."))
+        return True
+    if confirmation_state.get("type") == "contact_choice":
+        return False
+    action = confirmation_state.get("action")
+    if callable(action):
+        _clear_pending_confirmation(confirmation_state)
+        reply = action()
+        if reply is not None:
+            speak(reply)
+            set_last_result(reply)
+        remaining_chain = confirmation_state.get("remaining_chain", [])
+        if remaining_chain:
+            _continue_remaining_chain(
+                remaining_chain,
+                confirmation_state.get("chain_apps", INSTALLED_APPS),
+                confirmation_state.get("chain_input_mode", input_mode),
+            )
+        return True
+    speak("That pending action cannot be resumed.")
+    return True
 
 
 def _current_location_text():
@@ -1278,7 +1340,7 @@ def _normalize_voice_friendly_command(command):
         "start night routine": "run night routine",
         "sync contacts": "sync google contacts",
         "refresh contacts": "refresh google contacts",
-        "list contacts": "list google contacts",
+        "list synced contacts": "list google contacts",
         "merge contacts to memory": "merge google contacts to memory",
         "import contacts to memory": "merge google contacts to memory",
         "read this selected text": "read selected text aloud",
@@ -3372,6 +3434,8 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             return
         speak("That pending action cannot be resumed.")
         return
+    if _handle_latest_pending_confirmation_response(command, INSTALLED_APPS, input_mode):
+        return
     if not pending_confirmation and _maybe_run_multi_action_chain(command, INSTALLED_APPS, input_mode):
         return
     if command and _handle_learning_feedback_command(command, input_mode=input_mode):
@@ -3542,22 +3606,14 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(result.get("message", "Could not add contact."))
         return
 
-    if command == "show contacts":
-        contacts = list_contacts(limit=20)
-        if not contacts:
-            speak("No local contacts saved yet.")
-        else:
-            speak("Local contacts: " + " | ".join(f"{item['name']} {item['phone']}" for item in contacts))
+    if command in ["show contact", "show contacts", "list contacts", "my contacts"]:
+        speak(_format_redacted_contacts(list_contacts(limit=20)))
         return
 
-    find_contact_match = re.match(r"^find contact\s+(.+)$", command)
+    find_contact_match = re.match(r"^(?:find|search) contact\s+(.+)$", command)
     if find_contact_match:
         result = find_contact(find_contact_match.group(1).strip())
-        if result.get("ok"):
-            contact = redact_contact_for_display(result.get("contact"))
-            speak(f"Found {contact.get('name')} {contact.get('phone')}.")
-        else:
-            speak(result.get("message", "Contact not found."))
+        speak(_format_contact_find_result(result))
         return
 
     delete_contact_match = re.match(r"^delete contact\s+(.+)$", command)
