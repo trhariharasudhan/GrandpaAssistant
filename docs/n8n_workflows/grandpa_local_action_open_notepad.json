@@ -1,0 +1,147 @@
+{
+  "name": "Grandpa Local Action Open Notepad",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "grandpa-message",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "3f5d14dc-6d44-49c9-a4a5-cbb7002ddde3",
+      "name": "Grandpa Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        220,
+        300
+      ],
+      "webhookId": "grandpa-message"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "3932cad6-fbc1-488f-bdce-f1fe510d5697",
+              "leftValue": "={{ $json.body.message }}",
+              "rightValue": "notepad",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "61e6c458-a1e8-4ca5-b06e-4bc6ab473b3d",
+      "name": "If Message Mentions Notepad",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8765/api/local-actions/execute",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"action\": \"open_app\",\n  \"params\": {\n    \"app\": \"notepad\"\n  }\n}",
+        "options": {}
+      },
+      "id": "48df9be2-35ca-4f2a-8901-d9c2bc9c6389",
+      "name": "Open Notepad Local Action",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "90e05508-5142-401d-9358-682e33abb397",
+      "name": "Respond With Executor Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1020,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, message: 'No local action matched. Say trigger n8n open notepad.' }) }}",
+        "options": {}
+      },
+      "id": "dc72fca2-4b77-4e48-bfc3-0d2c70f3b566",
+      "name": "Respond No Match",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        760,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Grandpa Webhook": {
+      "main": [
+        [
+          {
+            "node": "If Message Mentions Notepad",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Message Mentions Notepad": {
+      "main": [
+        [
+          {
+            "node": "Open Notepad Local Action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond No Match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open Notepad Local Action": {
+      "main": [
+        [
+          {
+            "node": "Respond With Executor Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "active": false
+}

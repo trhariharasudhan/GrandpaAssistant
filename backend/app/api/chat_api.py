@@ -92,6 +92,10 @@ from security.auth_manager import (
 from security.device_monitor import device_security_status_payload, trust_device
 from security.hub import security_logs_payload, security_status_payload, validate_prompt_text
 from security.state import append_security_activity
+try:
+    from app.integrations.n8n_client import send_n8n_message
+except ImportError:
+    from backend.app.integrations.n8n_client import send_n8n_message
 
 
 app = FastAPI(title="Grandpa Assistant Chat API", version="1.0.0")
@@ -110,6 +114,10 @@ IOT_MOCK_STATE_PATH = backend_data_path("iot_mock_state.json")
 
 
 class ChatRequest(BaseModel):
+    message: str
+
+
+class N8nTestRequest(BaseModel):
     message: str
 
 
@@ -386,6 +394,12 @@ def _trim_history() -> None:
 
 def _compact_text(value: Any) -> str:
     return " ".join(str(value or "").split()).strip()
+
+
+def _is_local_request(request: Request | None) -> bool:
+    client = getattr(request, "client", None) if request is not None else None
+    host = _compact_text(getattr(client, "host", "")).lower()
+    return host in {"127.0.0.1", "::1", "localhost", "testclient"}
 
 
 def _sanitize_assistant_reply(reply: str, raw_user_message: str) -> str:
@@ -791,6 +805,23 @@ def doctor() -> dict:
         "ok": True,
         "doctor": collect_startup_diagnostics(use_cache=False),
     }
+
+
+@app.post("/api/automation/n8n/test")
+def n8n_test(payload: N8nTestRequest, request: Request = None) -> dict:
+    context = _authenticated_app_context(request, required=False)
+    is_admin = False
+    try:
+        require_admin(context)
+        is_admin = True
+    except Exception:
+        is_admin = False
+    if not _is_local_request(request) and not is_admin:
+        raise HTTPException(status_code=403, detail="n8n automation test is only available from localhost or admin sessions.")
+    message = _compact_text(payload.message)
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required.")
+    return send_n8n_message(message)
 
 
 @app.get("/auth/bootstrap-status")

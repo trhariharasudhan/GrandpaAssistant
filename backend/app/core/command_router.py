@@ -66,9 +66,23 @@ from call_control import detect_call_intent, initiate_call
 from contact_manager import add_contact, delete_contact, find_contact, list_contacts, redact_contact_for_display
 from phone_link_readiness import check_tel_handler_readiness, summarize_phone_link_readiness
 from windows_control_audit import build_windows_control_audit, summarize_windows_control_audit
+try:
+    from app.integrations.n8n_client import send_n8n_message
+except ImportError:
+    from backend.app.integrations.n8n_client import send_n8n_message
 from local_knowledge import add_local_knowledge_entry, clear_review_queue_item, list_knowledge_review_queue
 from screen_awareness import explain_screen
 from window_awareness import summarize_active_window
+try:
+    from ui_analysis.action_planner import build_action_plan
+    from ui_analysis.screen_capture import capture_current_screen, serializable_capture_payload
+    from ui_analysis.ui_action_executor import execute_ui_action
+    from ui_analysis.ui_element_detector import detect_ui_elements
+except ImportError:
+    from app.features.ui_analysis.action_planner import build_action_plan
+    from app.features.ui_analysis.screen_capture import capture_current_screen, serializable_capture_payload
+    from app.features.ui_analysis.ui_action_executor import execute_ui_action
+    from app.features.ui_analysis.ui_element_detector import detect_ui_elements
 import pyperclip
 from brain.question_analyzer import is_personal_question
 from core.intent_router import try_handle_intent
@@ -76,6 +90,8 @@ from core.intent_router import try_handle_intent
 
 _last_context_suggestion = None
 _last_fix_plan = None
+_pending_ui_action = None
+UI_ACTION_EXPIRES_IN_SECONDS = 60
 
 
 def _compact_text(value):
@@ -104,6 +120,288 @@ def _format_contact_find_result(result):
             for item in redacted
         )
     return result.get("message") or "Contact not found. Say add contact <name> <phone>."
+
+
+_N8N_AUTOMATION_PATTERN = re.compile(
+    r"^(?:grandpa\s+)?(?:run\s+automation|trigger\s+n8n|send\s+to\s+n8n|automate)\b[:\s]*(.*)$",
+    re.IGNORECASE,
+)
+
+
+def detect_n8n_automation_intent(command):
+    match = _N8N_AUTOMATION_PATTERN.match(_compact_text(command))
+    if not match:
+        return {"matched": False, "message": ""}
+    return {"matched": True, "message": _compact_text(match.group(1))}
+
+
+def _handle_n8n_automation_command(command, raw_command=None, input_mode="text"):
+    intent = detect_n8n_automation_intent(command)
+    if not intent.get("matched"):
+        return False
+    message = _compact_text(intent.get("message"))
+    if not message:
+        speak("Tell me what automation message to send to n8n.")
+        return True
+    result = send_n8n_message(
+        message,
+        channel=_compact_text(input_mode) or "text",
+        raw_command=_compact_text(raw_command) or _compact_text(command),
+    )
+    if result.get("ok"):
+        speak("Automation sent to n8n successfully.")
+    else:
+        speak("n8n automation is not available right now.")
+    return True
+
+
+def _bbox_location_text(bbox):
+    try:
+        x, y, width, height = [int(value or 0) for value in bbox[:4]]
+    except Exception:
+        return "on the screen"
+    horizontal = "left" if x < 400 else "right"
+    vertical = "top" if y < 300 else "bottom"
+    return f"near the {vertical} {horizontal}"
+
+
+def _summarize_ui_elements(elements):
+    elements = list(elements or [])
+    if not elements:
+        return "I captured the screen, but I could not identify clear UI controls yet."
+    type_counts = {}
+    labels = []
+    for item in elements:
+        item_type = _compact_text(item.get("type")) or "element"
+        type_counts[item_type] = type_counts.get(item_type, 0) + 1
+        label = _compact_text(item.get("label"))
+        if label and len(labels) < 5:
+            labels.append(label)
+    parts = []
+    if type_counts.get("browser_region"):
+        parts.append("a browser region")
+    if type_counts.get("dialog"):
+        parts.append("a dialog")
+    if type_counts.get("text_field"):
+        parts.append(f"{type_counts['text_field']} text field(s)")
+    if type_counts.get("button"):
+        parts.append(f"{type_counts['button']} button(s)")
+    if type_counts.get("menu"):
+        parts.append(f"{type_counts['menu']} menu item(s)")
+    if not parts:
+        parts.append(f"{len(elements)} visible text/UI element(s)")
+    summary = "I can see " + ", ".join(parts) + "."
+    if labels:
+        summary += " Visible labels include: " + ", ".join(labels) + "."
+    return summary
+
+
+def _find_ui_element_summary(target, elements):
+    target_tokens = set(re.findall(r"[a-z0-9]+", str(target or "").lower()))
+    matches = []
+    for item in elements or []:
+        label = _compact_text(item.get("label"))
+        label_tokens = set(re.findall(r"[a-z0-9]+", label.lower()))
+        if target_tokens and (target_tokens & label_tokens or str(target or "").lower() in label.lower()):
+            matches.append(item)
+    if not matches:
+        return f"I could not confidently find {target} on the screen."
+    best = matches[0]
+    label = _compact_text(best.get("label")) or str(target)
+    item_type = _compact_text(best.get("type")) or "element"
+    return f"I found a {label} {item_type} {_bbox_location_text(best.get('bbox') or [])}."
+
+
+def _ui_analysis_payload():
+    capture = capture_current_screen()
+    analysis = detect_ui_elements(
+        image_path=capture.get("image_path"),
+        image_array=capture.get("image_array"),
+    )
+    analysis["capture"] = serializable_capture_payload(capture)
+    return analysis
+
+
+def _ui_confirm_command(command):
+    normalized = _compact_text(command).lower()
+    return normalized in {"confirm", "yes do it", "go ahead", "click it"}
+
+
+def _ui_cancel_command(command):
+    normalized = _compact_text(command).lower()
+    return normalized in {"cancel", "stop", "don't do it", "dont do it"}
+
+
+def _clear_pending_ui_action():
+    global _pending_ui_action
+    _pending_ui_action = None
+
+
+def _store_pending_ui_action(plan, original_user_request, capture_payload):
+    global _pending_ui_action
+    element = plan.get("element") or {}
+    _pending_ui_action = {
+        "action": plan.get("action"),
+        "target": plan.get("target"),
+        "bbox": element.get("bbox") or plan.get("bbox") or [0, 0, 0, 0],
+        "confidence": float(plan.get("confidence") or 0.0),
+        "created_at": datetime.datetime.utcnow().timestamp(),
+        "expires_in_seconds": UI_ACTION_EXPIRES_IN_SECONDS,
+        "original_user_request": _compact_text(original_user_request),
+        "blocked": bool(plan.get("blocked")),
+        "requires_confirmation": True,
+        "reason": plan.get("reason", ""),
+        "element": element,
+        "capture_shape": capture_payload.get("shape") or [],
+    }
+    return _pending_ui_action
+
+
+def _pending_ui_action_expired(state):
+    created = float((state or {}).get("created_at") or 0.0)
+    expires = float((state or {}).get("expires_in_seconds") or UI_ACTION_EXPIRES_IN_SECONDS)
+    return datetime.datetime.utcnow().timestamp() - created > expires
+
+
+def _screen_shape_changed_too_much(state):
+    previous = state.get("capture_shape") or []
+    if not previous:
+        return False
+    capture = capture_current_screen(save=False)
+    current = capture.get("shape") or []
+    if not current or len(current) < 2 or len(previous) < 2:
+        return False
+    return current[:2] != previous[:2]
+
+
+def _execute_pending_ui_action():
+    state = _pending_ui_action
+    if not state:
+        speak("There is no pending screen action to confirm.")
+        return True
+    if _pending_ui_action_expired(state):
+        _clear_pending_ui_action()
+        speak("That screen action expired. Please ask me to plan it again.")
+        return True
+    if state.get("blocked"):
+        _clear_pending_ui_action()
+        speak("I cannot execute that screen action because it is blocked for safety.")
+        return True
+    if float(state.get("confidence") or 0.0) < 0.6:
+        _clear_pending_ui_action()
+        speak("I cannot execute that screen action because confidence is too low.")
+        return True
+    if _screen_shape_changed_too_much(state):
+        _clear_pending_ui_action()
+        speak("The screen appears to have changed. Please ask me to plan the action again.")
+        return True
+    result = execute_ui_action(state)
+    _clear_pending_ui_action()
+    speak(result.get("message") or ("Screen action completed." if result.get("ok") else "Screen action was not executed."))
+    return True
+
+
+def _handle_pending_ui_action_response(command):
+    if not _pending_ui_action:
+        return False
+    if _ui_cancel_command(command):
+        _clear_pending_ui_action()
+        speak("Screen action cancelled.")
+        return True
+    if _ui_confirm_command(command):
+        return _execute_pending_ui_action()
+    return False
+
+
+def _pending_ui_action_reply(plan):
+    target = _compact_text(plan.get("target")) or "that UI element"
+    label = target
+    if target.lower().endswith(" button"):
+        label = target[:-7].strip() + " button"
+    if plan.get("action") == "type":
+        return f"I found {label}. Say confirm before I type anything."
+    if plan.get("action") == "press_key":
+        return f"I can press {label}. Say confirm to continue."
+    return f"I found the {label}. Say confirm to click it."
+
+
+def _maybe_create_pending_ui_action(command):
+    lowered = _compact_text(command).lower()
+    if re.match(r"^(?:click|press)\s+.+", lowered):
+        request = lowered
+    elif re.match(r"^(?:type|type into|enter|fill)\s+.+", lowered):
+        request = lowered
+    else:
+        return False
+    analysis = _ui_analysis_payload()
+    plan = build_action_plan(request, analysis.get("elements", []))
+    plans = plan.get("plans") or []
+    if not plans:
+        speak("I could not create a safe screen action plan from what I can see.")
+        return True
+    best = plans[0]
+    if best.get("blocked"):
+        speak(f"I cannot safely perform that screen action. {best.get('reason') or 'The action is blocked.'}")
+        return True
+    if float(best.get("confidence") or 0.0) < 0.6:
+        speak("I found a possible screen action, but confidence is too low. Please be more specific.")
+        return True
+    _store_pending_ui_action(best, command, analysis.get("capture") or {})
+    speak(_pending_ui_action_reply(best))
+    return True
+
+
+def _handle_ui_analysis_command(command):
+    if _maybe_create_pending_ui_action(command):
+        return True
+
+    if command in ["what is on my screen", "analyze my screen"]:
+        analysis = _ui_analysis_payload()
+        speak(_summarize_ui_elements(analysis.get("elements", [])))
+        return True
+
+    if command == "explain this error":
+        analysis = _ui_analysis_payload()
+        elements_text = "\n".join(_compact_text(item.get("label")) for item in analysis.get("elements", []) if _compact_text(item.get("label")))
+        if re.search(r"\b(error|failed|exception|warning|denied|not found|cannot|can't)\b", elements_text, flags=re.IGNORECASE):
+            speak("I can see text that looks like an error or warning. " + _summarize_ui_elements(analysis.get("elements", [])))
+        else:
+            speak(_summarize_ui_elements(analysis.get("elements", [])))
+        return True
+
+    find_match = re.match(r"^find on screen\s+(.+)$", command)
+    if find_match:
+        target = find_match.group(1).strip()
+        analysis = _ui_analysis_payload()
+        speak(_find_ui_element_summary(target, analysis.get("elements", [])))
+        return True
+
+    where_match = re.match(r"^where is (?:the )?(.+?) button$", command)
+    if where_match:
+        target = where_match.group(1).strip()
+        analysis = _ui_analysis_payload()
+        speak(_find_ui_element_summary(target, analysis.get("elements", [])))
+        return True
+
+    plan_match = re.match(r"^plan screen action\s+(.+)$", command)
+    if plan_match:
+        request = plan_match.group(1).strip()
+        analysis = _ui_analysis_payload()
+        plan = build_action_plan(request, analysis.get("elements", []))
+        plans = plan.get("plans") or []
+        if not plans:
+            speak("I could not create a safe screen action plan from what I can see.")
+            return True
+        best = plans[0]
+        if best.get("blocked"):
+            speak(f"I cannot safely perform that screen action. {best.get('reason') or 'The action is blocked.'}")
+        elif best.get("requires_confirmation"):
+            speak("I can plan the action, but I need confirmation before clicking or typing.")
+        else:
+            speak(f"I can plan to {best.get('action')} {best.get('target')}, but I will not execute it automatically.")
+        return True
+
+    return False
 # UI/overlay/tray removed: provide lightweight stubs to avoid import failures
 def get_pinned_commands():
     return []
@@ -3382,6 +3680,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     global object_detection_stop_event, object_detection_stop_requested_by_command
     global pending_confirmation
 
+    raw_command = _compact_text(command)
     command = _normalize_voice_friendly_command(command)
     command = _apply_contact_context(command)
     pending_action, pending_id = _pending_action_from_command(command)
@@ -3436,6 +3735,8 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
     if _handle_latest_pending_confirmation_response(command, INSTALLED_APPS, input_mode):
         return
+    if _handle_pending_ui_action_response(command):
+        return
     if not pending_confirmation and _maybe_run_multi_action_chain(command, INSTALLED_APPS, input_mode):
         return
     if command and _handle_learning_feedback_command(command, input_mode=input_mode):
@@ -3444,6 +3745,12 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         set_last_user_input(command)
         remember_emotion_signal(command)
         log_command(command, source=input_mode)
+
+    if _handle_ui_analysis_command(command):
+        return
+
+    if _handle_n8n_automation_command(command, raw_command=raw_command, input_mode=input_mode):
+        return
 
     if pending_confirmation and pending_confirmation.get("type") == "contact_choice":
         selected_name = _resolve_contact_choice_command(

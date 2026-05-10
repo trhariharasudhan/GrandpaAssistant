@@ -1,0 +1,25 @@
+{
+  "name": "Grandpa Echo Test",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "grandpa-message",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "0f3de85d-0e51-4597-bb62-301f50f1a8aa",
+      "name": "Grandpa Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "grandpa-message"
+    }
+  ],
+  "connections": {},
+  "settings": {},
+  "active": false
+}

@@ -84,6 +84,22 @@ from debug_health_dashboard import build_debug_health_dashboard
 from windows_control_audit import build_windows_control_audit
 from contact_manager import add_contact, delete_contact, find_contact, list_contacts, redact_contact_for_display
 from phone_link_readiness import check_tel_handler_readiness
+try:
+    from app.integrations.n8n_client import send_n8n_message
+except ImportError:
+    from backend.app.integrations.n8n_client import send_n8n_message
+try:
+    from app.services.local_action_executor import execute_local_action
+except ImportError:
+    from backend.app.services.local_action_executor import execute_local_action
+try:
+    from app.features.ui_analysis.action_planner import build_action_plan
+    from app.features.ui_analysis.screen_capture import capture_current_screen, serializable_capture_payload
+    from app.features.ui_analysis.ui_element_detector import detect_ui_elements
+except ImportError:
+    from backend.app.features.ui_analysis.action_planner import build_action_plan
+    from backend.app.features.ui_analysis.screen_capture import capture_current_screen, serializable_capture_payload
+    from backend.app.features.ui_analysis.ui_element_detector import detect_ui_elements
 from mobile_companion import MOBILE_COMPANION
 from productivity_store import (
     get_user_preferences,
@@ -277,6 +293,26 @@ class ContactCreateRequest(BaseModel):
     name: str
     phone: str
     labels: list[str] | None = None
+
+
+class N8nTestRequest(BaseModel):
+    message: str
+
+
+class LocalActionExecuteRequest(BaseModel):
+    action: str
+    params: dict[str, Any] | None = None
+
+
+class UIAnalyzeRequest(BaseModel):
+    image_path: str | None = None
+    text: str | None = None
+
+
+class UIPlanRequest(BaseModel):
+    request: str
+    elements: list[dict[str, Any]] | None = None
+    text: str | None = None
 
 
 class ChatRequest(BaseModel):
@@ -2445,6 +2481,53 @@ def api_phone_link_status(request: Request):
     if not _is_local_request(request) and not _is_admin_context(context):
         raise HTTPException(status_code=403, detail="Phone Link status is only available from localhost or admin sessions.")
     return check_tel_handler_readiness()
+
+
+@app.post("/api/automation/n8n/test")
+def api_n8n_test(request: Request, payload: N8nTestRequest):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="n8n automation test is only available from localhost or admin sessions.")
+    message = _compact_text(payload.message)
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required.")
+    return send_n8n_message(message)
+
+
+@app.post("/api/local-actions/execute")
+def api_execute_local_action(request: Request, payload: LocalActionExecuteRequest):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Local actions are only available from localhost or admin sessions.")
+    return execute_local_action({"action": payload.action, "params": payload.params or {}})
+
+
+@app.get("/api/ui/screenshot")
+def api_ui_screenshot(request: Request):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="UI screenshot is only available from localhost or admin sessions.")
+    return serializable_capture_payload(capture_current_screen())
+
+
+@app.post("/api/ui/analyze")
+def api_ui_analyze(request: Request, payload: UIAnalyzeRequest | None = None):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="UI analysis is only available from localhost or admin sessions.")
+    payload = payload or UIAnalyzeRequest()
+    return detect_ui_elements(image_path=payload.image_path, text=payload.text)
+
+
+@app.post("/api/ui/plan")
+def api_ui_plan(request: Request, payload: UIPlanRequest):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="UI action planning is only available from localhost or admin sessions.")
+    elements = payload.elements
+    if elements is None and payload.text:
+        elements = detect_ui_elements(text=payload.text).get("elements", [])
+    return build_action_plan(payload.request, elements or [])
 
 
 

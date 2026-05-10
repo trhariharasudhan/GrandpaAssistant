@@ -1,0 +1,147 @@
+{
+  "name": "Grandpa Take Screenshot",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "grandpa-message",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f8cb440d-6b50-4ef9-85c3-eb72543569d8",
+      "name": "Grandpa Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        220,
+        300
+      ],
+      "webhookId": "grandpa-message"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "8d273a1c-5f49-4ebc-ae85-3a8f595355dc",
+              "leftValue": "={{ $json.body.message }}",
+              "rightValue": "screenshot",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dfaa61a7-82c1-4e15-9c47-b8d70d92460f",
+      "name": "If Message Mentions Screenshot",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8765/api/local-actions/execute",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"action\": \"take_screenshot\",\n  \"params\": {}\n}",
+        "options": {}
+      },
+      "id": "6d9acbc8-1380-42f5-bcdf-484f90649b77",
+      "name": "Take Screenshot Local Action",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "2ff513ed-ffbe-49a1-9dcc-dbe85a8f9e3e",
+      "name": "Respond With Executor Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1020,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, message: 'No local action matched. Say trigger n8n take screenshot.' }) }}",
+        "options": {}
+      },
+      "id": "ec268f2e-cda2-4cec-b1c7-638c92f58a32",
+      "name": "Respond No Match",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        760,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Grandpa Webhook": {
+      "main": [
+        [
+          {
+            "node": "If Message Mentions Screenshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Message Mentions Screenshot": {
+      "main": [
+        [
+          {
+            "node": "Take Screenshot Local Action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond No Match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Take Screenshot Local Action": {
+      "main": [
+        [
+          {
+            "node": "Respond With Executor Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "active": false
+}
