@@ -1,0 +1,23 @@
+{
+  "provider": "fallback",
+  "session_id": "terminal-default",
+  "history_turns": 10,
+  "database_path": "runtime/data/grandpa_chat.db",
+  "providers": {
+    "openai": {
+      "model": "gpt-4.1-mini",
+      "base_url": "https://api.openai.com/v1",
+      "timeout_seconds": 30
+    },
+    "gemini": {
+      "model": "gemini-1.5-flash",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta",
+      "timeout_seconds": 30
+    },
+    "ollama": {
+      "model": "llama3:8b",
+      "base_url": "http://127.0.0.1:11434",
+      "timeout_seconds": 120
+    }
+  }
+}
