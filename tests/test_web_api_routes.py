@@ -93,7 +93,7 @@ class WebApiRouteRegressionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         reply = response.json()["reply"]
         self.assertNotEqual(reply.lower(), "user question: what is python?")
-        self.assertIn("could not generate", reply.lower())
+        self.assertIn("couldn't get an answer", reply.lower())
 
     def test_chat_route_rejects_empty_message(self) -> None:
         response = self.client.post("/chat", json={"message": "   "})

@@ -13,6 +13,7 @@ from integrations.weather_module import get_weather_report
 import system.media_module as media_module
 from system.windows_voice_control_module import DEFAULT_APP_COMMANDS, open_default_windows_app
 import voice.speak as voice_speak_module
+from core.chat_service import build_chat_reply
 
 
 _DIRECT_ACTION_PREFIXES = (
@@ -227,6 +228,70 @@ class OpenAppCommandModule:
         )
 
 
+class ChatConversationModule:
+    name = "chat-service"
+
+    _NATURAL_PREFIXES = (
+        "who ",
+        "what ",
+        "when ",
+        "where ",
+        "why ",
+        "how ",
+        "tell me ",
+        "explain ",
+    )
+
+    def can_handle(self, request: ModuleRequest) -> bool:
+        command = request.normalized_command
+        if not command:
+            return False
+        explicit_routes = (
+            "trigger n8n",
+            "run automation",
+            "send to n8n",
+            "automate",
+            "grandpa automate",
+            "what is on my screen",
+            "analyze my screen",
+            "explain this error",
+            "find on screen",
+            "plan screen action",
+            "click ",
+            "type into ",
+            "press ",
+        )
+        if command.startswith(explicit_routes):
+            return True
+        return command.startswith(self._NATURAL_PREFIXES)
+
+    def handle(self, request: ModuleRequest) -> ModuleResult:
+        payload = build_chat_reply(
+            request.command,
+            session_id=f"{request.source}:{request.input_mode}",
+            channel=request.input_mode,
+            command_executor=lambda command: _capture_spoken_action(
+                lambda: legacy_command_router.process_command(
+                    command,
+                    request.installed_apps or {},
+                    input_mode=request.input_mode,
+                )
+            ),
+        )
+        return ModuleResult(
+            handled=True,
+            ok=bool(payload.get("ok", True)),
+            module=self.name,
+            intent=payload.get("route", "chat"),
+            messages=[payload.get("reply") or "I couldn't get an answer right now. Please try again."],
+            metadata={
+                "session_id": payload.get("session_id"),
+                "provider": payload.get("provider"),
+                "context_turns": payload.get("context_turns", 0),
+            },
+        )
+
+
 class LegacyCommandModule:
     name = "legacy-command-router"
 
@@ -258,6 +323,7 @@ class UnifiedCommandRouter:
             WeatherCommandModule(),
             OpenAppCommandModule(),
             MediaCommandModule(),
+            ChatConversationModule(),
             LegacyCommandModule(),
         ]
 

@@ -62,7 +62,7 @@ class ChatApiRegressionTests(unittest.TestCase):
             response = self.client.post("/chat", json={"message": "what is python?"})
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("could not generate", response.json()["reply"].lower())
+        self.assertIn("couldn't get an answer", response.json()["reply"].lower())
 
     def test_chat_stream_does_not_emit_exact_echo_chunk(self) -> None:
         with patch.object(chat_api, "stream_chat_reply", return_value=iter(["what is python?"])):

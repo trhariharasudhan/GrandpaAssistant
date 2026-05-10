@@ -32,6 +32,8 @@ from cognition.sync_engine import configure_sync, export_sync_payload, import_sy
 from cognition.workflow_engine import create_workflow, run_workflow, workflow_status_payload
 from cognition.learning_engine import learning_status_payload
 from claude_client import ClaudeClientError, generate_claude_reply, is_claude_configured
+from core.chat_service import build_chat_reply as build_clean_chat_reply
+from core.chat_service import reset_chat_session as reset_clean_chat_session
 from core.unified_command_router import execute_command
 from device_manager import DEVICE_MANAGER
 from brain.semantic_memory import (
@@ -1784,6 +1786,7 @@ def get_chat_history() -> dict:
 @app.post("/chat/reset")
 def reset_chat() -> dict:
     CHAT_HISTORY.clear()
+    reset_clean_chat_session("chat-api-default")
     return {"ok": True}
 
 
@@ -1842,11 +1845,21 @@ def chat(request: ChatRequest, http_request: Request = None) -> dict:
             emotion=emotion.get("emotion", "neutral"),
             metadata={"context": context},
         )
-        routed = _generate_routed_reply(
+        routed = build_clean_chat_reply(
             message,
-            history=CHAT_HISTORY,
-            mood_snapshot=mood,
-            context=context,
+            session_id="chat-api-default",
+            provider=lambda history, user_message, system_prompt=None: generate_chat_reply(
+                history,
+                user_message,
+                system_prompt=system_prompt,
+            ),
+            command_executor=lambda command: execute_command(
+                command,
+                installed_apps={},
+                input_mode="text",
+                source="chat-api-explicit",
+            ).messages,
+            channel="text",
         )
         reply = _sanitize_assistant_reply(routed["reply"], message)
         assistant_item = _history_item("assistant", reply)
@@ -1864,8 +1877,8 @@ def chat(request: ChatRequest, http_request: Request = None) -> dict:
         emotion=emotion.get("emotion", "neutral"),
         mood=mood.get("last_mood", "neutral"),
         source="chat-api-chat",
-        route=routed["route"],
-        model=routed["model"],
+        route=routed.get("route", "chat"),
+        model=routed.get("provider", "chat-service"),
     )
     append_security_activity(
         "assistant_response",
@@ -1881,20 +1894,20 @@ def chat(request: ChatRequest, http_request: Request = None) -> dict:
         user_id=user_id,
         source="chat-api-chat",
         emotion=emotion.get("emotion", "neutral"),
-        metadata={"route": routed["route"], "model": routed["model"], "mode": routed["mode"]},
+        metadata={"route": routed.get("route", "chat"), "model": routed.get("provider", "chat-service"), "mode": "chat"},
     )
     log_audit_event(
         "chat",
         "chat_reply",
         user_id=user_id,
-        payload={"interaction_id": interaction.get("id"), "route": routed["route"], "model": routed["model"], "mode": routed["mode"]},
+        payload={"interaction_id": interaction.get("id"), "route": routed.get("route", "chat"), "model": routed.get("provider", "chat-service"), "mode": "chat"},
     )
     return {
         "ok": True,
         "reply": reply,
-        "model": routed["model"],
-        "mode": routed["mode"],
-        "route": routed["route"],
+        "model": routed.get("provider", "chat-service"),
+        "mode": "chat",
+        "route": routed.get("route", "chat"),
         "interaction_id": interaction.get("id"),
         "emotion": emotion,
         "mood": mood,

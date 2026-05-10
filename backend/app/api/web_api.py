@@ -39,7 +39,10 @@ from brain.semantic_memory import (
 from device_manager import DEVICE_MANAGER
 from iot_control import get_iot_action_history
 from iot_registry import summarize_iot_config
-from core.unified_command_router import execute_command, looks_like_command_input
+from core.chat_service import build_chat_reply as build_clean_chat_reply
+from core.chat_service import detect_explicit_chat_route
+from core.chat_service import reset_chat_session as reset_clean_chat_session
+from core.unified_command_router import execute_command
 from security.hub import security_status_payload, validate_prompt_text
 from llm_client import (
     DEFAULT_LLM_PROVIDER,
@@ -1540,7 +1543,7 @@ def _looks_like_tool_command(command):
 
 
 def _looks_like_direct_action_input(message):
-    return looks_like_command_input(message)
+    return detect_explicit_chat_route(message).get("route") in {"automation", "ui"}
 
 
 def _execute_tool_command_for_chat(command, source="chat-tool"):
@@ -3198,6 +3201,7 @@ def chat_reset(request: Request, session_id: str | None = None):
     session = _resolve_session(session_id=session_id)
     session["messages"] = []
     session["updated_at"] = _utc_now()
+    reset_clean_chat_session(session["id"])
     _save_chat_state()
     return {"ok": True}
 
@@ -3265,80 +3269,23 @@ def chat_reply(request: ChatRequest, http_request: Request = None):
         metadata={"context": context},
     )
     MOBILE_COMPANION.record_chat_message("user", message, session_id=session["id"], source="desktop-chat")
-    prompt_message = _build_chat_input(session, message, mood_snapshot=mood_snapshot, context=context)
-
     try:
-        if _looks_like_direct_action_input(message):
-            direct_reply, tool_command, tool_messages, confirmation_id = _execute_tool_command_for_chat(
-                _compact_text(message),
-                source="chat-direct",
-            )
-            assistant_item = _history_item(
-                "assistant",
-                direct_reply.strip() or "I could not generate a reply right now.",
-            )
-            if tool_command:
-                assistant_item["tool"] = {"command": tool_command, "messages": tool_messages}
-            if confirmation_id:
-                assistant_item["confirmation_id"] = confirmation_id
-            session["messages"].append(assistant_item)
-            session["messages"] = _trim_messages(session["messages"])
-            session["updated_at"] = _utc_now()
-            _save_chat_state()
-            append_chat_message(
-                session["id"],
-                "assistant",
-                assistant_item["content"],
-                user_id=user_id,
-                source="web-chat",
-                emotion=mood_snapshot.get("last_mood", "neutral"),
-                metadata={"route": "tool-direct"},
-            )
-            MOBILE_COMPANION.record_chat_message(
-                "assistant",
-                assistant_item["content"],
-                session_id=session["id"],
-                source="desktop-chat",
-            )
-            ASSISTANT_RUNTIME.observe_assistant_reply(assistant_item["content"], source="web-api-chat")
-            interaction = record_assistant_turn(
-                message,
-                assistant_item["content"],
-                context=context,
-                emotion=mood_snapshot.get("last_mood", "neutral"),
-                mood=mood_snapshot.get("last_mood", "neutral"),
-                source="web-api-chat",
-                route="tool-direct",
-                model="command-router",
-            )
-            log_audit_event(
-                "chat",
-                "assistant_reply",
-                user_id=user_id,
-                payload={"session_id": session["id"], "route": "tool-direct", "interaction_id": interaction.get("id")},
-            )
-            return {
-                "ok": True,
-                "reply": assistant_item["content"],
-                "interaction_id": interaction.get("id"),
-                "mood": mood_snapshot,
-                "message": assistant_item,
-                "messages": session["messages"],
-                "session": session,
-            }
-
-        reply, tool_command, tool_messages, confirmation_id = _run_tool_aware_reply(
-            session["messages"][:-1],
-            prompt_message,
-            raw_user_message=message,
-            mood_snapshot=mood_snapshot,
-            context=context,
+        routed = build_clean_chat_reply(
+            message,
+            session_id=session["id"],
+            provider=lambda history, user_message, system_prompt=None: generate_chat_reply(
+                history,
+                user_message,
+                model=_active_chat_model(),
+                system_prompt=system_prompt,
+            ),
+            command_executor=lambda command: _capture_command_reply(command),
+            channel="text",
         )
+        reply = _sanitize_assistant_reply(routed.get("reply", ""), message)
         assistant_item = _history_item("assistant", reply)
-        if tool_command:
-            assistant_item["tool"] = {"command": tool_command, "messages": tool_messages}
-        if confirmation_id:
-            assistant_item["confirmation_id"] = confirmation_id
+        if routed.get("route") in {"automation", "ui"}:
+            assistant_item["tool"] = {"command": message, "messages": routed.get("messages", [reply])}
         session["messages"].append(assistant_item)
         session["messages"] = _trim_messages(session["messages"])
         session["updated_at"] = _utc_now()
@@ -3350,7 +3297,7 @@ def chat_reply(request: ChatRequest, http_request: Request = None):
             user_id=user_id,
             source="web-chat",
             emotion=mood_snapshot.get("last_mood", "neutral"),
-            metadata={"route": "chat", "model": _active_chat_model()},
+            metadata={"route": routed.get("route", "chat"), "model": routed.get("provider", _active_chat_model())},
         )
         MOBILE_COMPANION.record_chat_message("assistant", reply, session_id=session["id"], source="desktop-chat")
         ASSISTANT_RUNTIME.observe_assistant_reply(reply, source="web-api-chat")
@@ -3361,14 +3308,14 @@ def chat_reply(request: ChatRequest, http_request: Request = None):
             emotion=mood_snapshot.get("last_mood", "neutral"),
             mood=mood_snapshot.get("last_mood", "neutral"),
             source="web-api-chat",
-            route="chat",
-            model=_active_chat_model(),
+            route=routed.get("route", "chat"),
+            model=routed.get("provider", _active_chat_model()),
         )
         log_audit_event(
             "chat",
             "assistant_reply",
             user_id=user_id,
-            payload={"session_id": session["id"], "route": "chat", "interaction_id": interaction.get("id")},
+            payload={"session_id": session["id"], "route": routed.get("route", "chat"), "interaction_id": interaction.get("id")},
         )
         return {"ok": True, "reply": reply, "interaction_id": interaction.get("id"), "mood": mood_snapshot, "message": assistant_item, "messages": session["messages"], "session": session}
     except Exception as error:
