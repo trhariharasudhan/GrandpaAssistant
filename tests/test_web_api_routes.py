@@ -45,12 +45,16 @@ class WebApiRouteRegressionTests(unittest.TestCase):
             patch.object(web_api, "record_mood_from_analysis", lambda *args, **kwargs: {"last_mood": "neutral"}),
             patch.object(web_api, "mood_status_payload", lambda: {"last_mood": "neutral"}),
             patch.object(web_api, "analyze_emotion", lambda *_args, **_kwargs: {"emotion": "neutral"}),
+            patch.object(web_api, "validate_prompt_text", lambda *args, **kwargs: {"allowed": True}),
+            patch.object(web_api, "answer_if_confident", lambda *args, **kwargs: None),
+            patch.object(web_api, "_looks_like_direct_action_input", lambda *args, **kwargs: False),
             patch.object(web_api, "build_semantic_memory_context", lambda *_args, **_kwargs: ""),
             patch.object(web_api, "build_emotion_prompt_context", lambda *_args, **_kwargs: ""),
             patch.object(web_api, "build_mood_memory_context", lambda *_args, **_kwargs: ""),
             patch.object(web_api, "build_intelligence_prompt_boost", lambda *_args, **_kwargs: ""),
             patch.object(web_api, "semantic_memory_status", lambda **kwargs: {"ready": True}),
             patch.object(web_api, "collect_startup_diagnostics", lambda **kwargs: {"ok": True, "items": []}),
+            patch.object(web_api, "_build_ui_state", lambda *args, **kwargs: {"test": True}),
         ]
         for item in self.patches:
             item.start()

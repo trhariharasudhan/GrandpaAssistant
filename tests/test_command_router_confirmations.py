@@ -69,14 +69,16 @@ class CommandRouterConfirmationTests(unittest.TestCase):
         self.assertNotIn(confirmation_id, command_router.pending_confirmations)
 
     def test_general_ai_response_is_not_allowed_to_echo_question(self) -> None:
-        with patch.object(command_router, "speak", side_effect=self.spoken.append), \
+        with patch.object(command_router, "speak", lambda text, *args, **kwargs: self.spoken.append(text)), \
             patch.object(command_router, "validate_command", return_value={"allowed": True}), \
             patch.object(command_router, "log_command", lambda *args, **kwargs: None), \
             patch.object(command_router, "remember_emotion_signal", lambda *args, **kwargs: None), \
-            patch.object(command_router, "ask_ollama", return_value="what is python?"):
-            command_router.process_command("what is python?", {}, input_mode="voice")
+            patch.object(command_router, "try_handle_intent", return_value={"handled": False, "reply": ""}), \
+            patch.object(command_router, "is_personal_question", return_value=False), \
+            patch.object(command_router, "ask_ollama", return_value="describe python briefly"):
+            command_router.process_command("describe python briefly", {}, input_mode="voice")
 
-        self.assertNotEqual(self.spoken[-1].lower(), "what is python?")
+        self.assertNotEqual(self.spoken[-1].lower(), "describe python briefly")
 
 
 if __name__ == "__main__":

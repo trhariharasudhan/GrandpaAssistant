@@ -35,6 +35,8 @@ class ChatApiRegressionTests(unittest.TestCase):
             patch.object(chat_api, "mood_status_payload", lambda: {"last_mood": "neutral"}),
             patch.object(chat_api, "analyze_emotion", lambda *_args, **_kwargs: {"emotion": "neutral"}),
             patch.object(chat_api, "validate_prompt_text", lambda *args, **kwargs: {"allowed": True}),
+            patch.object(chat_api, "answer_if_confident", lambda *args, **kwargs: None),
+            patch.object(chat_api, "route_request", lambda *args, **kwargs: {"mode": "auto", "reason": "test"}),
             patch.object(chat_api, "build_semantic_memory_context", lambda *_args, **_kwargs: ""),
             patch.object(chat_api, "build_emotion_prompt_context", lambda *_args, **_kwargs: ""),
             patch.object(chat_api, "build_mood_memory_context", lambda *_args, **_kwargs: ""),
