@@ -23,8 +23,8 @@ from features.vision.object_detection import (
     object_detection_import_error,
 )
 from features.security.face_verification import is_face_enrolled
-from modules.task_module import get_planner_focus_snapshot, get_task_data
-from modules.nextgen_module import nextgen_status_snapshot
+from productivity.task_module import get_planner_focus_snapshot, get_task_data
+from productivity.nextgen_module import nextgen_status_snapshot
 from plugin_system import plugin_status_payload
 from shared.offline_multi_model import MODEL_BY_MODE, get_ollama_status
 from brain.semantic_memory import semantic_memory_status

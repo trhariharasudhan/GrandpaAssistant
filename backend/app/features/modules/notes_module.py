@@ -1,3 +1,5 @@
+"""Compatibility shim. Do not remove until imports are migrated."""
+
 import importlib as _importlib
 import sys as _sys
 

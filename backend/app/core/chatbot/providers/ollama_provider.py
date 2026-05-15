@@ -1,7 +1,5 @@
-from __future__ import annotations
-
-import requests
-
+from core.llm.base import LLMRequest
+from core.llm.providers.ollama_provider import OllamaLLMProvider
 from .base import ProviderResult
 
 
@@ -14,14 +12,6 @@ class OllamaProvider:
         self.timeout_seconds = float(timeout_seconds or 120)
 
     def generate(self, prompt: str) -> ProviderResult:
-        try:
-            response = requests.post(
-                f"{self.base_url}/api/generate",
-                json={"model": self.model, "prompt": prompt, "stream": False},
-                timeout=self.timeout_seconds,
-            )
-            response.raise_for_status()
-            text = (response.json().get("response") or "").strip()
-            return ProviderResult(bool(text), text, self.name, self.model, "" if text else "Ollama returned an empty response.")
-        except Exception as error:
-            return ProviderResult(False, "", self.name, self.model, str(error))
+        provider = OllamaLLMProvider(self.model, self.base_url, self.timeout_seconds)
+        result = provider.generate(LLMRequest(prompt=prompt, model=self.model))
+        return ProviderResult(result.ok, result.text, result.provider, result.model, result.error)

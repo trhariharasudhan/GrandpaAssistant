@@ -3,6 +3,7 @@ import re
 from typing import Any
 
 import requests
+from core.llm.status import get_provider_status
 from cognition.hub import build_intelligence_prompt_boost
 from utils.emotion import build_emotion_prompt_context
 from utils.mood_memory import build_mood_memory_context
@@ -144,42 +145,39 @@ def _build_prompt(prompt: str, route: str) -> str:
 
 
 def list_installed_models() -> list[str]:
-    try:
-        response = requests.get(OLLAMA_TAGS_URL, timeout=20)
-        response.raise_for_status()
-        payload = response.json()
-    except requests.exceptions.ConnectionError as error:
-        raise OfflineAssistantError(
-            "Ollama is not running. Start Ollama and try again."
-        ) from error
-    except requests.RequestException as error:
-        raise OfflineAssistantError(f"Unable to query Ollama models: {error}") from error
-
-    models = payload.get("models", [])
-    names = []
-    for item in models:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("model") or item.get("name") or "").strip()
-        if name:
-            names.append(name)
-    return names
+    status = get_provider_status("ollama", force=True)
+    if status.get("ok"):
+        return list(status.get("installed_models") or [])
+    error = str(status.get("error") or "Ollama is not running. Start Ollama and try again.")
+    if "connection" in error.lower() or "refused" in error.lower():
+        raise OfflineAssistantError("Ollama is not running. Start Ollama and try again.")
+    raise OfflineAssistantError(f"Unable to query Ollama models: {error}")
 
 
 def get_ollama_status() -> dict[str, Any]:
     try:
-        models = list_installed_models()
+        status = get_provider_status("ollama", force=True)
+        if not status.get("ok"):
+            raise OfflineAssistantError(str(status.get("error") or "Ollama is not running. Start Ollama and try again."))
         return {
             "ok": True,
-            "base_url": OLLAMA_BASE_URL,
-            "installed_models": models,
+            "provider": "ollama",
+            "model": status.get("model") or MODEL_BY_MODE["general"],
+            "base_url": status.get("base_url") or OLLAMA_BASE_URL,
+            "installed_models": list(status.get("installed_models") or []),
+            "status": status.get("status", "ok"),
+            "health": status.get("health", {}),
         }
     except OfflineAssistantError as error:
         return {
             "ok": False,
+            "provider": "ollama",
+            "model": MODEL_BY_MODE["general"],
             "base_url": OLLAMA_BASE_URL,
             "error": str(error),
             "installed_models": [],
+            "status": "unavailable",
+            "health": {"ok": False, "provider": "ollama", "error": str(error)},
         }
 
 

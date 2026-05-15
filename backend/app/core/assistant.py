@@ -39,10 +39,10 @@ def start_tray(*args, **kwargs):
 def stop_tray(*args, **kwargs):
     return False
 from core.unified_command_router import execute_command
-from modules.app_scan_module import get_all_apps
-from modules.dictation_module import handle_dictation_text, is_dictation_active, stop_dictation
-from modules.event_module import get_event_data
-from modules.notification_module import (
+from system.app_scan_module import get_all_apps
+from automation.dictation_module import handle_dictation_text, is_dictation_active, stop_dictation
+from productivity.event_module import get_event_data
+from automation.notification_module import (
     run_startup_daily_automations,
     show_startup_brief_popup,
     show_startup_recap_popup,
@@ -53,8 +53,8 @@ from modules.notification_module import (
     show_startup_notifications,
     start_notification_monitor,
 )
-from modules.profile_module import build_proactive_nudge
-from modules.messaging_automation_module import restore_scheduled_jobs
+from productivity.profile_module import build_proactive_nudge
+from automation.messaging_automation_module import restore_scheduled_jobs
 # Desktop UI launchers were removed in the backend-only build.
 def open_desktop_ui_removed():
     return False, "Desktop UI is not part of this backend-only build."
@@ -64,9 +64,9 @@ def open_desktop_shell_removed():
 
 def launch_desktop_ui_for_tray():
     return False, "Desktop UI is not part of this backend-only build."
-from modules.startup_module import refresh_startup_auto_launch
-from modules.google_contacts_module import start_google_contacts_auto_refresh
-from modules.task_module import get_task_data
+from automation.startup_module import refresh_startup_auto_launch
+from integrations.google_contacts_module import start_google_contacts_auto_refresh
+from productivity.task_module import get_task_data
 from startup_diagnostics import collect_startup_diagnostics, format_startup_diagnostics_report
 from utils.config import get_setting
 from utils.sound import play_sound

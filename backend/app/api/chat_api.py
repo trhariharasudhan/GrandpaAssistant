@@ -34,6 +34,7 @@ from cognition.learning_engine import learning_status_payload
 from claude_client import ClaudeClientError, generate_claude_reply, is_claude_configured
 from core.chat_service import build_chat_reply as build_clean_chat_reply
 from core.chat_service import reset_chat_session as reset_clean_chat_session
+from core.prompts.route_adapters import build_chat_api_prompt
 from core.unified_command_router import execute_command
 from device_manager import DEVICE_MANAGER
 from brain.semantic_memory import (
@@ -457,34 +458,15 @@ def _chat_prompt_with_memory(message: str, mood_snapshot: dict | None = None, co
         emotion=(mood_snapshot or {}).get("last_mood", "neutral"),
         mood=mood_snapshot,
     )
-    memory_sections = []
-    if direct_memory_context and direct_memory_context.lower() not in (memory_context or "").lower():
-        memory_sections.append(f"Relevant saved fact: {direct_memory_context}")
-    if memory_context:
-        memory_sections.append(memory_context)
-
-    if not memory_sections:
-        return (
-            f"User question: {message}\n"
-            f"{emotion_context}\n"
-            f"{mood_context}\n"
-            f"{intelligence_context or ''}\n"
-            "Reply in natural English only. Talk like a smart, friendly real person. "
-            "Keep casual chat short and natural, usually 1 or 2 sentences unless the user asks for more. "
-            "Understand Tanglish input, but do not answer in Tanglish."
-        )
-    combined_memory_context = "\n\n".join(section for section in memory_sections if section)
-    return (
-        f"{combined_memory_context}\n\n"
-        f"User question: {message}\n"
-        f"{emotion_context}\n"
-        f"{mood_context}\n"
-        f"{intelligence_context or ''}\n"
-        "Answer naturally in English only. Talk like a smart, friendly real person. "
-        "Use the saved memory only when it helps with the user's question. "
-        "Keep casual chat short and natural, usually 1 or 2 sentences unless the user asks for more. "
-        "Understand Tanglish input, but do not answer in Tanglish."
+    prompt, _hardware = build_chat_api_prompt(
+        message=message,
+        direct_memory_context=direct_memory_context or "",
+        memory_context=memory_context or "",
+        emotion_context=emotion_context,
+        mood_context=mood_context,
+        intelligence_context=intelligence_context or "",
     )
+    return prompt
 
 
 def _build_ai_prompt(
@@ -494,20 +476,29 @@ def _build_ai_prompt(
     mood_snapshot: dict | None = None,
     context: str = "casual",
 ) -> tuple[str, str | None]:
-    prompt_sections = []
     hardware_context = DEVICE_MANAGER.build_prompt_context(message)
-    if hardware_context:
-        prompt_sections.append(hardware_context)
-
-    recent_history = _recent_history_context(history)
-    if recent_history:
-        prompt_sections.append(recent_history)
-
-    prompt_sections.append(_chat_prompt_with_memory(message, mood_snapshot=mood_snapshot, context=context))
-    if hardware_context:
-        prompt_sections.append("Use the hardware context only when it is relevant to the request.")
-
-    return "\n\n".join(section for section in prompt_sections if section), hardware_context
+    direct_memory_context = None
+    try:
+        direct_memory_context = _compact_text(search_memory(message))
+    except Exception:
+        direct_memory_context = None
+    prompt, resolved_hardware = build_chat_api_prompt(
+        message=message,
+        direct_memory_context=direct_memory_context or "",
+        memory_context=build_semantic_memory_context(message) or "",
+        emotion_context=build_emotion_prompt_context(message),
+        mood_context=build_mood_memory_context(mood_snapshot),
+        intelligence_context=build_intelligence_prompt_boost(
+            message,
+            context=context,
+            emotion=(mood_snapshot or {}).get("last_mood", "neutral"),
+            mood=mood_snapshot,
+        )
+        or "",
+        history=history,
+        hardware_context=hardware_context or "",
+    )
+    return prompt, resolved_hardware
 
 
 def _capture_rule_fallback_reply(command: str) -> str:

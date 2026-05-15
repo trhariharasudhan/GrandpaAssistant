@@ -9,15 +9,16 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 APP_DIR = os.path.join(ROOT, "backend", "app")
 SHARED_DIR = os.path.join(APP_DIR, "shared")
 FEATURES_DIR = os.path.join(APP_DIR, "features")
-for _path in (APP_DIR, SHARED_DIR, FEATURES_DIR):
+for _path in (ROOT, APP_DIR, SHARED_DIR, FEATURES_DIR):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
 from brain import database as brain_database  # noqa: E402
 import app_data_store  # noqa: E402
 import api.web_api as web_api  # noqa: E402
+import core.command_router as command_router  # noqa: E402
 import productivity_store  # noqa: E402
-from modules import notes_module, task_module  # noqa: E402
+from productivity import notes_module, task_module  # noqa: E402
 
 
 def _print_result(name, ok, details=""):
@@ -66,11 +67,14 @@ def _run_confirmed(command):
 
 @contextmanager
 def _temporary_runtime_state():
-    original_pending = getattr(web_api.command_router_module, "pending_confirmation", None)
+    original_pending = getattr(command_router, "pending_confirmation", None)
+    original_pending_map = dict(getattr(command_router, "pending_confirmations", {}))
     try:
         yield
     finally:
-        web_api.command_router_module.pending_confirmation = original_pending
+        command_router.pending_confirmation = original_pending
+        command_router.pending_confirmations.clear()
+        command_router.pending_confirmations.update(original_pending_map)
 
 
 def run_tasks_flow():

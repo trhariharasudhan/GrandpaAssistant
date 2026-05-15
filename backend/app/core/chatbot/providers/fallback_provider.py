@@ -1,7 +1,5 @@
-from __future__ import annotations
-
-import re
-
+from core.llm.base import LLMRequest
+from core.llm.providers.fallback_provider import FallbackLLMProvider
 from .base import ProviderResult
 
 
@@ -12,12 +10,5 @@ class FallbackProvider:
         self.model = model or "rules"
 
     def generate(self, prompt: str) -> ProviderResult:
-        lowered = prompt.lower()
-        if "latest" in lowered or "current event" in lowered or "2026" in lowered:
-            text = "I may need live search for latest info. I can still help if you provide the source or details."
-        else:
-            text = (
-                "I couldn't reach an AI model right now. "
-                "Try the fallback local intents, or switch to Ollama/OpenAI/Gemini when ready."
-            )
-        return ProviderResult(ok=True, text=text, provider=self.name, model=self.model)
+        result = FallbackLLMProvider(self.model).generate(LLMRequest(prompt=prompt, model=self.model))
+        return ProviderResult(result.ok, result.text, result.provider, result.model, result.error)

@@ -7,8 +7,7 @@ import sys
 import time
 from typing import Any
 
-import requests
-
+from core.llm.status import get_provider_status
 from iot_registry import summarize_iot_config
 from utils.config import get_last_settings_validation, get_setting, load_settings
 from utils.paths import config_path, data_path, logs_path, project_path
@@ -159,39 +158,25 @@ def _settings_status() -> dict[str, Any]:
 
 def _ollama_status() -> tuple[dict[str, Any], list[str]]:
     endpoint = f"{DEFAULT_OLLAMA_BASE_URL}/api/tags"
-    try:
-        response = requests.get(endpoint, timeout=3)
-        response.raise_for_status()
-        payload = response.json()
-    except requests.exceptions.ConnectionError:
+    status = get_provider_status("ollama", force=True)
+    if not status.get("ok"):
+        error = str(status.get("error") or "")
+        if "connection" in error.lower() or "refused" in error.lower():
+            detail = f"Ollama is not responding at {endpoint}. Start 'ollama serve' or the Ollama desktop app."
+        else:
+            detail = f"Could not query Ollama at {endpoint}: {error or 'unavailable'}"
         return (
             _item(
                 "ollama_api",
                 "error",
                 "Ollama API",
-                f"Ollama is not responding at {endpoint}. Start 'ollama serve' or the Ollama desktop app.",
-            ),
-            [],
-        )
-    except requests.RequestException as error:
-        return (
-            _item(
-                "ollama_api",
-                "error",
-                "Ollama API",
-                f"Could not query Ollama at {endpoint}: {error}",
+                detail,
+                provider_status=status,
             ),
             [],
         )
 
-    models = payload.get("models", [])
-    names = []
-    for model in models:
-        if not isinstance(model, dict):
-            continue
-        name = str(model.get("model") or model.get("name") or "").strip()
-        if name:
-            names.append(name)
+    names = list(status.get("installed_models") or [])
 
     return (
         _item(
@@ -200,6 +185,7 @@ def _ollama_status() -> tuple[dict[str, Any], list[str]]:
             "Ollama API",
             f"Ollama is reachable at {endpoint} with {len(names)} installed model(s).",
             installed_models=names,
+            provider_status=status,
         ),
         names,
     )

@@ -13,6 +13,9 @@ import keyboard
 from backend_stability import build_backend_stability_payload, format_backend_stability_text
 from brain.ai_engine import ask_ollama, clear_memory
 from brain.database import get_recent_commands, log_command
+from core.commands.context import CommandContext
+from core.commands.handlers.debug import handle_debug_command
+from core.commands.registry import build_readonly_registry
 from core.followup_memory import (
     get_best_followup_text,
     get_last_interaction_id,
@@ -94,6 +97,7 @@ _pending_ui_action = None
 UI_ACTION_EXPIRES_IN_SECONDS = 60
 
 
+# SECTION: shared text/formatting helpers
 def _compact_text(value):
     return " ".join(str(value or "").split()).strip()
 
@@ -128,6 +132,7 @@ _N8N_AUTOMATION_PATTERN = re.compile(
 )
 
 
+# SECTION: automation integration helpers
 def detect_n8n_automation_intent(command):
     match = _N8N_AUTOMATION_PATTERN.match(_compact_text(command))
     if not match:
@@ -155,6 +160,7 @@ def _handle_n8n_automation_command(command, raw_command=None, input_mode="text")
     return True
 
 
+# SECTION: UI analysis and screen action safety
 def _bbox_location_text(bbox):
     try:
         x, y, width, height = [int(value or 0) for value in bbox[:4]]
@@ -433,7 +439,7 @@ def start_tray(*args, **kwargs):
 def stop_tray(*args, **kwargs):
     return False
 
-from modules.calendar_module import (
+from productivity.calendar_module import (
     handle_calendar_queries,
     handle_difference,
     handle_offsets,
@@ -442,15 +448,15 @@ from modules.calendar_module import (
     generate_full_info,
     get_period,
 )
-from modules.app_scan_module import (
+from system.app_scan_module import (
     find_best_app_match,
     refresh_apps_cache,
 )
-import modules.app_scan_module as app_scan_module
-from modules.briefing_module import build_due_reminder_alert
-from modules.dictation_module import start_dictation, stop_dictation
-from modules.media_module import media_control, type_text_dynamic
-from modules.system_module import (
+import system.app_scan_module as app_scan_module
+from productivity.briefing_module import build_due_reminder_alert
+from automation.dictation_module import start_dictation, stop_dictation
+from system.media_module import media_control, type_text_dynamic
+from system.system_module import (
     take_screenshot,
     get_battery_info,
     get_cleanup_suggestion,
@@ -482,11 +488,18 @@ from modules.system_module import (
     is_running_as_admin,
     relaunch_assistant_as_admin,
 )
-from modules.web_module import wikipedia_search
-from modules.notes_module import add_note
-from modules.profile_module import remember_emotion_signal
-from modules.task_module import add_reminder
-from modules.nextgen_module import (
+from system.health_module import (
+    get_battery_status,
+    get_cpu_status,
+    get_disk_status,
+    get_ram_status,
+    get_system_status,
+)
+from integrations.web_module import wikipedia_search
+from productivity.notes_module import add_note
+from productivity.profile_module import build_personal_snapshot, build_profile_summary, remember_emotion_signal
+from productivity.task_module import add_reminder
+from productivity.nextgen_module import (
     add_goal_milestone,
     add_habit,
     automation_history_summary,
@@ -516,7 +529,7 @@ from modules.nextgen_module import (
     voice_trainer_status,
     apply_voice_trainer,
 )
-from modules.google_contacts_module import (
+from integrations.google_contacts_module import (
     add_favorite_contact,
     ensure_google_contacts_fresh,
     get_recent_contact_change_summary,
@@ -531,7 +544,7 @@ from modules.google_contacts_module import (
     set_contact_alias,
     sync_google_contacts,
 )
-from modules.google_calendar_module import (
+from integrations.google_calendar_module import (
     add_google_calendar_event,
     delete_google_calendar_event_by_title,
     delete_latest_google_calendar_event,
@@ -545,7 +558,7 @@ from modules.google_calendar_module import (
     today_google_calendar_events,
     upcoming_google_calendar_events,
 )
-from modules.messaging_automation_module import quick_email_shortcut, quick_whatsapp_message
+from automation.messaging_automation_module import quick_email_shortcut, quick_whatsapp_message
 # Desktop UI launchers were removed in the backend-only build.
 def open_backend_ui_removed():
     return False, "Desktop UI is not part of this backend-only build."
@@ -555,14 +568,14 @@ def open_desktop_shell_removed():
 
 def tray_desktop_ui_status():
     return "Tray desktop UI launch is disabled in the backend-only build."
-from modules.notification_module import show_custom_popup
-from modules.startup_module import (
+from automation.notification_module import show_custom_popup
+from automation.startup_module import (
     disable_startup_auto_launch,
     enable_startup_auto_launch,
     refresh_startup_auto_launch,
     startup_auto_launch_status,
 )
-from modules.windows_voice_control_module import (
+from system.windows_voice_control_module import (
     get_active_window_summary,
     handle_desktop_action,
     handle_settings_page_action,
@@ -571,7 +584,7 @@ from modules.windows_voice_control_module import (
     open_windows_settings_page,
     run_windows_voice_macro,
 )
-from modules.window_context_module import (
+from system.window_context_module import (
     editor_run_current_file,
     editor_save_current_file,
     get_active_app_name,
@@ -719,6 +732,7 @@ FACE_PROFILE_PATH = backend_data_path("face_profile.json")
 VOICE_IOT_SETUP_DOC_PATH = docs_path("local-voice-iot-setup.md")
 
 
+# SECTION: safety/permissions confirmations
 def _store_pending_confirmation(state):
     global pending_confirmation
     confirmation_id = state.get("id") or str(uuid.uuid4())[:8]
@@ -796,6 +810,7 @@ def _handle_latest_pending_confirmation_response(command, INSTALLED_APPS, input_
     return True
 
 
+# SECTION: memory/context helpers
 def _current_location_text():
     city = get_memory("personal.location.current_location.city")
     area = get_memory("personal.location.current_location.area")
@@ -863,6 +878,35 @@ def _security_logs_summary():
     )
 
 
+def _voice_auth_status_summary():
+    auth = auth_status_payload()
+    if auth.get("voice_profile_enrolled"):
+        return "Voice authentication is enrolled and ready."
+    return "Voice authentication is not enrolled yet. Say enroll my voice auth."
+
+
+def _security_admin_status_summary():
+    return "Security admin mode is active." if admin_mode_active() else "Security admin mode is not active."
+
+
+def _admin_permission_status_summary():
+    return (
+        "Administrator mode is enabled. Full settings controls should work."
+        if is_running_as_admin()
+        else "Administrator mode is not enabled. Say enable full control mode."
+    )
+
+
+def _preferred_language_summary():
+    value = get_memory("personal.assistant.preferred_response_language")
+    return f"Your preferred language is {value}." if value else "You have not saved a preferred language yet."
+
+
+def _preferred_tone_summary():
+    value = get_memory("personal.assistant.preferred_response_tone")
+    return f"Your preferred tone is {value}." if value else "You have not saved a preferred tone yet."
+
+
 def _set_security_bypass(command, seconds=8.0):
     security_bypass_context["command"] = " ".join((command or "").lower().strip().split())
     security_bypass_context["expires_at"] = time.time() + max(1.0, float(seconds))
@@ -909,6 +953,12 @@ def _emergency_mode_summary():
     return (
         "Emergency mode is ready. I can alert your emergency contact, share your saved location, and trigger a quick call flow."
     )
+
+
+def _emergency_mode_status_summary():
+    enabled = get_setting("assistant.emergency_mode_enabled", False)
+    prefix = "Emergency mode is enabled. " if enabled else "Emergency mode is disabled. "
+    return prefix + _emergency_mode_summary()
 
 
 def _emergency_quick_response_summary():
@@ -1886,6 +1936,7 @@ def _is_negative_confirmation(command):
     )
 
 
+# SECTION: AI routing helpers
 def _clean_ai_response(command, response):
     cleaned = " ".join(str(response or "").split()).strip()
     if not cleaned:
@@ -2036,6 +2087,215 @@ def _fix_approval_summary(limit=20):
         payload = item.get("payload") or {}
         lines.append(f"{item.get('id')}: {payload.get('command') or payload.get('description') or item.get('action_type')}")
     return "Pending fix approvals: " + " | ".join(lines)
+
+
+def _current_debug_session_summary():
+    return summarize_current_debug_session(language="auto")
+
+
+def _debug_dashboard_summary():
+    return summarize_debug_health_dashboard(build_debug_health_dashboard(language="auto"), language="auto")
+
+
+def _debug_timeline_summary():
+    return format_debug_timeline(get_current_debug_timeline(language="auto"), language="auto")
+
+
+def _debug_search_summary(query):
+    results = search_debug_sessions(query, limit=5, language="auto")
+    return summarize_debug_search_results(results, language="auto")
+
+
+def _debug_reuse_suggestions_summary(language="auto"):
+    return summarize_reuse_suggestions(build_reuse_suggestions(language=language), language=language)
+
+
+def _debug_learning_summary():
+    return summarize_debug_learning(build_debug_learning_summary(language="auto"), language="auto")
+
+
+def _debug_checklist_summary(language="auto"):
+    payload = run_preflight_checklist(language=language)
+    return summarize_preflight_checklist(payload, language=language)
+
+
+def _fix_audit_summary():
+    return summarize_fix_audit_log(language="auto")
+
+
+def _offline_mode_status_summary():
+    enabled = get_setting("assistant.offline_mode_enabled", False)
+    prefix = "Offline core mode is enabled. " if enabled else "Offline core mode is disabled. "
+    return prefix + _offline_mode_summary()
+
+
+def _offline_ai_status_summary():
+    offline_mode = get_setting("assistant.offline_mode_enabled", False)
+    model_name = get_setting("assistant.model", "phi3")
+    if offline_mode:
+        return f"Offline mode is enabled. Local AI fallback is ready. Preferred local model is {model_name} when available."
+    return f"Offline mode is disabled. Preferred local model is {model_name}. If the local AI server is unavailable, responses may be limited."
+
+
+def _developer_mode_status_summary():
+    enabled = get_setting("assistant.developer_mode_enabled", False)
+    prefix = "Developer mode is enabled. " if enabled else "Developer mode is disabled. "
+    return prefix + _developer_mode_summary()
+
+
+def _focus_mode_status_summary():
+    enabled = get_setting("assistant.focus_mode_enabled", False)
+    status = "enabled" if enabled else "disabled"
+    return f"Focus mode is currently {status}."
+
+
+def _phone_link_status_summary():
+    return summarize_phone_link_readiness(check_tel_handler_readiness())
+
+
+def _active_window_summary(language="auto"):
+    payload = summarize_active_window(language=language)
+    return payload.get("summary") or payload.get("message") or get_active_window_summary()
+
+
+def _local_contacts_summary():
+    return _format_redacted_contacts(list_contacts(limit=20))
+
+
+def _local_contact_lookup_summary(query):
+    return _format_contact_find_result(find_contact(query))
+
+
+def _planner_focus_summary():
+    snapshot = get_planner_focus_snapshot(limit=4)
+    summary = snapshot.get("summary") or "Planner summary unavailable."
+    suggestion_lines = [
+        item.get("label")
+        for item in snapshot.get("focus_suggestions", [])
+        if isinstance(item, dict) and item.get("label")
+    ]
+    if suggestion_lines:
+        return summary + " Suggestions: " + " | ".join(suggestion_lines[:4])
+    return summary
+
+
+def _reminder_timeline_summary():
+    snapshot = get_planner_focus_snapshot(limit=4)
+    timeline = snapshot.get("reminder_timeline", {})
+    overdue = timeline.get("overdue") or []
+    due_today = timeline.get("today") or []
+    upcoming = timeline.get("upcoming") or []
+    parts = []
+    if overdue:
+        parts.append("Overdue: " + " | ".join(overdue[:3]))
+    if due_today:
+        parts.append("Today: " + " | ".join(due_today[:3]))
+    if upcoming:
+        parts.append("Upcoming: " + " | ".join(upcoming[:3]))
+    if not parts:
+        return "Your reminder timeline is clear right now."
+    return "Reminder timeline: " + " || ".join(parts)
+
+
+def _calendar_query_summary(command):
+    if not handle_calendar_queries(command, speak):
+        return None
+    return ""
+
+
+def _build_command_context():
+    return CommandContext(
+        get_period=get_period,
+        tell_joke=tell_joke,
+        wikipedia_search=wikipedia_search,
+        get_memory=get_memory,
+        set_memory=set_memory,
+        semantic_memory_summary=_semantic_memory_summary,
+        semantic_memory_lookup=_semantic_memory_lookup_summary,
+        assistant_doctor_summary=_assistant_doctor_summary,
+        backend_stability_summary=_backend_stability_summary,
+        security_status_summary=_security_status_summary,
+        voice_diagnostics_summary=_voice_diagnostics_summary,
+        current_debug_session_summary=_current_debug_session_summary,
+        debug_dashboard_summary=_debug_dashboard_summary,
+        fix_approval_summary=_fix_approval_summary,
+        fix_audit_summary=_fix_audit_summary,
+        debug_timeline_summary=_debug_timeline_summary,
+        debug_search_summary=_debug_search_summary,
+        reuse_suggestions_summary=_debug_reuse_suggestions_summary,
+        debug_learning_summary=_debug_learning_summary,
+        debug_checklist_summary=_debug_checklist_summary,
+        offline_mode_status_summary=_offline_mode_status_summary,
+        offline_help_summary=_offline_quick_help,
+        offline_ai_status_summary=_offline_ai_status_summary,
+        developer_mode_status_summary=_developer_mode_status_summary,
+        focus_mode_status_summary=_focus_mode_status_summary,
+        voice_trainer_status_summary=voice_trainer_status,
+        piper_setup_summary=_piper_setup_summary,
+        custom_voice_setup_summary=_custom_voice_setup_summary,
+        custom_voice_license_status_summary=custom_voice_license_status_summary,
+        custom_voice_samples_summary=list_custom_voice_samples_summary,
+        voice_status_summary=voice_status_summary,
+        developer_workspace_summary=_developer_workspace_summary,
+        planner_focus_summary=_planner_focus_summary,
+        reminder_timeline_summary=_reminder_timeline_summary,
+        habit_dashboard_summary=habit_dashboard_summary,
+        goal_board_summary=goal_board_summary,
+        smart_reminder_priority_summary=smart_reminder_priority_summary,
+        automation_history_summary=automation_history_summary,
+        mobile_companion_status_summary=mobile_companion_status,
+        language_mode_status_summary=language_mode_status,
+        meeting_mode_summary=meeting_mode_summary,
+        rag_library_summary=rag_library_summary,
+        proactive_suggestions_summary=lambda: _proactive_suggestions_summary(force_refresh=False),
+        knowledge_review_queue_summary=_knowledge_review_queue_summary,
+        learning_status_summary=_learning_status_summary,
+        phone_link_status_summary=_phone_link_status_summary,
+        face_security_status_summary=_face_security_status_summary,
+        startup_auto_launch_status_summary=startup_auto_launch_status,
+        smart_home_setup_summary=_smart_home_setup_summary,
+        active_window_summary=_active_window_summary,
+        local_contacts_summary=_local_contacts_summary,
+        local_contact_lookup_summary=_local_contact_lookup_summary,
+        google_contacts_summary=list_google_contacts,
+        google_contact_changes_summary=get_recent_contact_change_summary,
+        favorite_contacts_summary=list_favorite_contacts,
+        contact_aliases_summary=list_contact_aliases,
+        calendar_query_summary=_calendar_query_summary,
+        google_calendar_status_summary=google_calendar_status,
+        google_calendar_today_summary=today_google_calendar_events,
+        google_calendar_upcoming_summary=upcoming_google_calendar_events,
+        google_calendar_titles_summary=list_google_calendar_event_titles,
+        storage_report_summary=get_storage_report,
+        storage_cleanup_suggestion_summary=get_cleanup_suggestion,
+        system_status_summary=get_system_status,
+        cpu_status_summary=get_cpu_status,
+        ram_status_summary=get_ram_status,
+        disk_status_summary=get_disk_status,
+        battery_status_summary=get_battery_status,
+        hardware_status_summary=_hardware_status_summary,
+        hardware_event_history_summary=_hardware_event_history_summary,
+        smart_home_status_summary=_smart_home_status_summary,
+        iot_awareness_summary=_iot_awareness_summary,
+        iot_action_history_summary=_iot_action_history_summary,
+        security_alerts_summary=_security_alerts_summary,
+        security_logs_summary=_security_logs_summary,
+        voice_auth_status_summary=_voice_auth_status_summary,
+        security_admin_status_summary=_security_admin_status_summary,
+        admin_permission_status_summary=_admin_permission_status_summary,
+        emergency_mode_status_summary=_emergency_mode_status_summary,
+        emergency_quick_response_summary=_emergency_quick_response_summary,
+        emergency_protocol_summary=_emergency_protocol_summary,
+        profile_summary=build_profile_summary,
+        personal_snapshot_summary=build_personal_snapshot,
+        preferred_language_summary=_preferred_language_summary,
+        preferred_tone_summary=_preferred_tone_summary,
+        git_status_summary=_local_git_status_summary,
+        git_branch_summary=_git_current_branch_summary,
+        git_remotes_summary=_git_remote_summary,
+        git_recent_commits_summary=_git_recent_commits_summary,
+        git_repo_summary=_git_repo_summary,
+    )
 
 
 def _create_fix_approval_from_latest_plan(language="auto"):
@@ -2246,7 +2506,7 @@ def _handle_followup_command(command):
         return add_note(f"add note {context_text[:1200]}")
 
     if command in ["save it as task", "make it a task"]:
-        from modules.task_module import add_task
+        from productivity.task_module import add_task
 
         cleaned = " ".join(context_text.split())
         if len(cleaned) > 180:
@@ -3683,6 +3943,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
     raw_command = _compact_text(command)
     command = _normalize_voice_friendly_command(command)
     command = _apply_contact_context(command)
+    command_context = _build_command_context()
     pending_action, pending_id = _pending_action_from_command(command)
     if pending_action and pending_id:
         fix_approval = get_fix_approval(pending_id)
@@ -3739,6 +4000,11 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
     if not pending_confirmation and _maybe_run_multi_action_chain(command, INSTALLED_APPS, input_mode):
         return
+    knowledge_services_registry = build_readonly_registry(command_context, ["knowledge_services"])
+    learning_status_result = knowledge_services_registry.handle(command, command_context)
+    if learning_status_result.handled and learning_status_result.metadata.get("route") == "knowledge_services.learning":
+        speak(learning_status_result.reply)
+        return
     if command and _handle_learning_feedback_command(command, input_mode=input_mode):
         return
     if command:
@@ -3746,6 +4012,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         remember_emotion_signal(command)
         log_command(command, source=input_mode)
 
+    # SECTION: UI automation and integration dispatch
     if _handle_ui_analysis_command(command):
         return
 
@@ -3826,8 +4093,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(f"Started debug session {session.get('id')}.")
         return
 
-    if command in ["current debug session", "debug session summary"]:
-        speak(summarize_current_debug_session(language="auto"))
+    debug_session_registry = build_readonly_registry(command_context, ["debug_session"])
+    debug_session_result = debug_session_registry.handle(command, command_context)
+    if debug_session_result.handled:
+        speak(debug_session_result.reply)
         return
 
     if command == "close debug session":
@@ -3848,50 +4117,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(f"Debug session exported to {result.get('path')}." if result.get("ok") else result.get("message", "Debug session export failed."))
         return
 
-    if command in ["debug timeline", "show debug timeline", "what happened in debug session", "debug history"]:
-        speak(format_debug_timeline(get_current_debug_timeline(language="auto"), language="auto"))
-        return
-
-    debug_search_match = re.fullmatch(
-        r"(?:search debug sessions for|find debug session|old debug issue|previous error)\s+(.+)",
-        command,
-    )
-    if debug_search_match:
-        results = search_debug_sessions(debug_search_match.group(1), limit=5, language="auto")
-        speak(summarize_debug_search_results(results, language="auto"))
-        return
-
-    if command in ["seen this before", "similar debug history", "previous fix for this", "idhu munnadi vandhucha"]:
-        language = "ta" if command == "idhu munnadi vandhucha" else "auto"
-        speak(summarize_reuse_suggestions(build_reuse_suggestions(language=language), language=language))
-        return
-
-    if command in [
-        "debug learning summary",
-        "what did we learn from debug history",
-        "common debug errors",
-        "repeated issues",
-        "debug insights",
-    ]:
-        payload = build_debug_learning_summary(language="auto")
-        speak(summarize_debug_learning(payload, language="auto"))
-        return
-
-    if command in [
-        "run debug checklist",
-        "preflight debug check",
-        "preventive debug check",
-        "debug checklist",
-        "issue varama check pannu",
-    ]:
-        language = "ta" if command == "issue varama check pannu" else "auto"
-        payload = run_preflight_checklist(language=language)
-        speak(summarize_preflight_checklist(payload, language=language))
-        return
-
-    if command in ["debug dashboard", "debug health", "debug status", "troubleshooting dashboard"]:
-        payload = build_debug_health_dashboard(language="auto")
-        speak(summarize_debug_health_dashboard(payload, language="auto"))
+    debug_history_registry = build_readonly_registry(command_context, ["debug_history"])
+    debug_history_result = debug_history_registry.handle(command, command_context)
+    if debug_history_result.handled:
+        speak(debug_history_result.reply)
         return
 
     if command == "debug docs summary":
@@ -3913,14 +4142,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(result.get("message", "Could not add contact."))
         return
 
-    if command in ["show contact", "show contacts", "list contacts", "my contacts"]:
-        speak(_format_redacted_contacts(list_contacts(limit=20)))
-        return
-
-    find_contact_match = re.match(r"^(?:find|search) contact\s+(.+)$", command)
-    if find_contact_match:
-        result = find_contact(find_contact_match.group(1).strip())
-        speak(_format_contact_find_result(result))
+    contacts_registry = build_readonly_registry(command_context, ["contacts"])
+    contacts_result = contacts_registry.handle(command, command_context)
+    if contacts_result.handled:
+        speak(contacts_result.reply)
         return
 
     delete_contact_match = re.match(r"^delete contact\s+(.+)$", command)
@@ -3934,10 +4159,13 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(pending_confirmation["message"])
         return
 
-    if command == "phone link status":
-        speak(summarize_phone_link_readiness(check_tel_handler_readiness()))
+    device_status_registry = build_readonly_registry(command_context, ["device_status"])
+    device_status_result = device_status_registry.handle(command, command_context)
+    if device_status_result.handled:
+        speak(device_status_result.reply)
         return
 
+    # SECTION: safety/permissions gate
     call_intent = detect_call_intent(command)
     if call_intent.get("is_call"):
         result = initiate_call(call_intent.get("target_text", ""), language="auto")
@@ -3986,8 +4214,33 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(move_pinned_command(move_pin_match.group(1).strip(), move_pin_match.group(2).strip())[1])
         return
 
-    if command in ["list pinned commands", "show pinned commands", "pinned commands"]:
-        speak(list_pinned_commands())
+    overlay_status_registry = build_readonly_registry(command_context, ["overlay_status"])
+    overlay_status_result = overlay_status_registry.handle(command, command_context)
+    if overlay_status_result.handled:
+        speak(overlay_status_result.reply)
+        return
+
+    interface_status_registry = build_readonly_registry(command_context, ["interface_status"])
+    interface_status_result = interface_status_registry.handle(command, command_context)
+    if interface_status_result.handled:
+        speak(interface_status_result.reply)
+        return
+
+    config_status_registry = build_readonly_registry(command_context, ["config_status"])
+    config_status_result = config_status_registry.handle(command, command_context)
+    if config_status_result.handled:
+        speak(config_status_result.reply)
+        return
+
+    device_status_result = device_status_registry.handle(command, command_context)
+    if device_status_result.handled:
+        speak(device_status_result.reply)
+        return
+
+    security_status_registry = build_readonly_registry(command_context, ["security_status"])
+    security_status_result = security_status_registry.handle(command, command_context)
+    if security_status_result.handled:
+        speak(security_status_result.reply)
         return
 
     config_reply = _handle_config_command(command)
@@ -3995,6 +4248,34 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(config_reply)
         return
 
+    notification_status_registry = build_readonly_registry(command_context, ["notification_status"])
+    notification_status_result = notification_status_registry.handle(command, command_context)
+    if notification_status_result.handled:
+        speak(notification_status_result.reply)
+        return
+
+    audio_status_registry = build_readonly_registry(command_context, ["audio_status"])
+    audio_status_result = audio_status_registry.handle(command, command_context)
+    if audio_status_result.handled:
+        speak(audio_status_result.reply)
+        return
+
+    overlay_status_result = overlay_status_registry.handle(command, command_context)
+    if overlay_status_result.handled:
+        speak(overlay_status_result.reply)
+        return
+
+    interface_status_result = interface_status_registry.handle(command, command_context)
+    if interface_status_result.handled:
+        speak(interface_status_result.reply)
+        return
+
+    config_status_result = config_status_registry.handle(command, command_context)
+    if config_status_result.handled:
+        speak(config_status_result.reply)
+        return
+
+    # SECTION: productivity and automation commands
     if command in ["enable offline mode", "turn on offline mode", "offline mode on"]:
         update_setting("assistant.offline_mode_enabled", True)
         speak("Offline core mode enabled.")
@@ -4005,27 +4286,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak("Offline core mode disabled.")
         return
 
-    if command in ["offline mode status", "is offline mode on", "what works offline"]:
-        enabled = get_setting("assistant.offline_mode_enabled", False)
-        prefix = "Offline core mode is enabled. " if enabled else "Offline core mode is disabled. "
-        speak(prefix + _offline_mode_summary())
-        return
-
-    if command in ["offline help", "offline quick help", "offline commands"]:
-        speak(_offline_quick_help())
-        return
-
-    if command in ["offline ai status", "local ai status", "is local ai ready"]:
-        offline_mode = get_setting("assistant.offline_mode_enabled", False)
-        model_name = get_setting("assistant.model", "phi3")
-        if offline_mode:
-            speak(
-                f"Offline mode is enabled. Local AI fallback is ready. Preferred local model is {model_name} when available."
-            )
-        else:
-            speak(
-                f"Offline mode is disabled. Preferred local model is {model_name}. If the local AI server is unavailable, responses may be limited."
-            )
+    status_registry = build_readonly_registry(command_context, ["status"])
+    status_result = status_registry.handle(command, command_context)
+    if status_result.handled:
+        speak(status_result.reply)
         return
 
     if command in ["enable developer mode", "turn on developer mode", "developer mode on"]:
@@ -4038,10 +4302,9 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak("Developer mode disabled.")
         return
 
-    if command in ["developer mode status", "what is developer mode", "developer help"]:
-        enabled = get_setting("assistant.developer_mode_enabled", False)
-        prefix = "Developer mode is enabled. " if enabled else "Developer mode is disabled. "
-        speak(prefix + _developer_mode_summary())
+    status_result = status_registry.handle(command, command_context)
+    if status_result.handled:
+        speak(status_result.reply)
         return
 
     if command in ["enable focus mode", "turn on focus mode", "focus mode on"]:
@@ -4054,53 +4317,15 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak("Focus mode disabled. Proactive notifications will resume.")
         return
 
-    if command in ["focus mode status", "is focus mode on"]:
-        enabled = get_setting("assistant.focus_mode_enabled", False)
-        status = "enabled" if enabled else "disabled"
-        speak(f"Focus mode is currently {status}.")
+    status_result = status_registry.handle(command, command_context)
+    if status_result.handled:
+        speak(status_result.reply)
         return
 
-    if command in [
-        "planner focus",
-        "planner focus summary",
-        "today focus suggestions",
-        "focus suggestions",
-        "what should i focus on today",
-    ]:
-        snapshot = get_planner_focus_snapshot(limit=4)
-        summary = snapshot.get("summary") or "Planner summary unavailable."
-        suggestion_lines = [
-            item.get("label")
-            for item in snapshot.get("focus_suggestions", [])
-            if isinstance(item, dict) and item.get("label")
-        ]
-        if suggestion_lines:
-            speak(summary + " Suggestions: " + " | ".join(suggestion_lines[:4]))
-        else:
-            speak(summary)
-        return
-
-    if command in [
-        "reminder timeline",
-        "today reminder timeline",
-        "upcoming reminder timeline",
-    ]:
-        snapshot = get_planner_focus_snapshot(limit=4)
-        timeline = snapshot.get("reminder_timeline", {})
-        overdue = timeline.get("overdue") or []
-        due_today = timeline.get("today") or []
-        upcoming = timeline.get("upcoming") or []
-        parts = []
-        if overdue:
-            parts.append("Overdue: " + " | ".join(overdue[:3]))
-        if due_today:
-            parts.append("Today: " + " | ".join(due_today[:3]))
-        if upcoming:
-            parts.append("Upcoming: " + " | ".join(upcoming[:3]))
-        if not parts:
-            speak("Your reminder timeline is clear right now.")
-        else:
-            speak("Reminder timeline: " + " || ".join(parts))
+    productivity_registry = build_readonly_registry(command_context, ["productivity"])
+    productivity_result = productivity_registry.handle(command, command_context)
+    if productivity_result.handled:
+        speak(productivity_result.reply)
         return
 
     if command in [
@@ -4141,13 +4366,9 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(check_in_habit(habit_check_in_match.group(1).strip()))
         return
 
-    if command in [
-        "habit dashboard",
-        "habit summary",
-        "show habit dashboard",
-        "habit status",
-    ]:
-        speak(habit_dashboard_summary())
+    productivity_result = productivity_registry.handle(command, command_context)
+    if productivity_result.handled:
+        speak(productivity_result.reply)
         return
 
     add_goal_match = re.match(r"^(?:add|create)\s+goal\s+(.+)$", command)
@@ -4175,29 +4396,14 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(complete_goal_milestone(goal_title, milestone_title))
         return
 
-    if command in [
-        "goal board",
-        "goal board summary",
-        "goal summary",
-        "show goals",
-    ]:
-        speak(goal_board_summary())
+    productivity_result = productivity_registry.handle(command, command_context)
+    if productivity_result.handled:
+        speak(productivity_result.reply)
         return
 
-    if command in [
-        "smart reminder priority",
-        "smart reminders",
-        "prioritize reminders",
-        "reminder priority",
-    ]:
-        speak(smart_reminder_priority_summary())
-        return
-
-    if command in [
-        "voice trainer status",
-        "voice trainer",
-    ]:
-        speak(voice_trainer_status())
+    status_result = status_registry.handle(command, command_context)
+    if status_result.handled:
+        speak(status_result.reply)
         return
 
     voice_trainer_match = re.match(
@@ -4218,12 +4424,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(set_language_mode(set_language_mode_match.group(1).strip()))
         return
 
-    if command in [
-        "language mode status",
-        "current language mode",
-        "language mode",
-    ]:
-        speak(language_mode_status())
+    project_knowledge_registry = build_readonly_registry(command_context, ["project_knowledge_library"])
+    project_knowledge_result = project_knowledge_registry.handle(command, command_context)
+    if project_knowledge_result.handled:
+        speak(project_knowledge_result.reply)
         return
 
     preview_language_match = re.match(
@@ -4234,12 +4438,9 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(preview_language_response(preview_language_match.group(1).strip()))
         return
 
-    if command in [
-        "meeting summary",
-        "meeting mode summary",
-        "show meeting summary",
-    ]:
-        speak(meeting_mode_summary())
+    knowledge_services_result = knowledge_services_registry.handle(command, command_context)
+    if knowledge_services_result.handled:
+        speak(knowledge_services_result.reply)
         return
 
     capture_meeting_match = re.match(r"^(?:capture|save)\s+meeting(?:\s+note)?\s+(.+)$", command)
@@ -4272,12 +4473,9 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(move_document_to_folder(filename, folder))
         return
 
-    if command in [
-        "rag library",
-        "rag library summary",
-        "show rag library",
-    ]:
-        speak(rag_library_summary())
+    knowledge_services_result = knowledge_services_registry.handle(command, command_context)
+    if knowledge_services_result.handled:
+        speak(knowledge_services_result.reply)
         return
 
     create_automation_match = re.match(
@@ -4325,12 +4523,9 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(list_automation_rules())
         return
 
-    if command in [
-        "automation history",
-        "automation run history",
-        "show automation history",
-    ]:
-        speak(automation_history_summary())
+    productivity_result = productivity_registry.handle(command, command_context)
+    if productivity_result.handled:
+        speak(productivity_result.reply)
         return
 
     automation_toggle_match = re.match(r"^(enable|disable)\s+automation\s+(.+)$", command)
@@ -4348,12 +4543,9 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(setup_mobile_companion(setup_mobile_companion_match.group(1).strip()))
         return
 
-    if command in [
-        "mobile companion status",
-        "mobile status",
-        "show mobile companion status",
-    ]:
-        speak(mobile_companion_status())
+    productivity_result = productivity_registry.handle(command, command_context)
+    if productivity_result.handled:
+        speak(productivity_result.reply)
         return
 
     send_mobile_update_match = re.match(r"^send\s+mobile\s+update\s+(.+)$", command)
@@ -4374,12 +4566,9 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             speak("Nextgen features are ready.")
         return
 
-    if command in [
-        "show proactive suggestions",
-        "proactive suggestions",
-        "assistant suggestions",
-    ]:
-        speak(_proactive_suggestions_summary(force_refresh=False))
+    knowledge_services_result = knowledge_services_registry.handle(command, command_context)
+    if knowledge_services_result.handled:
+        speak(knowledge_services_result.reply)
         return
 
     if command in [
@@ -4390,17 +4579,15 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(_proactive_suggestions_summary(force_refresh=True))
         return
 
-    if command in ["smart home status", "iot status", "smart home devices", "list smart home devices"]:
-        speak(_smart_home_status_summary())
+    iot_status_registry = build_readonly_registry(command_context, ["iot_status"])
+    iot_status_result = iot_status_registry.handle(command, command_context)
+    if iot_status_result.handled:
+        speak(iot_status_result.reply)
         return
 
-    if command in [
-        "smart home setup help",
-        "iot setup help",
-        "smart home setup",
-        "iot config help",
-    ]:
-        speak(_smart_home_setup_summary())
+    device_status_result = device_status_registry.handle(command, command_context)
+    if device_status_result.handled:
+        speak(device_status_result.reply)
         return
 
     if command in [
@@ -4413,34 +4600,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(_iot_validation_summary())
         return
 
-    if command in [
-        "iot inventory",
-        "iot overview",
-        "smart home inventory",
-        "what iot devices are connected",
-        "what smart devices are connected",
-        "list iot devices",
-    ]:
-        speak(_iot_awareness_summary())
-        return
-
-    if command in [
-        "hardware status",
-        "device status",
-        "connected hardware",
-        "what hardware is connected",
-        "what devices are connected",
-    ]:
-        speak(_hardware_status_summary())
-        return
-
-    if command in [
-        "recent hardware events",
-        "hardware events",
-        "recent device events",
-        "device events",
-    ]:
-        speak(_hardware_event_history_summary())
+    system_health_hardware_registry = build_readonly_registry(command_context, ["system_health_hardware"])
+    system_health_hardware_result = system_health_hardware_registry.handle(command, command_context)
+    if system_health_hardware_result.handled:
+        speak(system_health_hardware_result.reply)
         return
 
     if command in [
@@ -4452,15 +4615,6 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         "refresh devices",
     ]:
         speak(_rescan_hardware_summary())
-        return
-
-    if command in [
-        "iot action history",
-        "smart home history",
-        "smart home action history",
-        "recent smart home actions",
-    ]:
-        speak(_iot_action_history_summary())
         return
 
     if any(
@@ -4491,40 +4645,9 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             speak(response)
             return
 
-    if command in [
-        "piper setup status",
-        "piper voice setup",
-        "piper status",
-    ]:
-        speak(_piper_setup_summary())
-        return
-
-    if command in [
-        "my voice setup",
-        "my voice setup status",
-        "own voice setup",
-        "custom voice setup",
-        "voice clone setup",
-    ]:
-        speak(_custom_voice_setup_summary())
-        return
-
-    if command in [
-        "my voice license status",
-        "custom voice license status",
-        "voice license status",
-        "coqui license status",
-    ]:
-        speak(custom_voice_license_status_summary())
-        return
-
-    if command in [
-        "list my voice samples",
-        "list custom voice samples",
-        "show custom voice samples",
-        "available custom voice samples",
-    ]:
-        speak(list_custom_voice_samples_summary())
+    status_result = status_registry.handle(command, command_context)
+    if status_result.handled:
+        speak(status_result.reply)
         return
 
     choose_custom_voice_match = re.match(
@@ -4585,46 +4708,16 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(prefer_piper_backend()[1])
         return
 
-    if command in [
-        "security status",
-        "assistant security status",
-        "system security status",
-    ]:
-        speak(_security_status_summary())
-        return
-
-    if command in [
-        "security alerts",
-        "show security alerts",
-        "security warnings",
-    ]:
-        speak(_security_alerts_summary())
-        return
-
-    if command in [
-        "security logs",
-        "show security logs",
-        "recent security logs",
-    ]:
-        speak(_security_logs_summary())
+    diagnostics_status_registry = build_readonly_registry(command_context, ["diagnostics_status"])
+    diagnostics_status_result = diagnostics_status_registry.handle(command, command_context)
+    if diagnostics_status_result.handled:
+        speak(diagnostics_status_result.reply)
         return
 
     trust_device_match = re.match(r"^(?:trust|approve)\s+device\s+(.+)$", command)
     if trust_device_match:
         security_status_payload(DEVICE_MANAGER)
         speak(trust_device(trust_device_match.group(1).strip())[1])
-        return
-
-    if command in [
-        "my voice auth status",
-        "voice authentication status",
-        "voice auth status",
-    ]:
-        auth = auth_status_payload()
-        if auth.get("voice_profile_enrolled"):
-            speak("Voice authentication is enrolled and ready.")
-        else:
-            speak("Voice authentication is not enrolled yet. Say enroll my voice auth.")
         return
 
     if command in ["enroll my voice auth", "register my voice", "save my voice auth"]:
@@ -4677,10 +4770,6 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(disable_admin_mode()[1])
         return
 
-    if command in ["security admin status", "is security admin mode on"]:
-        speak("Security admin mode is active." if admin_mode_active() else "Security admin mode is not active.")
-        return
-
     if command in ["unlock assistant", "disable assistant lockdown", "assistant lockdown off"]:
         if not auth_status_payload().get("session_active"):
             pending_confirmation = _store_pending_confirmation({
@@ -4703,41 +4792,21 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak("Emergency lockdown enabled.")
         return
 
-    if command in [
-        "face security status",
-        "face verification status",
-        "face status",
-        "is my face enrolled",
-    ]:
-        speak(_face_security_status_summary())
+    device_status_result = device_status_registry.handle(command, command_context)
+    if device_status_result.handled:
+        speak(device_status_result.reply)
         return
 
-    if command in ["voice diagnostics", "voice tuning status", "voice debug"]:
-        speak(_voice_diagnostics_summary())
+    # SECTION: diagnostics and screen context
+    diagnostics_health_registry = build_readonly_registry(command_context, ["diagnostics_health"])
+    diagnostics_health_result = diagnostics_health_registry.handle(command, command_context)
+    if diagnostics_health_result.handled:
+        speak(diagnostics_health_result.reply)
         return
 
-    if command in [
-        "assistant doctor",
-        "startup doctor",
-        "system doctor",
-        "check assistant health",
-        "assistant health check",
-    ]:
-        speak(_assistant_doctor_summary(include_ready=False))
-        return
-
-    if command in [
-        "backend health summary",
-        "backend stability summary",
-        "backend release lock",
-        "release lock status",
-        "backend stability dashboard",
-    ]:
-        speak(_backend_stability_summary())
-        return
-
-    if command in ["show knowledge review queue", "knowledge misses"]:
-        speak(_knowledge_review_queue_summary())
+    project_knowledge_result = project_knowledge_registry.handle(command, command_context)
+    if project_knowledge_result.handled:
+        speak(project_knowledge_result.reply)
         return
 
     if command in [
@@ -4768,12 +4837,17 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(_create_fix_approval_from_latest_plan(language="auto"))
         return
 
-    if command == "show fix approvals":
-        speak(_fix_approval_summary())
-        return
-
-    if command in ["show fix audit log", "fix audit", "last fix actions"]:
-        speak(summarize_fix_audit_log(language="auto"))
+    debug_fix_result = handle_debug_command(
+        command,
+        current_debug_session_summary=_current_debug_session_summary,
+        debug_dashboard_summary=_debug_dashboard_summary,
+        fix_approval_summary=_fix_approval_summary,
+        fix_audit_summary=_fix_audit_summary,
+        allow_session_dashboard=False,
+        allow_history=False,
+    )
+    if debug_fix_result.handled:
+        speak(debug_fix_result.reply)
         return
 
     dismiss_fix_match = re.fullmatch(r"dismiss fix\s+([A-Za-z0-9_-]+)", command)
@@ -4830,26 +4904,15 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             speak(f"I could not add that knowledge answer. {error}")
         return
 
-    if command in [
-        "semantic memory status",
-        "memory semantic status",
-        "semantic search status",
-    ]:
-        reply = _semantic_memory_summary()
-        speak(reply)
-        set_last_result(reply)
+    semantic_memory_registry = build_readonly_registry(command_context, ["semantic_memory"])
+    semantic_memory_result = semantic_memory_registry.handle(command, command_context)
+    if semantic_memory_result.handled:
+        speak(semantic_memory_result.reply)
+        if semantic_memory_result.metadata.get("set_last_result"):
+            set_last_result(semantic_memory_result.reply)
         return
 
-    semantic_memory_search_match = re.match(
-        r"^(?:search|find|look\s+up)\s+(?:my\s+)?memory\s+(?:for\s+)?(.+)$",
-        command,
-    )
-    if semantic_memory_search_match:
-        reply = _semantic_memory_lookup_summary(semantic_memory_search_match.group(1).strip())
-        speak(reply)
-        set_last_result(reply)
-        return
-
+    # SECTION: Windows automation and device controls
     # Phase 4: Smart Home IoT Catch-all
     # Only triggered if it's explicitly "turn on/off" or "switch on/off" 
     # and wasn't caught by internal settings (like "turn on focus mode")
@@ -4950,57 +5013,30 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
             speak(f"Verification failed: {msg}")
         return
 
-    if command in ["voice status", "voice recognition status", "current voice profile"]:
-        speak(voice_status_summary())
+    status_result = status_registry.handle(command, command_context)
+    if status_result.handled:
+        speak(status_result.reply)
         return
 
-    if command in ["developer summary", "workspace summary", "coding summary"]:
-        speak(_developer_workspace_summary())
+    developer_status_registry = build_readonly_registry(command_context, ["developer_status"])
+    developer_status_result = developer_status_registry.handle(command, command_context)
+    if developer_status_result.handled:
+        speak(developer_status_result.reply)
         return
 
     if command in ["open terminal", "open developer terminal", "start terminal"]:
         speak(_open_local_terminal())
         return
 
-    if command in ["git status", "check git status", "developer git status"]:
-        speak(_local_git_status_summary())
-        return
-
-    if command in ["current git branch", "what branch am i on", "git branch"]:
-        speak(_git_current_branch_summary())
-        return
-
-    if command in ["git remotes", "show git remotes", "github remotes"]:
-        speak(_git_remote_summary())
-        return
-
-    if command in ["recent commits", "git recent commits", "show recent commits"]:
-        speak(_git_recent_commits_summary())
-        return
-
-    if command in ["github summary", "git summary", "repository summary"]:
-        speak(_git_repo_summary())
-        return
-
-    if command in ["google calendar status", "calendar sync status"]:
-        speak(google_calendar_status())
+    planning_google_registry = build_readonly_registry(command_context, ["planning_google"])
+    planning_google_result = planning_google_registry.handle(command, command_context)
+    if planning_google_result.handled:
+        speak(planning_google_result.reply)
         return
 
     if command in ["sync google calendar", "refresh google calendar"]:
         success, reply = sync_google_calendar()
         speak(reply)
-        return
-
-    if command in ["today in google calendar", "google calendar today", "today google calendar events"]:
-        speak(today_google_calendar_events())
-        return
-
-    if command in ["upcoming google calendar events", "google calendar upcoming events"]:
-        speak(upcoming_google_calendar_events())
-        return
-
-    if command in ["list google calendar event titles", "google calendar titles", "show google calendar titles"]:
-        speak(list_google_calendar_event_titles())
         return
 
     if command.startswith(("add google calendar event", "create google calendar event", "schedule google calendar event")):
@@ -5049,18 +5085,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak("Emergency mode disabled.")
         return
 
-    if command in ["emergency mode status", "what is emergency mode", "emergency help"]:
-        enabled = get_setting("assistant.emergency_mode_enabled", False)
-        prefix = "Emergency mode is enabled. " if enabled else "Emergency mode is disabled. "
-        speak(prefix + _emergency_mode_summary())
-        return
-
-    if command in ["emergency quick response", "emergency quick responses", "quick response system"]:
-        speak(_emergency_quick_response_summary())
-        return
-
-    if command in ["emergency protocol status", "what is emergency protocol"]:
-        speak(_emergency_protocol_summary())
+    emergency_status_registry = build_readonly_registry(command_context, ["emergency_status"])
+    emergency_status_result = emergency_status_registry.handle(command, command_context)
+    if emergency_status_result.handled:
+        speak(emergency_status_result.reply)
         return
 
     if command in ["start emergency protocol", "trigger emergency protocol", "emergency protocol"]:
@@ -5132,26 +5160,18 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(update_memory_field("preferred response tone", value)[1])
         return
 
-    if command in ["what is my preferred language", "my preferred language", "preferred language"]:
-        value = get_memory("personal.assistant.preferred_response_language")
-        speak(f"Your preferred language is {value}." if value else "You have not saved a preferred language yet.")
+    profile_status_registry = build_readonly_registry(command_context, ["profile_status"])
+    profile_status_result = profile_status_registry.handle(command, command_context)
+    if profile_status_result.handled:
+        speak(profile_status_result.reply)
         return
 
-    if command in ["what is my preferred tone", "my preferred tone", "preferred tone"]:
-        value = get_memory("personal.assistant.preferred_response_tone")
-        speak(f"Your preferred tone is {value}." if value else "You have not saved a preferred tone yet.")
-        return
-
-    if command in ["storage status", "disk space", "storage report"]:
-        reply = get_storage_report()
-        speak(reply)
-        set_last_result(reply)
-        return
-
-    if command in ["storage cleanup suggestion", "cleanup suggestion", "how should i clean storage"]:
-        reply = get_cleanup_suggestion()
-        speak(reply)
-        set_last_result(reply)
+    project_knowledge_storage_registry = build_readonly_registry(command_context, ["project_knowledge_storage"])
+    project_knowledge_storage_result = project_knowledge_storage_registry.handle(command, command_context)
+    if project_knowledge_storage_result.handled:
+        speak(project_knowledge_storage_result.reply)
+        if project_knowledge_storage_result.metadata.get("set_last_result"):
+            set_last_result(project_knowledge_storage_result.reply)
         return
 
     if command in ["motivate me", "give me motivation", "motivation please"]:
@@ -5173,6 +5193,11 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         final_reply = f"Interview practice for {topic}: {reply}"
         speak(final_reply)
         set_last_result(final_reply)
+        return
+
+    contacts_result = contacts_registry.handle(command, command_context)
+    if contacts_result.handled:
+        speak(contacts_result.reply)
         return
 
     contact_lookup_reply = _handle_contact_lookup_command(command)
@@ -6122,18 +6147,22 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak(visible_screen_reply)
         return
 
-    if command in [
-        "what app am i in",
-        "what app am i using",
-        "what window is active",
-        "current window",
-        "active window",
-        "naan enna app use panren",
-        "where am i working",
-    ]:
-        language = "ta" if command == "naan enna app use panren" else "auto"
-        payload = summarize_active_window(language=language)
-        speak(payload.get("summary") or payload.get("message") or get_active_window_summary())
+    profile_status_registry = build_readonly_registry(command_context, ["profile_status"])
+    profile_status_result = profile_status_registry.handle(command, command_context)
+    if profile_status_result.handled:
+        speak(profile_status_result.reply)
+        return
+
+    system_health_core_registry = build_readonly_registry(command_context, ["system_health_core"])
+    system_health_core_result = system_health_core_registry.handle(command, command_context)
+    if system_health_core_result.handled:
+        speak(system_health_core_result.reply)
+        return
+
+    awareness_registry = build_readonly_registry(command_context, ["awareness"])
+    awareness_result = awareness_registry.handle(command, command_context)
+    if awareness_result.handled:
+        speak(awareness_result.reply)
         return
 
     intent_result = try_handle_intent(command)
@@ -6147,7 +6176,11 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
 
     # ----- calendar queries -----
-    if handle_calendar_queries(command, speak):
+    planning_calendar_registry = build_readonly_registry(command_context, ["planning_calendar"])
+    planning_calendar_result = planning_calendar_registry.handle(command, command_context)
+    if planning_calendar_result.handled:
+        if planning_calendar_result.reply:
+            speak(planning_calendar_result.reply)
         return
 
     # ----- brightness -----
@@ -6209,18 +6242,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         return
 
     # ----- memory and personal info -----
-    if "my name is" in command:
-        name = command.replace("my name is", "").strip()
-        set_memory("personal.identity.name", name)
-        speak(f"Okay, I will remember that your name is {name}")
-        return
-
-    if any(p in command for p in ["what is my name", "who am i", "tell my name"]):
-        name = get_memory("personal.identity.name")
-        if name:
-            speak(f"You are {name}")
-        else:
-            speak("I don't know your name yet.")
+    memory_registry = build_readonly_registry(command_context, ["memory_personal"])
+    memory_result = memory_registry.handle(command, command_context)
+    if memory_result.handled:
+        speak(memory_result.reply)
         return
 
     memory_edit_reply = _handle_memory_edit_command(command)
@@ -6253,48 +6278,10 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         speak("I was created by my Captain.")
         return
 
-    if command in {
-        "hi",
-        "hello",
-        "hey",
-        "hi odin",
-        "hello odin",
-        "hey odin",
-        "hi grandpa",
-        "hello grandpa",
-        "hey grandpa",
-    }:
-        speak("Hey! I am doing good. How are you?")
-        return
-
-    if "how are you" in command:
-        speak("I am doing great! Thank you for asking.")
-        return
-
-    if any(word in command for word in ["morning", "afternoon", "evening", "night"]):
-        speak(get_period())
-        return
-
-    if "joke" in command:
-        speak(tell_joke())
-        return
-
-    if command.startswith(
-        (
-            "who is",
-            "who was",
-            "what is",
-            "what are",
-            "tell me about",
-            "how is",
-            "how are",
-            "latest about",
-            "latest on",
-            "news about",
-        )
-    ):
-        response = wikipedia_search(command)
-        speak(response)
+    knowledge_registry = build_readonly_registry(command_context, ["knowledge"])
+    knowledge_result = knowledge_registry.handle(command, command_context)
+    if knowledge_result.handled:
+        speak(knowledge_result.reply)
         return
 
     # ----- basic system controls -----
@@ -6414,6 +6401,7 @@ def process_command(command, INSTALLED_APPS, input_mode="text"):
         _remember_terminal_learning_turn(command, response, route="terminal-followup-ai", model="assistant")
         return
 
+    # SECTION: fallback AI response
     # -------- GENERAL AI RESPONSE --------
     try:
         stream_output = input_mode == "text"

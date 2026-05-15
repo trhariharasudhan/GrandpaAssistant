@@ -1,0 +1,7 @@
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+Icon?
+git-log.txt
+tmp/

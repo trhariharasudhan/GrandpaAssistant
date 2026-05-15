@@ -1,7 +1,7 @@
 """Backend application package root.
 
 This package still supports a legacy flat-import style such as
-`from agents.runtime import ...` and `from modules.task_module import ...`.
+`from agents.runtime import ...` and `from productivity.task_module import ...`.
 Bootstrapping those paths here keeps direct package imports working without
 requiring every entry point to mutate `sys.path` first.
 """

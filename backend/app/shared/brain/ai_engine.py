@@ -9,6 +9,9 @@ import requests
 from brain.memory_engine import get_memory
 from brain.semantic_memory import get_semantic_memory_lines
 from cognition.hub import build_intelligence_prompt_boost
+from core.llm.base import LLMRequest
+from core.llm.provider_manager import get_default_provider_manager
+from core.prompts import PromptBuildRequest, build_prompt
 from local_knowledge import answer_if_confident
 from llm_client import generate_chat_reply, load_env_file
 from utils.config import get_setting
@@ -168,59 +171,50 @@ def _build_prompt(prompt, compact=False):
     mood_context = build_mood_memory_context()
     intelligence_context = build_intelligence_prompt_boost(prompt, context="casual", emotion=detect_emotion(prompt))
 
-    formatted_prompt = (
-        "You are Grandpa Assistant, and the user may affectionately call you Grandpa.\n"
-        f"Current persona mode: {persona}.\n"
-        f"Persona behavior: {persona_instruction}\n"
-        f"The user's name is {user_name}.\n"
-        f"{emotion_context}\n"
-        f"{mood_context}\n"
-        f"{intelligence_context or ''}\n"
-        "Talk like a smart, friendly real person in casual conversation.\n"
-        "The user may write in Tanglish or mixed Tamil-English, but you must always reply in natural English only.\n"
-        "Do not reply in Tanglish, Tamil, or mixed slang unless the user explicitly asks for translation.\n"
-        "Use remembered personal details when relevant.\n"
-        "Keep replies short in normal chat, usually 1 or 2 sentences unless the user asks for detail.\n"
-        "Use natural everyday language like hey, yeah, okay, or got it when it fits.\n"
-        "Avoid robotic phrasing, bullet lists, and structured formatting in normal conversation.\n"
-        "Match the user's mood: casual when casual, empathetic when sad, and slightly professional when serious.\n"
-        "Give direct, natural answers.\n"
-        "Do not use pet names like sweetie, dear, buddy, or honey.\n"
-        "Do not mention knowledge cutoff or model limitations unless the user explicitly asks.\n"
-        "Do not say you are human, but do sound human.\n"
-        "Avoid long disclaimers and avoid unnecessary follow-up questions.\n"
-        "Keep spoken replies compact unless the user asks for detail.\n"
-        "For emotional conversation, do not give long counselor-style speeches. Use one warm line and at most one simple follow-up.\n"
-        "For everyday casual chat, avoid sounding like an article, teacher, or customer support bot.\n"
-    )
+    channel_instructions = [
+        "You are Grandpa Assistant, and the user may affectionately call you Grandpa.",
+        f"Current persona mode: {persona}.",
+        f"Persona behavior: {persona_instruction}",
+        f"The user's name is {user_name}.",
+        "Talk like a smart, friendly real person in casual conversation.",
+        "Do not reply in Tanglish, Tamil, or mixed slang unless the user explicitly asks for translation.",
+        "Use remembered personal details when relevant.",
+        "Keep replies short in normal chat, usually 1 or 2 sentences unless the user asks for detail.",
+        "Use natural everyday language like hey, yeah, okay, or got it when it fits.",
+        "Avoid robotic phrasing, bullet lists, and structured formatting in normal conversation.",
+        "Match the user's mood: casual when casual, empathetic when sad, and slightly professional when serious.",
+        "Give direct, natural answers.",
+        "Do not use pet names like sweetie, dear, buddy, or honey.",
+        "Do not mention knowledge cutoff or model limitations unless the user explicitly asks.",
+        "Do not say you are human, but do sound human.",
+        "Avoid long disclaimers and avoid unnecessary follow-up questions.",
+        "Keep spoken replies compact unless the user asks for detail.",
+        "For emotional conversation, do not give long counselor-style speeches. Use one warm line and at most one simple follow-up.",
+        "For everyday casual chat, avoid sounding like an article, teacher, or customer support bot.",
+    ]
     if persona == "casual":
-        formatted_prompt += (
+        channel_instructions.append(
             "Keep the tone easy and human, like friendly chat. "
-            "You may use light phrases like 'hey', 'yeah', 'cool', or 'got it' occasionally.\n"
+            "You may use light phrases like 'hey', 'yeah', 'cool', or 'got it' occasionally."
         )
-    if compact:
-        formatted_prompt += "Reply in 1 or 2 short sentences. Keep it easy to hear in voice mode.\n"
-
     memory_lines = _memory_context_lines()
-    if memory_lines:
-        formatted_prompt += "\nRemembered user context:\n"
-        for line in memory_lines:
-            formatted_prompt += f"- {line}\n"
-
     semantic_memory_lines = get_semantic_memory_lines(prompt, limit=3)
-    if semantic_memory_lines:
-        formatted_prompt += "\nAdditional relevant saved memory:\n"
-        for line in semantic_memory_lines:
-            formatted_prompt += f"- {line}\n"
-
-    if conversation_history:
-        formatted_prompt += "\nRecent conversation:\n"
-        for message in conversation_history:
-            role = "User" if message["role"] == "user" else "Assistant"
-            formatted_prompt += f"{role}: {message['content']}\n"
-
-    formatted_prompt += f"\nUser: {prompt}\nAssistant:"
-    return formatted_prompt
+    saved_memories = list(memory_lines)
+    saved_memories.extend(semantic_memory_lines or [])
+    return build_prompt(
+        PromptBuildRequest(
+            user_message=prompt,
+            channel="voice" if compact else "desktop",
+            persona=persona,
+            personality=f"Grandpa Assistant. {persona_instruction}",
+            saved_memories=saved_memories,
+            recent_history=conversation_history,
+            context_blocks=[emotion_context, mood_context, intelligence_context or ""],
+            channel_instructions=channel_instructions,
+            compact=compact,
+            assistant_label="Assistant",
+        )
+    )
 
 
 def _offline_fallback_response(prompt, compact=False):
@@ -509,6 +503,33 @@ def _provider_fallback_reply(prompt, compact=False):
             os.environ["OPENAI_REQUEST_TIMEOUT_SECONDS"] = previous_timeout
 
 
+def _generate_with_provider_manager(prompt, *, stream_callback=None, compact=False):
+    request = LLMRequest(
+        prompt=_build_prompt(prompt, compact=compact),
+        model=get_setting("assistant.model", "phi3"),
+        temperature=0.6,
+        metadata={
+            "raw_prompt": True,
+            "options": {
+                "num_predict": 90 if compact else 180,
+                "temperature": 0.6,
+            },
+        },
+    )
+    manager = get_default_provider_manager()
+    if stream_callback:
+        chunks = []
+        for chunk in manager.stream_generate(request, provider="ollama"):
+            if chunk:
+                chunks.append(chunk)
+                stream_callback(chunk)
+        return "".join(chunks).strip()
+    result = manager.generate(request, provider="ollama")
+    if result.ok:
+        return result.text.strip()
+    raise RuntimeError(result.error or "AI provider unavailable.")
+
+
 def _generate_chatgpt_full_reply(prompt, compact=False):
     prompt_text = str(prompt or "").strip()
     if not prompt_text:
@@ -618,61 +639,11 @@ def ask_ollama(prompt, stream_callback=None, compact=False):
         save_history()
         return reply
 
-    payload = {
-        "model": get_setting("assistant.model", "phi3"),
-        "prompt": _build_prompt(prompt, compact=compact),
-        "stream": bool(stream_callback),
-        "options": {
-            "num_predict": 90 if compact else 180,
-            "temperature": 0.6,
-        },
-    }
-
     try:
-        response = requests.post(
-            OLLAMA_URL,
-            json=payload,
-            timeout=OLLAMA_TIMEOUT_SECONDS,
-            stream=bool(stream_callback),
-        )
-        response.raise_for_status()
-
-        if stream_callback:
-            chunks = []
-            for line in response.iter_lines(decode_unicode=True):
-                if not line:
-                    continue
-                data = json.loads(line)
-                chunk = data.get("response", "")
-                if chunk:
-                    chunks.append(chunk)
-                    stream_callback(chunk)
-                if data.get("done"):
-                    break
-            reply = "".join(chunks).strip()
-        else:
-            data = response.json()
-            reply = data.get("response", "").strip()
-
+        reply = _generate_with_provider_manager(prompt, stream_callback=stream_callback, compact=compact)
         reply = reply[:600] if reply else "No response from model."
 
-    except requests.exceptions.Timeout:
-        if get_setting("assistant.offline_mode_enabled", False):
-            reply = _offline_fallback_response(prompt, compact=compact)
-        else:
-            reply = (
-                _provider_fallback_reply(prompt, compact=compact)
-                or _local_conversation_fallback(prompt, compact=compact)
-            )
-    except requests.exceptions.ConnectionError:
-        if get_setting("assistant.offline_mode_enabled", False):
-            reply = _offline_fallback_response(prompt, compact=compact)
-        else:
-            reply = (
-                _provider_fallback_reply(prompt, compact=compact)
-                or _local_conversation_fallback(prompt, compact=compact)
-            )
-    except Exception as error:
+    except Exception:
         if get_setting("assistant.offline_mode_enabled", False):
             reply = _offline_fallback_response(prompt, compact=compact)
         else:

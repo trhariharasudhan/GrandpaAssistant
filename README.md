@@ -10,7 +10,7 @@ GrandpaAssistant is a Windows-first Python backend for a local desktop assistant
 - Voice, productivity, system control, IoT, memory, and plugin integrations
 - Local data under ignored runtime/data paths
 
-App-client workspaces are not part of the active project right now. The backend still contains protected companion API logic where those features are part of the assistant backend.
+Frontend and mobile app-client workspaces are not part of the active project right now and are intentionally absent from this backend-only checkout. The backend still contains protected companion API logic where those features are part of the assistant runtime.
 
 ## Project Layout
 
@@ -130,7 +130,6 @@ Run these checks before shipping backend changes:
 
 ```bat
 python -m unittest discover -s tests -v
-python scripts\dev\full_backend_validation.py
 python scripts\dev\startup_smoke_check.py
 ```
 

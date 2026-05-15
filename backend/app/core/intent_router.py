@@ -1,7 +1,7 @@
 import datetime
 
-from modules.briefing_module import build_brief_details, build_due_reminder_alert
-from modules.browser_automation_module import (
+from productivity.briefing_module import build_brief_details, build_due_reminder_alert
+from intelligence.browser_automation_module import (
     ask_selected_browser_text_ai,
     browser_go_back,
     browser_go_forward,
@@ -40,9 +40,9 @@ from modules.browser_automation_module import (
     summarize_selected_text_and_save_note,
     translate_selected_browser_text,
 )
-from modules.calendar_module import get_date, get_day, get_period, get_time
-from modules.dashboard_module import build_dashboard_report, build_daily_recap, build_today_agenda
-from modules.event_module import (
+from productivity.calendar_module import get_date, get_day, get_period, get_time
+from productivity.dashboard_module import build_dashboard_report, build_daily_recap, build_today_agenda
+from productivity.event_module import (
     add_event,
     clear_all_events,
     clear_past_events,
@@ -57,27 +57,27 @@ from modules.event_module import (
     today_events,
     upcoming_events,
 )
-from modules.export_module import (
+from productivity.export_module import (
     export_daily_recap_pdf,
     export_daily_recap_summary,
     export_productivity_summary,
     export_productivity_summary_pdf,
 )
-from modules.file_intelligence_module import (
+from intelligence.file_intelligence_module import (
     ask_found_file,
     find_file,
     open_found_file,
     recent_files,
     summarize_found_file,
 )
-from modules.health_module import (
+from system.health_module import (
     get_battery_status,
     get_cpu_status,
     get_disk_status,
     get_ram_status,
     get_system_status,
 )
-from modules.messaging_automation_module import (
+from automation.messaging_automation_module import (
     cancel_scheduled_whatsapp_message,
     cancel_scheduled_gmail_draft,
     draft_follow_up_email,
@@ -105,7 +105,7 @@ from modules.messaging_automation_module import (
     type_in_whatsapp,
     whatsapp_message_contact,
 )
-from modules.notification_module import (
+from automation.notification_module import (
     run_contact_morning_routine,
     run_morning_routine,
     run_night_routine,
@@ -120,7 +120,7 @@ from modules.notification_module import (
     show_task_popup,
     show_weather_popup,
 )
-from modules.notes_module import (
+from productivity.notes_module import (
     add_note,
     delete_note,
     latest_note,
@@ -128,7 +128,7 @@ from modules.notes_module import (
     search_notes,
     summarize_notes,
 )
-from modules.profile_module import (
+from productivity.profile_module import (
     build_emotion_snapshot,
     build_focus_suggestion,
     build_habit_snapshot,
@@ -137,8 +137,8 @@ from modules.profile_module import (
     build_profile_summary,
     build_proactive_nudge,
 )
-from modules.weather_module import get_weather_report
-from modules.window_context_module import (
+from integrations.weather_module import get_weather_report
+from system.window_context_module import (
     browser_close_tab,
     browser_new_tab,
     click_on_current_browser_page,
@@ -168,14 +168,14 @@ from modules.window_context_module import (
     summarize_current_folder,
     summarize_whatsapp_context,
 )
-from modules.routine_module import (
+from productivity.routine_module import (
     create_custom_routine,
     delete_custom_routine,
     list_custom_routines,
     list_routines,
     run_routine,
 )
-from modules.task_module import (
+from productivity.task_module import (
     add_contact_reminder,
     add_reminder,
     add_task,

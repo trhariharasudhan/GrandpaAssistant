@@ -5,6 +5,7 @@ from pathlib import Path
 import uuid
 
 from backend.app.config.grandpa_config import GrandpaConfig, load_config, resolve_path
+from backend.app.core.llm.status import get_model_summary, get_provider_status
 from .intent_router import route_intent
 from .memory import ChatMemory, compact_text
 from .prompt_builder import build_system_prompt
@@ -57,13 +58,32 @@ class ChatbotEngine:
         return FallbackProvider(model="rules")
 
     def provider_name(self) -> str:
-        return self._provider().name
+        return str(self.provider_status().get("provider") or self._provider().name)
 
     def model_name(self) -> str:
-        return self._provider().model
+        return str(self.provider_status().get("model") or self._provider().model)
 
     def config_summary(self) -> dict:
-        return self.config.safe_summary()
+        provider = self._provider()
+        return {
+            **self.config.safe_summary(),
+            "provider_status": self.provider_status(),
+            "model_summary": {
+                **get_model_summary(self.config.provider),
+                "active_provider": provider.name,
+                "active_model": provider.model,
+            },
+        }
+
+    def provider_status(self) -> dict:
+        provider = self._provider()
+        status = get_provider_status(provider.name)
+        return {
+            **status,
+            "provider": provider.name,
+            "name": provider.name,
+            "model": provider.model,
+        }
 
     def reset_session(self) -> str:
         self.memory.clear_session(self.session_id)

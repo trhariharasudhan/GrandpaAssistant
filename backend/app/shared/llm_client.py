@@ -6,6 +6,9 @@ from typing import Generator
 
 import requests
 
+from core.llm.base import LLMRequest
+from core.llm.provider_manager import get_default_provider_manager
+from core.llm.status import get_active_provider_summary, get_health_report, get_model_summary
 from local_knowledge import answer_if_confident
 
 
@@ -332,16 +335,24 @@ def get_llm_status() -> dict:
     openai_base_url = os.getenv(OPENAI_BASE_URL_ENV, DEFAULT_OPENAI_BASE_URL).strip() or DEFAULT_OPENAI_BASE_URL
     ollama_model = os.getenv(OLLAMA_MODEL_ENV, DEFAULT_OLLAMA_MODEL).strip() or DEFAULT_OLLAMA_MODEL
     ollama_base_url = os.getenv(OLLAMA_BASE_URL_ENV, DEFAULT_OLLAMA_BASE_URL).strip() or DEFAULT_OLLAMA_BASE_URL
+    active = get_active_provider_summary(provider)
+    model_summary = get_model_summary(provider)
+    health_report = get_health_report(provider)
+    health = active.get("health", {})
     return {
         "provider": provider,
-        "model": openai_model if provider == "openai" else ollama_model,
-        "base_url": openai_base_url if provider == "openai" else ollama_base_url,
+        "model": active.get("model") or (openai_model if provider == "openai" else ollama_model),
+        "base_url": active.get("base_url") or (openai_base_url if provider == "openai" else ollama_base_url),
         "api_key_configured": bool(api_key),
-        "ready": bool(api_key) if provider == "openai" else True,
+        "ready": bool(active.get("ready")),
+        "health": health,
         "fallback_available": True,
         "openai_model": openai_model,
         "openai_fallback_model": openai_fallback_model,
         "ollama_model": ollama_model,
+        "status": active.get("status", "unavailable"),
+        "providers": health_report.get("providers", {}),
+        "model_summary": model_summary,
     }
 
 
@@ -405,16 +416,18 @@ def generate_chat_reply(history: list[dict], user_message: str, model: str | Non
         return local_answer
 
     provider = _resolved_provider()
-    if provider == "ollama":
-        return _generate_ollama_reply(history, user_message, model=model, system_prompt=system_prompt)
-
-    try:
-        return _generate_openai_reply(history, user_message, model=model, system_prompt=system_prompt)
-    except Exception as openai_error:
-        try:
-            return _generate_ollama_reply(history, user_message, model=model, system_prompt=system_prompt)
-        except Exception:
-            raise openai_error
+    result = get_default_provider_manager().generate(
+        LLMRequest(
+            prompt=user_message,
+            history=history,
+            system_prompt=system_prompt or SYSTEM_PROMPT,
+            model=model,
+        ),
+        provider=provider,
+    )
+    if result.ok:
+        return result.text or "I could not generate a reply right now."
+    raise RuntimeError(result.error or "I could not generate a reply right now.")
 
 
 def _stream_openai_reply(
@@ -510,20 +523,12 @@ def stream_chat_reply(
         return
 
     provider = _resolved_provider()
-    if provider == "ollama":
-        yield from _stream_ollama_reply(history, user_message, model=model, system_prompt=system_prompt)
-        return
-
-    try:
-        yielded_content = False
-        for chunk in _stream_openai_reply(history, user_message, model=model, system_prompt=system_prompt):
-            yielded_content = True
-            yield chunk
-        return
-    except Exception as openai_error:
-        if yielded_content:
-            raise openai_error
-        try:
-            yield from _stream_ollama_reply(history, user_message, model=model, system_prompt=system_prompt)
-        except Exception:
-            raise openai_error
+    yield from get_default_provider_manager().stream_generate(
+        LLMRequest(
+            prompt=user_message,
+            history=history,
+            system_prompt=system_prompt or SYSTEM_PROMPT,
+            model=model,
+        ),
+        provider=provider,
+    )

@@ -2,7 +2,7 @@ import json
 import os
 import re
 
-from modules.google_contacts_module import get_google_contact_field
+from integrations.google_contacts_module import get_google_contact_field
 
 from brain.database import (
     LEGACY_MEMORY_PATH,

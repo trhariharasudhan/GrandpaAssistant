@@ -4,7 +4,7 @@ import json
 import os
 
 from brain.memory_engine import get_memory
-from modules.task_module import get_task_data
+from productivity.task_module import get_task_data
 from utils.paths import backend_data_path
 
 NEXTGEN_PATH = backend_data_path("nextgen_features.json")

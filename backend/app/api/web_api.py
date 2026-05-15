@@ -62,6 +62,10 @@ from screen_awareness import summarize_screen_context
 from window_awareness import summarize_active_window
 from context_suggestions import build_context_suggestions
 from context_action_executor import execute_suggested_action
+from core.prompts.route_adapters import (
+    build_streaming_chat_prompt,
+    build_web_api_system_prompt,
+)
 from debug_assistant import build_debug_report
 from fix_plan_generator import build_fix_plan
 from fix_approval_flow import (
@@ -130,23 +134,23 @@ from app_data_store import (
 from api_cors import localhost_cors_origins
 from backend_stability import build_backend_stability_payload
 from startup_diagnostics import collect_startup_diagnostics
-from modules.event_module import get_event_data
-from modules.google_contacts_module import CACHE_PATH as GOOGLE_CONTACTS_CACHE_PATH
-from modules.google_contacts_module import (
+from productivity.event_module import get_event_data
+from integrations.google_contacts_module import CACHE_PATH as GOOGLE_CONTACTS_CACHE_PATH
+from integrations.google_contacts_module import (
     get_recent_contact_change_summary,
     list_contact_aliases,
     list_favorite_contacts,
 )
-from modules.health_module import get_system_status
-from modules.notes_module import latest_note
-from modules.nextgen_module import nextgen_status_snapshot, run_due_automation_rules
-from modules.startup_module import (
+from system.health_module import get_system_status
+from productivity.notes_module import latest_note
+from productivity.nextgen_module import nextgen_status_snapshot, run_due_automation_rules
+from automation.startup_module import (
     disable_startup_auto_launch,
     enable_startup_auto_launch,
     startup_auto_launch_status,
 )
-from modules.task_module import get_planner_focus_snapshot, get_task_data
-from modules.weather_module import get_weather_report
+from productivity.task_module import get_planner_focus_snapshot, get_task_data
+from integrations.weather_module import get_weather_report
 from utils.config import get_setting, update_setting
 from utils.emotion import analyze_emotion, build_emotion_prompt_context
 from utils.mood_memory import build_mood_memory_context, mood_status_payload, record_mood_from_analysis
@@ -1385,10 +1389,6 @@ def _active_chat_model() -> str:
 
 def _effective_system_prompt(user_message="", mood_snapshot=None, context="casual"):
     provider = _compact_text(_chat_settings.get("llm_provider")).lower() or DEFAULT_LLM_PROVIDER
-    provider_guidance = ""
-    language_guidance = (
-        "Understand Tanglish or mixed Tamil-English input, but always reply only in natural English unless the user explicitly asks for translation. "
-    )
     emotion_guidance = (
         f"{build_emotion_prompt_context(user_message)} "
         if _compact_text(user_message)
@@ -1404,29 +1404,17 @@ def _effective_system_prompt(user_message="", mood_snapshot=None, context="casua
         if _compact_text(user_message)
         else ""
     )
-    conversation_guidance = (
-        "Talk like a smart, friendly real person. In normal chat, keep replies short, usually 1 or 2 sentences unless the user asks for more. "
-        "Use natural language like hey, yeah, okay, or got it when it fits. Avoid robotic phrasing, bullet lists, and overly structured formatting in casual conversation. "
-        "Match the user's mood and keep the flow natural. "
+    return build_web_api_system_prompt(
+        system_prompt=_chat_settings["system_prompt"],
+        tone=_chat_settings["tone"],
+        response_style=_chat_settings["response_style"],
+        tool_mode=bool(_chat_settings.get("tool_mode")),
+        tool_prompt=_tool_prompt(),
+        provider=provider,
+        emotion_context=emotion_guidance,
+        mood_context=mood_guidance,
+        intelligence_context=intelligence_guidance,
     )
-    if provider == "ollama":
-        provider_guidance = (
-            "When the user asks a normal question, answer directly in plain language. "
-            "Do not rewrite the user's request into a task or instruction block. "
-            "Use TOOL only for clear assistant actions like opening apps, creating reminders, checking notes, or device control. "
-            "If the user asks for an exact sentence, return only that sentence."
-        )
-    return (
-        f"{_chat_settings['system_prompt']} "
-        f"Tone: {_chat_settings['tone']}. Response style: {_chat_settings['response_style']}. "
-        f"{conversation_guidance}"
-        f"{language_guidance}"
-        f"{emotion_guidance}"
-        f"{mood_guidance}"
-        f"{intelligence_guidance}"
-        f"{provider_guidance} "
-        f"{_tool_prompt() if _chat_settings.get('tool_mode') else ''}"
-    ).strip()
 
 
 def _build_chat_input(session, user_message, mood_snapshot=None, context="casual"):
@@ -1440,29 +1428,13 @@ def _build_chat_input(session, user_message, mood_snapshot=None, context="casual
         emotion=(mood_snapshot or {}).get("last_mood", "neutral"),
         mood=mood_snapshot,
     )
-    if not memory_context and not document_context:
-        return f"{emotion_context}\n{mood_context}\n{intelligence_context or ''}\nUser question: {user_message}"
-
-    sections = []
-    if memory_context:
-        sections.append(memory_context)
-    if document_context:
-        sections.append(document_context)
-    combined_context = "\n\n".join(sections)
-
-    guidance = (
-        "Answer clearly using the provided context when relevant. Keep it natural and easy to read. "
-        "If the attached document does not contain the answer, say that briefly."
-        if document_context
-        else "Answer clearly, keep it natural, and use the saved memory only when it helps the user."
-    )
-    return (
-        f"{combined_context}\n\n"
-        f"{emotion_context}\n"
-        f"{mood_context}\n"
-        f"{intelligence_context or ''}\n"
-        f"User question: {user_message}\n"
-        f"{guidance}"
+    return build_streaming_chat_prompt(
+        user_message=user_message,
+        memory_context=memory_context or "",
+        document_context=document_context or "",
+        emotion_context=emotion_context,
+        mood_context=mood_context,
+        intelligence_context=intelligence_context or "",
     )
 
 
