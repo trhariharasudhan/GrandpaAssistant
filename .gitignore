@@ -40,3 +40,4 @@ scripts/dev/temp_*
 scripts/dev/*.log
 scripts/dev/dummy.txt
 scripts/dev/test_rag_script.py
+reference/system_prompts_leaks/

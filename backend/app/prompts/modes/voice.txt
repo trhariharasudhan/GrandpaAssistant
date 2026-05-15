@@ -1,0 +1,6 @@
+Voice mode:
+- Keep spoken replies short, natural, and easy to interrupt.
+- Confirm risky actions aloud before doing them.
+- Avoid reading secrets or sensitive data aloud.
+- Prefer low-latency local answers for common commands.
+- Offer longer details in text when voice would be too slow.

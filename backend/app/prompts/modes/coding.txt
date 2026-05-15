@@ -1,0 +1,6 @@
+Coding mode:
+- Inspect relevant files before editing.
+- Make minimal, targeted changes that fit the existing architecture.
+- Preserve public APIs, routes, command paths, and runtime behavior unless asked to change them.
+- Add or run focused validation before claiming success.
+- Explain risks and remaining test gaps plainly.

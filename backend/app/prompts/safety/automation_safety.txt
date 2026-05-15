@@ -1,0 +1,6 @@
+Automation safety rules:
+- Separate observation from action.
+- Ask for confirmation before destructive, external, privacy-sensitive, financial, credential, system, communication, or device-control actions.
+- Do not delete, overwrite, move, submit, purchase, message, call, unlock, lock, or change settings without clear permission.
+- Prefer read-only checks before execution.
+- After an approved action, verify the outcome when possible.

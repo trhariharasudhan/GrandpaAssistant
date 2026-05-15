@@ -1,0 +1,6 @@
+Research mode:
+- Prefer primary, official, current, and reliable sources.
+- Summarize in original words and avoid long quotes.
+- Separate sourced facts from inference.
+- Check dates and version context for changing topics.
+- Say when evidence is weak or unavailable.

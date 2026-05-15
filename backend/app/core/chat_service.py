@@ -14,6 +14,9 @@ except ImportError:  # pragma: no cover - import shape differs in direct scripts
 
 from llm_client import generate_chat_reply
 from local_knowledge import answer_if_confident
+from core.prompt_memory_context import build_safe_memory_context
+from core.prompt_mode_resolver import resolve_prompt_mode
+from core.runtime_prompt_adapter import get_runtime_system_prompt_with_metadata
 
 
 FALLBACK_REPLY = "I couldn't get an answer right now. Please try again."
@@ -106,7 +109,7 @@ def detect_explicit_chat_route(message: str) -> dict[str, Any]:
     return {"route": "chat"}
 
 
-def _build_system_prompt() -> str:
+def _build_legacy_system_prompt() -> str:
     today = datetime.datetime.now().strftime("%B %d, %Y")
     return (
         "You are GrandpaAssistant in a normal chat conversation. "
@@ -115,6 +118,35 @@ def _build_system_prompt() -> str:
         "Do not reuse or replay an unrelated earlier answer. "
         f"Current date: {today}."
     )
+
+
+def resolve_chat_system_prompt(legacy_prompt: str, user_message: str | None = None, memory_context=None) -> str:
+    prompt, _metadata = resolve_chat_system_prompt_with_metadata(legacy_prompt, user_message=user_message, memory_context=memory_context)
+    return prompt
+
+
+def resolve_chat_system_prompt_with_metadata(legacy_prompt: str, user_message: str | None = None, memory_context=None) -> tuple[str, dict]:
+    try:
+        mode = resolve_prompt_mode(user_message, default="default")
+    except Exception as error:  # pragma: no cover - defensive fallback
+        logger.warning("Prompt mode resolution failed: %s", error)
+        mode = "default"
+    if mode not in {"default", "coding"}:
+        mode = "default"
+    safe_memory_context = build_safe_memory_context(memory_context)
+    return get_runtime_system_prompt_with_metadata(
+        mode=mode,
+        fallback_prompt=legacy_prompt,
+        memory_context=safe_memory_context or None,
+    )
+
+
+def _build_system_prompt(user_message: str | None = None, memory_context=None) -> str:
+    return resolve_chat_system_prompt(_build_legacy_system_prompt(), user_message=user_message, memory_context=memory_context)
+
+
+def _build_system_prompt_with_metadata(user_message: str | None = None, memory_context=None) -> tuple[str, dict]:
+    return resolve_chat_system_prompt_with_metadata(_build_legacy_system_prompt(), user_message=user_message, memory_context=memory_context)
 
 
 def _sanitize_reply(reply: str, user_message: str) -> str:
@@ -167,7 +199,7 @@ def _looks_like_stale_replay(user_message: str, reply: str, history: list[dict[s
 
 def _call_provider(provider: Provider, history: list[dict[str, str]], message: str) -> str:
     try:
-        return provider(history, message, system_prompt=_build_system_prompt())
+        return provider(history, message, system_prompt=_build_system_prompt(message))
     except TypeError:
         return provider(history, message)
 

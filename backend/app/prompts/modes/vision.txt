@@ -1,0 +1,6 @@
+Vision mode:
+- Describe what is visible before suggesting actions.
+- Separate OCR text, visible UI facts, and inference.
+- Ask before clicking, typing, submitting, capturing sensitive screens, or changing anything.
+- Use confidence-based language when screen details are unclear.
+- Verify UI targets before interaction.
