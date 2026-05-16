@@ -16,12 +16,14 @@ for path in [APP_DIR, SHARED_DIR]:
 
 from core import chat_service
 from core.runtime_prompt_adapter import RUNTIME_PROMPT_ENV
+from project_knowledge.project_context_adapter import PROJECT_CONTEXT_ENV
 
 
 class ChatServiceRuntimePromptTests(unittest.TestCase):
     def setUp(self) -> None:
         chat_service.clear_all_chat_sessions_for_tests()
         self.previous_env = os.environ.pop(RUNTIME_PROMPT_ENV, None)
+        self.previous_project_env = os.environ.pop(PROJECT_CONTEXT_ENV, None)
         self.local_patch = patch.object(chat_service, "answer_if_confident", return_value=None)
         self.local_patch.start()
 
@@ -32,8 +34,13 @@ class ChatServiceRuntimePromptTests(unittest.TestCase):
             os.environ.pop(RUNTIME_PROMPT_ENV, None)
         else:
             os.environ[RUNTIME_PROMPT_ENV] = self.previous_env
+        if self.previous_project_env is None:
+            os.environ.pop(PROJECT_CONTEXT_ENV, None)
+        else:
+            os.environ[PROJECT_CONTEXT_ENV] = self.previous_project_env
 
     def test_legacy_prompt_used_when_flag_unset(self) -> None:
+        os.environ.pop(PROJECT_CONTEXT_ENV, None)
         legacy_prompt = chat_service._build_legacy_system_prompt()
 
         self.assertEqual(legacy_prompt, chat_service._build_system_prompt())
@@ -59,6 +66,7 @@ class ChatServiceRuntimePromptTests(unittest.TestCase):
 
     def test_runtime_prompt_used_when_env_enabled(self) -> None:
         os.environ[RUNTIME_PROMPT_ENV] = "1"
+        os.environ.pop(PROJECT_CONTEXT_ENV, None)
 
         prompt = chat_service._build_system_prompt()
 
@@ -104,6 +112,77 @@ class ChatServiceRuntimePromptTests(unittest.TestCase):
         self.assertNotIn("do-not-include", prompt)
         self.assertTrue(metadata["memory_context_included"])
         self.assertNotIn("concise answers", str(metadata))
+
+    def test_project_context_not_used_when_runtime_off_even_if_project_flag_on(self) -> None:
+        os.environ[PROJECT_CONTEXT_ENV] = "1"
+        legacy_prompt = chat_service._build_legacy_system_prompt()
+
+        with patch.object(chat_service, "build_project_context_for_prompt") as builder:
+            prompt, metadata = chat_service._build_system_prompt_with_metadata("where is prompt builder")
+
+        builder.assert_not_called()
+        self.assertEqual(legacy_prompt, prompt)
+        self.assertFalse(metadata["project_context_included"])
+        self.assertEqual(0, metadata["project_context_result_count"])
+
+    def test_runtime_on_project_context_off_does_not_include_project_context(self) -> None:
+        os.environ[RUNTIME_PROMPT_ENV] = "1"
+        os.environ.pop(PROJECT_CONTEXT_ENV, None)
+
+        with patch.object(chat_service, "build_project_context_for_prompt") as builder:
+            prompt, metadata = chat_service._build_system_prompt_with_metadata("where is prompt builder")
+
+        builder.assert_not_called()
+        self.assertNotIn("PROJECT KNOWLEDGE CONTEXT", prompt)
+        self.assertFalse(metadata["project_context_included"])
+        self.assertEqual(0, metadata["project_context_result_count"])
+
+    def test_runtime_on_project_context_on_includes_project_context(self) -> None:
+        os.environ[RUNTIME_PROMPT_ENV] = "1"
+        os.environ[PROJECT_CONTEXT_ENV] = "1"
+        fake_context = {
+            "enabled": True,
+            "context_text": "PROJECT KNOWLEDGE CONTEXT\nFile: backend/app/core/prompt_builder.py\nSnippet:\nPrompt builder lives here.",
+            "summary": {"result_count": 1, "files": ["backend/app/core/prompt_builder.py"], "safe": True},
+            "error": None,
+        }
+
+        with patch.object(chat_service, "build_project_context_for_prompt", return_value=fake_context):
+            prompt, metadata = chat_service._build_system_prompt_with_metadata("where is prompt builder")
+
+        self.assertIn("PROJECT KNOWLEDGE CONTEXT", prompt)
+        self.assertIn("Prompt builder lives here.", prompt)
+        self.assertTrue(metadata["project_context_included"])
+        self.assertEqual(1, metadata["project_context_result_count"])
+
+    def test_project_context_failure_does_not_crash(self) -> None:
+        os.environ[RUNTIME_PROMPT_ENV] = "1"
+        os.environ[PROJECT_CONTEXT_ENV] = "1"
+
+        with patch.object(chat_service, "build_project_context_for_prompt", side_effect=RuntimeError("boom")):
+            prompt, metadata = chat_service._build_system_prompt_with_metadata("where is prompt builder")
+
+        self.assertIn("Default mode:", prompt)
+        self.assertNotIn("PROJECT KNOWLEDGE CONTEXT", prompt)
+        self.assertFalse(metadata["project_context_included"])
+
+    def test_project_context_metadata_does_not_expose_context_text(self) -> None:
+        os.environ[RUNTIME_PROMPT_ENV] = "1"
+        os.environ[PROJECT_CONTEXT_ENV] = "1"
+        private_context = "PROJECT KNOWLEDGE CONTEXT\nprivate context body"
+        fake_context = {
+            "enabled": True,
+            "context_text": private_context,
+            "summary": {"result_count": 1, "files": ["README.md"], "safe": True},
+            "error": None,
+        }
+
+        with patch.object(chat_service, "build_project_context_for_prompt", return_value=fake_context):
+            _prompt, metadata = chat_service._build_system_prompt_with_metadata("where is prompt builder")
+
+        self.assertNotIn(private_context, str(metadata))
+        self.assertNotIn("private context body", str(metadata))
+        self.assertTrue(metadata["project_context_included"])
 
     def test_provider_receives_legacy_prompt_by_default(self) -> None:
         seen_prompts = []

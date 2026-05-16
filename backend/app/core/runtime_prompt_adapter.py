@@ -28,6 +28,8 @@ def get_runtime_system_prompt(
     extra_context: str | None = None,
     use_runtime_prompts: bool | None = None,
     fallback_prompt: str | None = None,
+    project_context_included: bool = False,
+    project_context_result_count: int = 0,
 ) -> str:
     """Return a system prompt using the optional runtime prompt foundation.
 
@@ -42,6 +44,8 @@ def get_runtime_system_prompt(
         extra_context=extra_context,
         use_runtime_prompts=use_runtime_prompts,
         fallback_prompt=fallback_prompt,
+        project_context_included=project_context_included,
+        project_context_result_count=project_context_result_count,
     )
     return prompt
 
@@ -53,6 +57,8 @@ def get_runtime_system_prompt_with_metadata(
     extra_context: str | None = None,
     use_runtime_prompts: bool | None = None,
     fallback_prompt: str | None = None,
+    project_context_included: bool = False,
+    project_context_result_count: int = 0,
 ) -> tuple[str, dict]:
     """Return a system prompt plus safe selection metadata.
 
@@ -70,6 +76,8 @@ def get_runtime_system_prompt_with_metadata(
             prompt_length=len(fallback),
             reason="runtime_prompts_disabled",
             memory_context_included=False,
+            project_context_included=False,
+            project_context_result_count=0,
         )
 
     try:
@@ -88,6 +96,8 @@ def get_runtime_system_prompt_with_metadata(
             prompt_length=len(fallback),
             reason="runtime_prompt_build_failed",
             memory_context_included=False,
+            project_context_included=False,
+            project_context_result_count=0,
         )
 
     if not prompt:
@@ -99,6 +109,8 @@ def get_runtime_system_prompt_with_metadata(
             prompt_length=len(fallback),
             reason="runtime_prompt_empty",
             memory_context_included=False,
+            project_context_included=False,
+            project_context_result_count=0,
         )
 
     return prompt, build_prompt_runtime_metadata(
@@ -109,4 +121,6 @@ def get_runtime_system_prompt_with_metadata(
         prompt_length=len(prompt),
         reason=None,
         memory_context_included=has_memory_context,
+        project_context_included=project_context_included,
+        project_context_result_count=project_context_result_count,
     )

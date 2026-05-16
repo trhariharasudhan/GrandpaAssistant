@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import datetime
 import logging
+import os
 import re
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 try:
@@ -16,7 +18,15 @@ from llm_client import generate_chat_reply
 from local_knowledge import answer_if_confident
 from core.prompt_memory_context import build_safe_memory_context
 from core.prompt_mode_resolver import resolve_prompt_mode
-from core.runtime_prompt_adapter import get_runtime_system_prompt_with_metadata
+from core.runtime_prompt_adapter import RUNTIME_PROMPT_ENV, TRUE_VALUES, get_runtime_system_prompt_with_metadata
+
+try:
+    from project_knowledge.project_context_adapter import build_project_context_for_prompt, is_project_context_enabled
+except ImportError:  # pragma: no cover - project knowledge package may be absent in older deployments
+    build_project_context_for_prompt = None
+
+    def is_project_context_enabled() -> bool:
+        return False
 
 
 FALLBACK_REPLY = "I couldn't get an answer right now. Please try again."
@@ -36,6 +46,14 @@ class ChatSession:
 
 
 _sessions: dict[str, ChatSession] = {}
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _runtime_prompts_enabled() -> bool:
+    return os.getenv(RUNTIME_PROMPT_ENV, "").strip().lower() in TRUE_VALUES
 
 
 def _utc_now() -> str:
@@ -134,10 +152,26 @@ def resolve_chat_system_prompt_with_metadata(legacy_prompt: str, user_message: s
     if mode not in {"default", "coding"}:
         mode = "default"
     safe_memory_context = build_safe_memory_context(memory_context)
+    project_context_text = ""
+    project_context_included = False
+    project_context_result_count = 0
+    if _runtime_prompts_enabled() and is_project_context_enabled() and build_project_context_for_prompt is not None:
+        try:
+            project_context = build_project_context_for_prompt(project_root=_project_root(), user_message=user_message or "", limit=5)
+            if project_context.get("enabled") and not project_context.get("error"):
+                project_context_text = str(project_context.get("context_text") or "")
+                summary = project_context.get("summary") if isinstance(project_context.get("summary"), dict) else {}
+                project_context_result_count = int(summary.get("result_count") or 0)
+                project_context_included = bool(project_context_text and project_context_result_count)
+        except Exception as error:  # pragma: no cover - defensive integration boundary
+            logger.warning("Project context build failed: %s", error)
     return get_runtime_system_prompt_with_metadata(
         mode=mode,
         fallback_prompt=legacy_prompt,
         memory_context=safe_memory_context or None,
+        extra_context=project_context_text or None,
+        project_context_included=project_context_included,
+        project_context_result_count=project_context_result_count,
     )
 
 

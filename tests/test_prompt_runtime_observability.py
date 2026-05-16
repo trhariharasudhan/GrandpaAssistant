@@ -34,6 +34,8 @@ class PromptRuntimeObservabilityTests(unittest.TestCase):
                 "prompt_length",
                 "reason",
                 "memory_context_included",
+                "project_context_included",
+                "project_context_result_count",
             },
             set(metadata),
         )
@@ -52,6 +54,8 @@ class PromptRuntimeObservabilityTests(unittest.TestCase):
         self.assertNotIn(prompt_body, json.dumps(metadata))
         self.assertEqual(len(prompt_body), metadata["prompt_length"])
         self.assertFalse(metadata["memory_context_included"])
+        self.assertFalse(metadata["project_context_included"])
+        self.assertEqual(0, metadata["project_context_result_count"])
 
     def test_reason_is_sanitized_and_truncated(self) -> None:
         reason = "  BUILD\nFAILED\t" + ("x" * 200)
@@ -98,10 +102,14 @@ class PromptRuntimeObservabilityTests(unittest.TestCase):
             prompt_length=12,
             reason="selected",
             memory_context_included=True,
+            project_context_included=True,
+            project_context_result_count=3,
         )
 
         self.assertIsInstance(json.dumps(metadata), str)
         self.assertTrue(metadata["memory_context_included"])
+        self.assertTrue(metadata["project_context_included"])
+        self.assertEqual(3, metadata["project_context_result_count"])
 
 
 if __name__ == "__main__":

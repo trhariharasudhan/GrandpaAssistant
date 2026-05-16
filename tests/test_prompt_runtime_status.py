@@ -15,17 +15,23 @@ if text not in sys.path:
 
 from core.runtime_prompt_adapter import RUNTIME_PROMPT_ENV
 from core.prompt_runtime_status import EXPECTED_PROMPT_FILES, get_prompt_runtime_status
+from project_knowledge.project_context_adapter import PROJECT_CONTEXT_ENV
 
 
 class PromptRuntimeStatusTests(unittest.TestCase):
     def setUp(self) -> None:
         self.previous_env = os.environ.pop(RUNTIME_PROMPT_ENV, None)
+        self.previous_project_env = os.environ.pop(PROJECT_CONTEXT_ENV, None)
 
     def tearDown(self) -> None:
         if self.previous_env is None:
             os.environ.pop(RUNTIME_PROMPT_ENV, None)
         else:
             os.environ[RUNTIME_PROMPT_ENV] = self.previous_env
+        if self.previous_project_env is None:
+            os.environ.pop(PROJECT_CONTEXT_ENV, None)
+        else:
+            os.environ[PROJECT_CONTEXT_ENV] = self.previous_project_env
 
     def test_status_is_dict_and_json_safe(self) -> None:
         status = get_prompt_runtime_status()
@@ -45,6 +51,9 @@ class PromptRuntimeStatusTests(unittest.TestCase):
                 "available_prompt_files",
                 "missing_expected_prompt_files",
                 "metadata_fields",
+                "project_context_enabled",
+                "project_context_env_var",
+                "project_context_requires_runtime_prompts",
                 "reference_folder_used",
                 "safe_to_expose",
             },
@@ -71,6 +80,17 @@ class PromptRuntimeStatusTests(unittest.TestCase):
 
         self.assertTrue(get_prompt_runtime_status()["runtime_enabled"])
 
+    def test_project_context_flag_state_is_safe_metadata(self) -> None:
+        status = get_prompt_runtime_status()
+
+        self.assertFalse(status["project_context_enabled"])
+        self.assertEqual(PROJECT_CONTEXT_ENV, status["project_context_env_var"])
+        self.assertTrue(status["project_context_requires_runtime_prompts"])
+
+        os.environ[PROJECT_CONTEXT_ENV] = "yes"
+
+        self.assertTrue(get_prompt_runtime_status()["project_context_enabled"])
+
     def test_missing_expected_files_reported_safely(self) -> None:
         with patch("core.prompt_runtime_status.list_available_prompts", return_value=["base/core.txt"]):
             status = get_prompt_runtime_status()
@@ -92,6 +112,8 @@ class PromptRuntimeStatusTests(unittest.TestCase):
         self.assertIn("selected_mode", fields)
         self.assertIn("prompt_length", fields)
         self.assertIn("memory_context_included", fields)
+        self.assertIn("project_context_included", fields)
+        self.assertIn("project_context_result_count", fields)
 
     def test_status_does_not_include_memory_content(self) -> None:
         status_text = json.dumps(get_prompt_runtime_status())

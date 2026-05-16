@@ -8,6 +8,14 @@ from .prompt_modes import list_supported_modes
 from .runtime_prompt_adapter import RUNTIME_PROMPT_ENV, TRUE_VALUES
 from .prompt_runtime_observability import PromptRuntimeMetadata
 
+try:
+    from project_knowledge.project_context_adapter import PROJECT_CONTEXT_ENV, is_project_context_enabled
+except ImportError:  # pragma: no cover - older deployments may not include project knowledge
+    PROJECT_CONTEXT_ENV = "GRANDPA_USE_PROJECT_CONTEXT"
+
+    def is_project_context_enabled() -> bool:
+        return False
+
 
 EXPECTED_PROMPT_FILES = [
     "base/core.txt",
@@ -43,6 +51,9 @@ def get_prompt_runtime_status() -> dict[str, Any]:
         "available_prompt_files": available,
         "missing_expected_prompt_files": missing,
         "metadata_fields": _metadata_fields(),
+        "project_context_enabled": is_project_context_enabled(),
+        "project_context_env_var": PROJECT_CONTEXT_ENV,
+        "project_context_requires_runtime_prompts": True,
         "reference_folder_used": False,
         "safe_to_expose": True,
     }
