@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+CACHE_SCHEMA_VERSION = 1
+CACHE_INDEX_TYPE = "lexical"
+CACHE_DIRECTORY = "runtime/cache/project_knowledge"
+
 SUPPORTED_EXTENSIONS = frozenset(
     {
         ".py",
