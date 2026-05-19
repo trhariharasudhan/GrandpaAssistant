@@ -1,6 +1,6 @@
 # Import Graph Inventory
 
-- Import statements/items: 2346
+- Import statements/items: 2575
 - Legacy `modules` / `features.modules` import risks: 52
 - External legacy import risks: 0
 - Compatibility shim imports kept now: 52
@@ -11,7 +11,7 @@
 | Category | Import Count |
 | --- | --- |
 | KEEP_COMPAT_NOW | 52 |
-| NO_LEGACY_RISK | 2294 |
+| NO_LEGACY_RISK | 2523 |
 
 ## Focus Module Comparison
 
@@ -47,6 +47,7 @@
 | backend/app/agents/catalog.py | 29 |
 | backend/app/core/commands/registry.py | 29 |
 | backend/app/features/voice/speak.py | 29 |
+| backend/app/core/chat_service.py | 25 |
 | backend/app/shared/device_manager.py | 24 |
 | backend/app/security/auth_manager.py | 23 |
 | backend/app/shared/app_auth.py | 22 |
@@ -57,8 +58,7 @@
 | backend/app/core/chatbot/engine.py | 18 |
 | backend/app/core/unified_command_router.py | 18 |
 | backend/app/features/automation/notification_module.py | 18 |
-| backend/app/features/integrations/google_calendar_module.py | 17 |
-| backend/app/shared/cognition/hub.py | 17 |
+| backend/app/core/personal_assistant/executor.py | 17 |
 
 ## Legacy Import Risks
 
@@ -559,16 +559,28 @@
 | backend/app/core/chat_service.py | 1 | from | __future__.annotations |  |
 | backend/app/core/chat_service.py | 3 | import | datetime |  |
 | backend/app/core/chat_service.py | 4 | import | logging |  |
-| backend/app/core/chat_service.py | 5 | import | re |  |
-| backend/app/core/chat_service.py | 6 | import | uuid |  |
-| backend/app/core/chat_service.py | 7 | from | dataclasses.dataclass |  |
-| backend/app/core/chat_service.py | 7 | from | dataclasses.field |  |
-| backend/app/core/chat_service.py | 8 | from | typing.Any |  |
-| backend/app/core/chat_service.py | 8 | from | typing.Callable |  |
-| backend/app/core/chat_service.py | 15 | from | llm_client.generate_chat_reply |  |
-| backend/app/core/chat_service.py | 16 | from | local_knowledge.answer_if_confident |  |
-| backend/app/core/chat_service.py | 11 | from | app.integrations.n8n_client.send_n8n_message |  |
-| backend/app/core/chat_service.py | 13 | from | backend.app.integrations.n8n_client.send_n8n_message |  |
+| backend/app/core/chat_service.py | 5 | import | os |  |
+| backend/app/core/chat_service.py | 6 | import | re |  |
+| backend/app/core/chat_service.py | 7 | import | uuid |  |
+| backend/app/core/chat_service.py | 8 | from | dataclasses.dataclass |  |
+| backend/app/core/chat_service.py | 8 | from | dataclasses.field |  |
+| backend/app/core/chat_service.py | 9 | from | pathlib.Path |  |
+| backend/app/core/chat_service.py | 10 | from | typing.Any |  |
+| backend/app/core/chat_service.py | 10 | from | typing.Callable |  |
+| backend/app/core/chat_service.py | 17 | from | llm_client.generate_chat_reply |  |
+| backend/app/core/chat_service.py | 18 | from | local_knowledge.answer_if_confident |  |
+| backend/app/core/chat_service.py | 19 | from | core.prompt_memory_context.build_safe_memory_context |  |
+| backend/app/core/chat_service.py | 20 | from | core.prompt_mode_resolver.resolve_prompt_mode |  |
+| backend/app/core/chat_service.py | 21 | from | core.runtime_prompt_adapter.RUNTIME_PROMPT_ENV |  |
+| backend/app/core/chat_service.py | 21 | from | core.runtime_prompt_adapter.TRUE_VALUES |  |
+| backend/app/core/chat_service.py | 21 | from | core.runtime_prompt_adapter.get_runtime_system_prompt_with_metadata |  |
+| backend/app/core/chat_service.py | 13 | from | app.integrations.n8n_client.send_n8n_message |  |
+| backend/app/core/chat_service.py | 24 | from | core.personal_assistant.clear_personal_assistant_contexts_for_tests |  |
+| backend/app/core/chat_service.py | 24 | from | core.personal_assistant.handle_personal_assistant_message |  |
+| backend/app/core/chat_service.py | 24 | from | core.personal_assistant.reset_conversation_context |  |
+| backend/app/core/chat_service.py | 40 | from | project_knowledge.project_context_adapter.build_project_context_for_prompt |  |
+| backend/app/core/chat_service.py | 40 | from | project_knowledge.project_context_adapter.is_project_context_enabled |  |
+| backend/app/core/chat_service.py | 15 | from | backend.app.integrations.n8n_client.send_n8n_message |  |
 | backend/app/core/chatbot/__init__.py | 1 | from | .engine.ChatbotEngine |  |
 | backend/app/core/chatbot/engine.py | 1 | from | __future__.annotations |  |
 | backend/app/core/chatbot/engine.py | 3 | import | logging |  |
@@ -1378,6 +1390,99 @@
 | backend/app/core/module_contracts.py | 3 | from | dataclasses.field |  |
 | backend/app/core/module_contracts.py | 4 | from | typing.Any |  |
 | backend/app/core/module_contracts.py | 5 | from | typing.Protocol |  |
+| backend/app/core/personal_assistant/__init__.py | 3 | from | .context.reset_conversation_context |  |
+| backend/app/core/personal_assistant/__init__.py | 4 | from | .service.clear_personal_assistant_contexts_for_tests |  |
+| backend/app/core/personal_assistant/__init__.py | 4 | from | .service.handle_personal_assistant_message |  |
+| backend/app/core/personal_assistant/context.py | 1 | from | __future__.annotations |  |
+| backend/app/core/personal_assistant/context.py | 3 | import | datetime |  |
+| backend/app/core/personal_assistant/context.py | 4 | from | dataclasses.dataclass |  |
+| backend/app/core/personal_assistant/context.py | 4 | from | dataclasses.field |  |
+| backend/app/core/personal_assistant/context.py | 5 | from | typing.Any |  |
+| backend/app/core/personal_assistant/executor.py | 1 | from | __future__.annotations |  |
+| backend/app/core/personal_assistant/executor.py | 3 | import | datetime |  |
+| backend/app/core/personal_assistant/executor.py | 4 | import | re |  |
+| backend/app/core/personal_assistant/executor.py | 5 | from | typing.Any |  |
+| backend/app/core/personal_assistant/executor.py | 26 | from | .context.AssistantActionPlan |  |
+| backend/app/core/personal_assistant/executor.py | 26 | from | .context.ConversationContext |  |
+| backend/app/core/personal_assistant/executor.py | 26 | from | .context.compact_text |  |
+| backend/app/core/personal_assistant/executor.py | 8 | from | services.local_action_executor |  |
+| backend/app/core/personal_assistant/executor.py | 13 | from | shared.backend_stability.build_backend_stability_payload |  |
+| backend/app/core/personal_assistant/executor.py | 13 | from | shared.backend_stability.format_backend_stability_text |  |
+| backend/app/core/personal_assistant/executor.py | 22 | from | shared.productivity_store.load_task_payload |  |
+| backend/app/core/personal_assistant/executor.py | 22 | from | shared.productivity_store.save_task_payload |  |
+| backend/app/core/personal_assistant/executor.py | 10 | from | backend.app.services.local_action_executor |  |
+| backend/app/core/personal_assistant/executor.py | 24 | from | productivity_store.load_task_payload |  |
+| backend/app/core/personal_assistant/executor.py | 24 | from | productivity_store.save_task_payload |  |
+| backend/app/core/personal_assistant/executor.py | 16 | from | backend_stability.build_backend_stability_payload |  |
+| backend/app/core/personal_assistant/executor.py | 16 | from | backend_stability.format_backend_stability_text |  |
+| backend/app/core/personal_assistant/intent_engine.py | 1 | from | __future__.annotations |  |
+| backend/app/core/personal_assistant/intent_engine.py | 3 | import | re |  |
+| backend/app/core/personal_assistant/intent_engine.py | 4 | from | dataclasses.dataclass |  |
+| backend/app/core/personal_assistant/intent_engine.py | 4 | from | dataclasses.field |  |
+| backend/app/core/personal_assistant/intent_engine.py | 5 | from | typing.Any |  |
+| backend/app/core/personal_assistant/intent_engine.py | 6 | from | urllib.parse.urlparse |  |
+| backend/app/core/personal_assistant/intent_engine.py | 8 | from | .context.compact_text |  |
+| backend/app/core/personal_assistant/planner.py | 1 | from | __future__.annotations |  |
+| backend/app/core/personal_assistant/planner.py | 3 | import | os |  |
+| backend/app/core/personal_assistant/planner.py | 4 | from | pathlib.Path |  |
+| backend/app/core/personal_assistant/planner.py | 5 | from | typing.Any |  |
+| backend/app/core/personal_assistant/planner.py | 7 | from | security.permission_engine.classify_command |  |
+| backend/app/core/personal_assistant/planner.py | 9 | from | .context.AssistantActionPlan |  |
+| backend/app/core/personal_assistant/planner.py | 9 | from | .context.ConversationContext |  |
+| backend/app/core/personal_assistant/planner.py | 9 | from | .context.compact_text |  |
+| backend/app/core/personal_assistant/planner.py | 10 | from | .intent_engine.IntentCandidate |  |
+| backend/app/core/personal_assistant/service.py | 1 | from | __future__.annotations |  |
+| backend/app/core/personal_assistant/service.py | 3 | from | typing.Any |  |
+| backend/app/core/personal_assistant/service.py | 5 | from | .context.clear_personal_assistant_contexts_for_tests |  |
+| backend/app/core/personal_assistant/service.py | 5 | from | .context.compact_text |  |
+| backend/app/core/personal_assistant/service.py | 5 | from | .context.get_conversation_context |  |
+| backend/app/core/personal_assistant/service.py | 6 | from | .executor.ask_for_confirmation |  |
+| backend/app/core/personal_assistant/service.py | 6 | from | .executor.ask_for_missing_details |  |
+| backend/app/core/personal_assistant/service.py | 6 | from | .executor.execute_plan |  |
+| backend/app/core/personal_assistant/service.py | 7 | from | .intent_engine.IntentCandidate |  |
+| backend/app/core/personal_assistant/service.py | 7 | from | .intent_engine.detect_intent |  |
+| backend/app/core/personal_assistant/service.py | 8 | from | .planner.build_action_plan |  |
+| backend/app/core/planner_payload_verifier.py | 1 | from | __future__.annotations |  |
+| backend/app/core/planner_payload_verifier.py | 3 | from | dataclasses.asdict |  |
+| backend/app/core/planner_payload_verifier.py | 3 | from | dataclasses.dataclass |  |
+| backend/app/core/planner_payload_verifier.py | 3 | from | dataclasses.field |  |
+| backend/app/core/planner_payload_verifier.py | 4 | from | typing.Any |  |
+| backend/app/core/planner_prompt_payload.py | 1 | from | __future__.annotations |  |
+| backend/app/core/planner_prompt_payload.py | 3 | import | re |  |
+| backend/app/core/planner_prompt_payload.py | 4 | from | dataclasses.asdict |  |
+| backend/app/core/planner_prompt_payload.py | 4 | from | dataclasses.dataclass |  |
+| backend/app/core/planner_prompt_payload.py | 4 | from | dataclasses.field |  |
+| backend/app/core/planner_prompt_payload.py | 5 | from | typing.Any |  |
+| backend/app/core/planner_prompt_payload.py | 7 | from | .prompt_builder.build_system_prompt |  |
+| backend/app/core/planner_prompt_payload.py | 8 | from | .prompt_memory_context.build_safe_memory_context |  |
+| backend/app/core/planner_prompt_payload.py | 140 | from | .planner_payload_verifier.verify_planner_payload |  |
+| backend/app/core/prompt_builder.py | 1 | from | __future__.annotations |  |
+| backend/app/core/prompt_builder.py | 3 | from | collections.abc.Iterable |  |
+| backend/app/core/prompt_builder.py | 5 | from | .prompt_loader.load_prompt |  |
+| backend/app/core/prompt_builder.py | 6 | from | .prompt_modes.validate_mode |  |
+| backend/app/core/prompt_loader.py | 1 | from | __future__.annotations |  |
+| backend/app/core/prompt_loader.py | 3 | import | logging |  |
+| backend/app/core/prompt_loader.py | 4 | from | functools.lru_cache |  |
+| backend/app/core/prompt_loader.py | 5 | from | pathlib.Path |  |
+| backend/app/core/prompt_memory_context.py | 1 | from | __future__.annotations |  |
+| backend/app/core/prompt_memory_context.py | 3 | from | typing.Any |  |
+| backend/app/core/prompt_mode_resolver.py | 1 | from | __future__.annotations |  |
+| backend/app/core/prompt_mode_resolver.py | 3 | import | re |  |
+| backend/app/core/prompt_mode_resolver.py | 4 | from | typing.Any |  |
+| backend/app/core/prompt_modes.py | 1 | from | __future__.annotations |  |
+| backend/app/core/prompt_modes.py | 3 | from | typing.Iterable |  |
+| backend/app/core/prompt_runtime_observability.py | 1 | from | __future__.annotations |  |
+| backend/app/core/prompt_runtime_observability.py | 3 | from | typing.TypedDict |  |
+| backend/app/core/prompt_runtime_status.py | 1 | from | __future__.annotations |  |
+| backend/app/core/prompt_runtime_status.py | 3 | import | os |  |
+| backend/app/core/prompt_runtime_status.py | 4 | from | typing.Any |  |
+| backend/app/core/prompt_runtime_status.py | 6 | from | .prompt_loader.list_available_prompts |  |
+| backend/app/core/prompt_runtime_status.py | 7 | from | .prompt_modes.list_supported_modes |  |
+| backend/app/core/prompt_runtime_status.py | 8 | from | .runtime_prompt_adapter.RUNTIME_PROMPT_ENV |  |
+| backend/app/core/prompt_runtime_status.py | 8 | from | .runtime_prompt_adapter.TRUE_VALUES |  |
+| backend/app/core/prompt_runtime_status.py | 9 | from | .prompt_runtime_observability.PromptRuntimeMetadata |  |
+| backend/app/core/prompt_runtime_status.py | 12 | from | project_knowledge.project_context_adapter.PROJECT_CONTEXT_ENV |  |
+| backend/app/core/prompt_runtime_status.py | 12 | from | project_knowledge.project_context_adapter.is_project_context_enabled |  |
 | backend/app/core/prompts/__init__.py | 1 | from | .base.PromptBuildRequest |  |
 | backend/app/core/prompts/__init__.py | 2 | from | .builder.build_prompt |  |
 | backend/app/core/prompts/__init__.py | 2 | from | .builder.build_terminal_prompt |  |
@@ -1386,6 +1491,7 @@
 | backend/app/core/prompts/__init__.py | 4 | from | .route_adapters.build_chat_api_prompt |  |
 | backend/app/core/prompts/__init__.py | 4 | from | .route_adapters.build_streaming_chat_prompt |  |
 | backend/app/core/prompts/__init__.py | 4 | from | .route_adapters.build_web_api_chat_prompt |  |
+| backend/app/core/prompts/__init__.py | 7 | from | ..runtime_prompt_adapter.get_runtime_system_prompt |  |
 | backend/app/core/prompts/base.py | 1 | from | __future__.annotations |  |
 | backend/app/core/prompts/base.py | 3 | from | dataclasses.dataclass |  |
 | backend/app/core/prompts/base.py | 3 | from | dataclasses.field |  |
@@ -1403,6 +1509,11 @@
 | backend/app/core/prompts/policies.py | 1 | from | __future__.annotations |  |
 | backend/app/core/prompts/route_adapters.py | 1 | from | __future__.annotations |  |
 | backend/app/core/prompts/route_adapters.py | 3 | from | typing.Any |  |
+| backend/app/core/runtime_prompt_adapter.py | 1 | from | __future__.annotations |  |
+| backend/app/core/runtime_prompt_adapter.py | 3 | import | logging |  |
+| backend/app/core/runtime_prompt_adapter.py | 4 | import | os |  |
+| backend/app/core/runtime_prompt_adapter.py | 6 | from | .prompt_builder.build_system_prompt |  |
+| backend/app/core/runtime_prompt_adapter.py | 7 | from | .prompt_runtime_observability.build_prompt_runtime_metadata |  |
 | backend/app/core/unified_command_router.py | 1 | from | __future__.annotations |  |
 | backend/app/core/unified_command_router.py | 3 | import | contextlib |  |
 | backend/app/core/unified_command_router.py | 4 | import | io |  |
@@ -1891,6 +2002,124 @@
 | backend/app/integrations/n8n_client.py | 4 | import | urllib.error |  |
 | backend/app/integrations/n8n_client.py | 5 | import | urllib.request |  |
 | backend/app/integrations/n8n_client.py | 6 | from | typing.Any |  |
+| backend/app/project_knowledge/__init__.py | 3 | from | .project_snapshot.build_project_snapshot |  |
+| backend/app/project_knowledge/cache.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/cache.py | 3 | import | json |  |
+| backend/app/project_knowledge/cache.py | 4 | import | shutil |  |
+| backend/app/project_knowledge/cache.py | 5 | import | tempfile |  |
+| backend/app/project_knowledge/cache.py | 6 | from | datetime.datetime |  |
+| backend/app/project_knowledge/cache.py | 6 | from | datetime.timezone |  |
+| backend/app/project_knowledge/cache.py | 7 | from | hashlib.sha256 |  |
+| backend/app/project_knowledge/cache.py | 8 | from | pathlib.Path |  |
+| backend/app/project_knowledge/cache.py | 9 | from | typing.Any |  |
+| backend/app/project_knowledge/cache.py | 11 | from | .config.CACHE_DIRECTORY |  |
+| backend/app/project_knowledge/cache.py | 11 | from | .config.CACHE_INDEX_TYPE |  |
+| backend/app/project_knowledge/cache.py | 11 | from | .config.CACHE_SCHEMA_VERSION |  |
+| backend/app/project_knowledge/cache.py | 12 | from | .content_reader.redact_obvious_secrets |  |
+| backend/app/project_knowledge/cache.py | 13 | from | .file_discovery.discover_project_files |  |
+| backend/app/project_knowledge/cached_search.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/cached_search.py | 3 | from | pathlib.Path |  |
+| backend/app/project_knowledge/cached_search.py | 4 | from | typing.Any |  |
+| backend/app/project_knowledge/cached_search.py | 6 | from | .cache.build_cache_manifest |  |
+| backend/app/project_knowledge/cached_search.py | 6 | from | .cache.is_cache_valid |  |
+| backend/app/project_knowledge/cached_search.py | 6 | from | .cache.load_project_cache |  |
+| backend/app/project_knowledge/cached_search.py | 6 | from | .cache.save_project_cache |  |
+| backend/app/project_knowledge/cached_search.py | 7 | from | .chunker.chunk_file |  |
+| backend/app/project_knowledge/cached_search.py | 8 | from | .config.DEFAULT_LIMITS |  |
+| backend/app/project_knowledge/cached_search.py | 9 | from | .file_discovery.discover_project_files |  |
+| backend/app/project_knowledge/cached_search.py | 10 | from | .lexical_index.index_chunks |  |
+| backend/app/project_knowledge/cached_search.py | 10 | from | .lexical_index.search_lexical_index |  |
+| backend/app/project_knowledge/cached_search.py | 11 | from | .project_search._safe_query |  |
+| backend/app/project_knowledge/chunker.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/chunker.py | 3 | import | hashlib |  |
+| backend/app/project_knowledge/chunker.py | 4 | from | pathlib.Path |  |
+| backend/app/project_knowledge/chunker.py | 5 | from | typing.Any |  |
+| backend/app/project_knowledge/chunker.py | 7 | from | .config.DEFAULT_LIMITS |  |
+| backend/app/project_knowledge/chunker.py | 8 | from | .content_reader.read_text_file_safely |  |
+| backend/app/project_knowledge/chunker.py | 9 | from | .file_filters.normalize_project_path |  |
+| backend/app/project_knowledge/config.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/config.py | 3 | from | dataclasses.dataclass |  |
+| backend/app/project_knowledge/content_reader.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/content_reader.py | 3 | import | re |  |
+| backend/app/project_knowledge/content_reader.py | 4 | from | pathlib.Path |  |
+| backend/app/project_knowledge/content_reader.py | 5 | from | typing.Any |  |
+| backend/app/project_knowledge/content_reader.py | 7 | from | .config.DEFAULT_LIMITS |  |
+| backend/app/project_knowledge/content_reader.py | 8 | from | .file_filters.is_safe_to_index |  |
+| backend/app/project_knowledge/content_reader.py | 8 | from | .file_filters.normalize_project_path |  |
+| backend/app/project_knowledge/content_reader.py | 8 | from | .file_filters.should_ignore_directory |  |
+| backend/app/project_knowledge/file_discovery.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/file_discovery.py | 3 | from | pathlib.Path |  |
+| backend/app/project_knowledge/file_discovery.py | 4 | from | typing.Any |  |
+| backend/app/project_knowledge/file_discovery.py | 6 | from | .config.DEFAULT_LIMITS |  |
+| backend/app/project_knowledge/file_discovery.py | 7 | from | .file_filters.is_safe_to_index |  |
+| backend/app/project_knowledge/file_discovery.py | 7 | from | .file_filters.should_ignore_directory |  |
+| backend/app/project_knowledge/file_discovery.py | 8 | from | .file_metadata.build_file_metadata |  |
+| backend/app/project_knowledge/file_filters.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/file_filters.py | 3 | from | pathlib.Path |  |
+| backend/app/project_knowledge/file_filters.py | 3 | from | pathlib.PurePath |  |
+| backend/app/project_knowledge/file_filters.py | 4 | from | typing.Any |  |
+| backend/app/project_knowledge/file_filters.py | 6 | from | .config.DEFAULT_LIMITS |  |
+| backend/app/project_knowledge/file_filters.py | 6 | from | .config.IGNORED_DIRECTORIES |  |
+| backend/app/project_knowledge/file_filters.py | 6 | from | .config.SUPPORTED_EXTENSIONS |  |
+| backend/app/project_knowledge/file_metadata.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/file_metadata.py | 3 | from | datetime.datetime |  |
+| backend/app/project_knowledge/file_metadata.py | 3 | from | datetime.timezone |  |
+| backend/app/project_knowledge/file_metadata.py | 4 | from | pathlib.Path |  |
+| backend/app/project_knowledge/file_metadata.py | 5 | from | typing.Any |  |
+| backend/app/project_knowledge/file_metadata.py | 7 | from | .config.DEFAULT_LIMITS |  |
+| backend/app/project_knowledge/file_metadata.py | 8 | from | .file_filters.normalize_project_path |  |
+| backend/app/project_knowledge/lexical_index.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/lexical_index.py | 3 | from | collections.Counter |  |
+| backend/app/project_knowledge/lexical_index.py | 3 | from | collections.defaultdict |  |
+| backend/app/project_knowledge/lexical_index.py | 4 | from | pathlib.Path |  |
+| backend/app/project_knowledge/lexical_index.py | 5 | from | typing.Any |  |
+| backend/app/project_knowledge/lexical_index.py | 7 | from | .chunker.chunk_file |  |
+| backend/app/project_knowledge/lexical_index.py | 8 | from | .config.DEFAULT_LIMITS |  |
+| backend/app/project_knowledge/lexical_index.py | 9 | from | .content_reader.redact_obvious_secrets |  |
+| backend/app/project_knowledge/lexical_index.py | 10 | from | .file_discovery.discover_project_files |  |
+| backend/app/project_knowledge/lexical_index.py | 11 | from | .tokenizer.tokenize_query |  |
+| backend/app/project_knowledge/lexical_index.py | 11 | from | .tokenizer.tokenize_text |  |
+| backend/app/project_knowledge/project_chunks.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/project_chunks.py | 3 | from | pathlib.Path |  |
+| backend/app/project_knowledge/project_chunks.py | 4 | from | typing.Any |  |
+| backend/app/project_knowledge/project_chunks.py | 6 | from | .chunker.chunk_file |  |
+| backend/app/project_knowledge/project_chunks.py | 7 | from | .file_discovery.discover_project_files |  |
+| backend/app/project_knowledge/project_context_adapter.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/project_context_adapter.py | 3 | import | os |  |
+| backend/app/project_knowledge/project_context_adapter.py | 4 | from | typing.Any |  |
+| backend/app/project_knowledge/project_context_adapter.py | 6 | from | .retrieval_context.build_retrieval_context |  |
+| backend/app/project_knowledge/project_context_adapter.py | 6 | from | .retrieval_context.format_retrieval_context_for_prompt |  |
+| backend/app/project_knowledge/project_context_adapter.py | 6 | from | .retrieval_context.summarize_retrieval_context |  |
+| backend/app/project_knowledge/project_context_status.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/project_context_status.py | 3 | from | pathlib.Path |  |
+| backend/app/project_knowledge/project_context_status.py | 4 | from | typing.Any |  |
+| backend/app/project_knowledge/project_context_status.py | 6 | from | core.runtime_prompt_adapter.RUNTIME_PROMPT_ENV |  |
+| backend/app/project_knowledge/project_context_status.py | 8 | from | .config.DEFAULT_LIMITS |  |
+| backend/app/project_knowledge/project_context_status.py | 9 | from | .project_context_adapter.PROJECT_CONTEXT_ENV |  |
+| backend/app/project_knowledge/project_context_status.py | 9 | from | .project_context_adapter.is_project_context_enabled |  |
+| backend/app/project_knowledge/project_search.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/project_search.py | 3 | from | typing.Any |  |
+| backend/app/project_knowledge/project_search.py | 5 | from | .config.DEFAULT_LIMITS |  |
+| backend/app/project_knowledge/project_search.py | 6 | from | .lexical_index.build_lexical_index |  |
+| backend/app/project_knowledge/project_search.py | 6 | from | .lexical_index.search_lexical_index |  |
+| backend/app/project_knowledge/project_snapshot.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/project_snapshot.py | 3 | from | collections.Counter |  |
+| backend/app/project_knowledge/project_snapshot.py | 4 | from | pathlib.Path |  |
+| backend/app/project_knowledge/project_snapshot.py | 5 | from | typing.Any |  |
+| backend/app/project_knowledge/project_snapshot.py | 7 | from | .file_discovery.discover_project_files |  |
+| backend/app/project_knowledge/retrieval_context.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/retrieval_context.py | 3 | import | re |  |
+| backend/app/project_knowledge/retrieval_context.py | 4 | from | typing.Any |  |
+| backend/app/project_knowledge/retrieval_context.py | 6 | from | .config.CONTEXT_HEADER |  |
+| backend/app/project_knowledge/retrieval_context.py | 6 | from | .config.CONTEXT_SNIPPET_SEPARATOR |  |
+| backend/app/project_knowledge/retrieval_context.py | 6 | from | .config.DEFAULT_LIMITS |  |
+| backend/app/project_knowledge/retrieval_context.py | 7 | from | .content_reader.redact_obvious_secrets |  |
+| backend/app/project_knowledge/retrieval_context.py | 8 | from | .project_search.search_project |  |
+| backend/app/project_knowledge/tokenizer.py | 1 | from | __future__.annotations |  |
+| backend/app/project_knowledge/tokenizer.py | 3 | import | re |  |
+| backend/app/project_knowledge/tokenizer.py | 4 | from | typing.Any |  |
+| backend/app/project_knowledge/tokenizer.py | 6 | from | .config.DEFAULT_LIMITS |  |
+| backend/app/project_knowledge/tokenizer.py | 6 | from | .config.STOP_WORDS |  |
 | backend/app/security/auth_manager.py | 1 | from | __future__.annotations |  |
 | backend/app/security/auth_manager.py | 3 | import | contextlib |  |
 | backend/app/security/auth_manager.py | 4 | import | hashlib |  |

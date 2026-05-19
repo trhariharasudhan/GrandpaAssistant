@@ -18,6 +18,24 @@ from api import web_api
 import backend_stability
 
 
+def _fast_startup_diagnostics():
+    return {
+        "summary": "mock diagnostics",
+        "items": [
+            {"key": "voice_input", "status": "warning", "detail": "No microphone backend."},
+            {"key": "ollama_api", "status": "warning", "detail": "Ollama status mocked for unit tests."},
+            {"key": "tesseract", "status": "warning", "detail": "OCR status mocked for unit tests."},
+            {"key": "camera_vision", "status": "warning", "detail": "Camera status mocked for unit tests."},
+            {"key": "data_dir", "status": "ok", "detail": "Data path writable."},
+            {"key": "log_dir", "status": "ok", "detail": "Log path writable."},
+        ],
+    }
+
+
+def _fast_validation_status():
+    return {"overall_ok": True, "checked_at": "2026-05-17T00:00:00", "failed_sections": []}
+
+
 class BackendStabilityApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_confirmations = dict(web_api._pending_confirmations)
@@ -25,6 +43,8 @@ class BackendStabilityApiTests(unittest.TestCase):
         self.patches = [
             patch.object(web_api, "_initialize_web_runtime", lambda: None),
             patch.object(web_api, "_shutdown_web_runtime", lambda: None),
+            patch.object(backend_stability, "collect_startup_diagnostics", side_effect=lambda *args, **kwargs: _fast_startup_diagnostics()),
+            patch.object(backend_stability, "_load_last_backend_validation_status", side_effect=lambda: _fast_validation_status()),
         ]
         for item in self.patches:
             item.start()

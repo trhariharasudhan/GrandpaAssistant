@@ -957,10 +957,34 @@ def startup_device_monitor() -> None:
     load_settings()
     DEVICE_MANAGER.start()
     ASSISTANT_RUNTIME.start()
+    try:
+        from core.personal_assistant.reminder_scheduler import start_global_reminder_scheduler
+
+        start_global_reminder_scheduler()
+    except Exception as error:
+        print(f"[reminder-scheduler] startup skipped: {error}")
+    try:
+        from core.personal_assistant.voice_runtime import start_global_voice_runtime
+
+        start_global_voice_runtime()
+    except Exception as error:
+        print(f"[voice-runtime] startup skipped: {error}")
 
 
 @app.on_event("shutdown")
 def shutdown_device_monitor() -> None:
+    try:
+        from core.personal_assistant.reminder_scheduler import stop_global_reminder_scheduler
+
+        stop_global_reminder_scheduler()
+    except Exception as error:
+        print(f"[reminder-scheduler] shutdown skipped: {error}")
+    try:
+        from core.personal_assistant.voice_runtime import stop_global_voice_runtime
+
+        stop_global_voice_runtime()
+    except Exception as error:
+        print(f"[voice-runtime] shutdown skipped: {error}")
     DEVICE_MANAGER.stop()
     ASSISTANT_RUNTIME.stop()
 

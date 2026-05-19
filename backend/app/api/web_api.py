@@ -3578,9 +3578,33 @@ def _initialize_web_runtime() -> None:
     _ensure_session()
     ASSISTANT_RUNTIME.start()
     DEVICE_MANAGER.start()
+    try:
+        from core.personal_assistant.reminder_scheduler import start_global_reminder_scheduler
+
+        start_global_reminder_scheduler()
+    except Exception as error:
+        print(f"[reminder-scheduler] startup skipped: {error}")
+    try:
+        from core.personal_assistant.voice_runtime import start_global_voice_runtime
+
+        start_global_voice_runtime()
+    except Exception as error:
+        print(f"[voice-runtime] startup skipped: {error}")
 
 
 def _shutdown_web_runtime() -> None:
+    try:
+        from core.personal_assistant.reminder_scheduler import stop_global_reminder_scheduler
+
+        stop_global_reminder_scheduler()
+    except Exception as error:
+        print(f"[reminder-scheduler] shutdown skipped: {error}")
+    try:
+        from core.personal_assistant.voice_runtime import stop_global_voice_runtime
+
+        stop_global_voice_runtime()
+    except Exception as error:
+        print(f"[voice-runtime] shutdown skipped: {error}")
     DEVICE_MANAGER.stop()
 
 

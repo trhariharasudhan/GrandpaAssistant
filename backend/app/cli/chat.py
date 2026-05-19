@@ -6,6 +6,8 @@ import os
 import sys
 
 from backend.app.core.chatbot import ChatbotEngine
+from backend.app.core.personal_assistant.reminder_scheduler import start_global_reminder_scheduler, stop_global_reminder_scheduler
+from backend.app.core.personal_assistant.voice_runtime import start_global_voice_runtime, stop_global_voice_runtime
 
 
 APP_TITLE = "GrandpaAssistant Terminal Chat"
@@ -80,27 +82,33 @@ def _handle_slash_command(engine: ChatbotEngine, text: str) -> tuple[bool, bool]
 
 def run_chat(session_id: str | None = None, smoke_message: str | None = None) -> int:
     engine = ChatbotEngine(session_id=session_id)
+    start_global_reminder_scheduler()
+    start_global_voice_runtime()
     _print_header(engine)
 
-    if smoke_message:
-        print(f"You: {smoke_message}")
-        print(f"Grandpa: {engine.reply(smoke_message)}")
-        return 0
+    try:
+        if smoke_message:
+            print(f"You: {smoke_message}")
+            print(f"Grandpa: {engine.reply(smoke_message)}")
+            return 0
 
-    while True:
-        try:
-            user_text = input("You: ").strip()
-        except (KeyboardInterrupt, EOFError):
-            print("\nGrandpa: Bye da, take care.")
-            return 0
-        if not user_text:
-            continue
-        handled, should_exit = _handle_slash_command(engine, user_text)
-        if should_exit:
-            return 0
-        if handled:
-            continue
-        print(f"Grandpa: {engine.reply(user_text)}")
+        while True:
+            try:
+                user_text = input("You: ").strip()
+            except (KeyboardInterrupt, EOFError):
+                print("\nGrandpa: Bye da, take care.")
+                return 0
+            if not user_text:
+                continue
+            handled, should_exit = _handle_slash_command(engine, user_text)
+            if should_exit:
+                return 0
+            if handled:
+                continue
+            print(f"Grandpa: {engine.reply(user_text)}")
+    finally:
+        stop_global_voice_runtime()
+        stop_global_reminder_scheduler()
 
 
 def main(argv: list[str] | None = None) -> int:

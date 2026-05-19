@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 from typing import Any
 
 try:
@@ -23,6 +24,8 @@ BROWSER_HINTS = ("chrome", "edge", "msedge", "firefox", "brave", "opera", "brows
 EDITOR_HINTS = ("visual studio code", "vscode", "code.exe", "pycharm", "notepad++", "sublime", "vim", "emacs", "cursor")
 TERMINAL_HINTS = ("powershell", "pwsh", "cmd", "terminal", "windows terminal", "console", "bash", "wsl")
 EXPLORER_HINTS = ("file explorer", "explorer.exe", "explorer")
+MEDIA_HINTS = ("youtube", "spotify", "netflix", "prime video", "hotstar", "vlc")
+FOOD_HINTS = ("swiggy", "zomato", "food delivery")
 
 
 def _compact_text(value: Any) -> str:
@@ -82,16 +85,51 @@ def _process_name_from_active_window() -> str:
 
 
 def _infer_kind(title: str, app_name: str = "", process_name: str = "") -> str:
-    haystack = " ".join([title, app_name, process_name]).lower()
-    if any(hint in haystack for hint in BROWSER_HINTS):
-        return "browser"
-    if any(hint in haystack for hint in EDITOR_HINTS):
+    app_process = " ".join([app_name, process_name]).lower()
+    title_text = str(title or "").lower()
+    if any(hint in app_process for hint in EDITOR_HINTS):
         return "editor"
-    if any(hint in haystack for hint in TERMINAL_HINTS):
+    if any(hint in app_process for hint in BROWSER_HINTS):
+        return "browser"
+    if any(hint in app_process for hint in TERMINAL_HINTS):
         return "terminal"
-    if any(hint in haystack for hint in EXPLORER_HINTS):
+    if any(hint in app_process for hint in EXPLORER_HINTS):
+        return "file_explorer"
+    if any(hint in title_text for hint in BROWSER_HINTS):
+        return "browser"
+    if any(hint in title_text for hint in EDITOR_HINTS):
+        return "editor"
+    if any(hint in title_text for hint in TERMINAL_HINTS):
+        return "terminal"
+    if any(hint in title_text for hint in EXPLORER_HINTS):
         return "file_explorer"
     return "unknown"
+
+
+def _infer_domain(title: str) -> str:
+    text = str(title or "").lower()
+    match = re.search(r"\b([a-z0-9-]+\.(?:com|in|org|net|io|ai|dev))\b", text)
+    if match:
+        return match.group(1)
+    for domain in ("youtube.com", "spotify.com", "swiggy.com", "zomato.com", "google.com"):
+        if domain.split(".", 1)[0] in text:
+            return domain
+    return ""
+
+
+def _infer_activity(kind: str, title: str, app_name: str, process_name: str) -> str:
+    haystack = " ".join([str(kind or ""), str(title or ""), str(app_name or ""), str(process_name or "")]).lower()
+    if kind == "editor" or any(token in haystack for token in ("visual studio code", "vscode", ".py", ".js", ".ts")):
+        return "coding"
+    if any(token in haystack for token in MEDIA_HINTS):
+        return "media"
+    if any(token in haystack for token in FOOD_HINTS):
+        return "food_ordering"
+    if kind == "browser":
+        return "browsing"
+    if kind == "terminal":
+        return "terminal"
+    return kind or "unknown"
 
 
 def get_active_window_context() -> dict[str, Any]:
@@ -108,6 +146,8 @@ def get_active_window_context() -> dict[str, Any]:
     app_name = _compact_text(info.get("app_name")) or "Unknown application"
     process_name = _process_name_from_active_window()
     kind = _infer_kind(title, app_name, process_name)
+    domain = _infer_domain(title)
+    activity = _infer_activity(kind, title, app_name, process_name)
     return {
         "ok": True,
         "warning": False,
@@ -116,6 +156,8 @@ def get_active_window_context() -> dict[str, Any]:
         "app_key": _compact_text(info.get("app_key")).lower(),
         "process_name": process_name,
         "kind": kind,
+        "domain": domain,
+        "activity": activity,
         "is_browser": kind == "browser",
         "is_editor": kind == "editor",
         "is_terminal": kind == "terminal",
@@ -188,6 +230,8 @@ def safe_window_context_payload(context: dict[str, Any] | None = None) -> dict[s
         "app_name": _compact_text(payload.get("app_name")),
         "process_name": os.path.basename(_compact_text(payload.get("process_name"))),
         "kind": _compact_text(payload.get("kind")) or "unknown",
+        "domain": _compact_text(payload.get("domain")),
+        "activity": _compact_text(payload.get("activity")),
         "is_browser": bool(payload.get("is_browser")),
         "is_editor": bool(payload.get("is_editor")),
         "is_terminal": bool(payload.get("is_terminal")),

@@ -2,7 +2,7 @@
 
 Scanned `backend/app`.
 
-- Python files: 240
+- Python files: 273
 - Large files over 500 lines: 29
 - Files with TODO/FIXME/deprecated markers: 0
 
@@ -25,7 +25,7 @@ Scanned `backend/app`.
 | backend/app/config/grandpa_config.py | config.grandpa_config | 100 | 0 |
 | backend/app/core/__init__.py | core.__init__ | 0 | 0 |
 | backend/app/core/assistant.py | core.assistant | 991 | 0 |
-| backend/app/core/chat_service.py | core.chat_service | 264 | 0 |
+| backend/app/core/chat_service.py | core.chat_service | 377 | 0 |
 | backend/app/core/chatbot/__init__.py | core.chatbot.__init__ | 3 | 0 |
 | backend/app/core/chatbot/engine.py | core.chatbot.engine | 151 | 0 |
 | backend/app/core/chatbot/intent_router.py | core.chatbot.intent_router | 109 | 0 |
@@ -86,13 +86,29 @@ Scanned `backend/app`.
 | backend/app/core/llm/registry.py | core.llm.registry | 46 | 0 |
 | backend/app/core/llm/status.py | core.llm.status | 159 | 0 |
 | backend/app/core/module_contracts.py | core.module_contracts | 42 | 0 |
-| backend/app/core/prompts/__init__.py | core.prompts.__init__ | 15 | 0 |
+| backend/app/core/personal_assistant/__init__.py | core.personal_assistant.__init__ | 6 | 0 |
+| backend/app/core/personal_assistant/context.py | core.personal_assistant.context | 85 | 0 |
+| backend/app/core/personal_assistant/executor.py | core.personal_assistant.executor | 203 | 0 |
+| backend/app/core/personal_assistant/intent_engine.py | core.personal_assistant.intent_engine | 188 | 0 |
+| backend/app/core/personal_assistant/planner.py | core.personal_assistant.planner | 154 | 0 |
+| backend/app/core/personal_assistant/service.py | core.personal_assistant.service | 88 | 0 |
+| backend/app/core/planner_payload_verifier.py | core.planner_payload_verifier | 130 | 0 |
+| backend/app/core/planner_prompt_payload.py | core.planner_prompt_payload | 148 | 0 |
+| backend/app/core/prompt_builder.py | core.prompt_builder | 71 | 0 |
+| backend/app/core/prompt_loader.py | core.prompt_loader | 52 | 0 |
+| backend/app/core/prompt_memory_context.py | core.prompt_memory_context | 79 | 0 |
+| backend/app/core/prompt_mode_resolver.py | core.prompt_mode_resolver | 109 | 0 |
+| backend/app/core/prompt_modes.py | core.prompt_modes | 45 | 0 |
+| backend/app/core/prompt_runtime_observability.py | core.prompt_runtime_observability | 61 | 0 |
+| backend/app/core/prompt_runtime_status.py | core.prompt_runtime_status | 59 | 0 |
+| backend/app/core/prompts/__init__.py | core.prompts.__init__ | 21 | 0 |
 | backend/app/core/prompts/base.py | core.prompts.base | 24 | 0 |
 | backend/app/core/prompts/builder.py | core.prompts.builder | 52 | 0 |
 | backend/app/core/prompts/context_blocks.py | core.prompts.context_blocks | 37 | 0 |
 | backend/app/core/prompts/language_style.py | core.prompts.language_style | 55 | 0 |
 | backend/app/core/prompts/policies.py | core.prompts.policies | 27 | 0 |
 | backend/app/core/prompts/route_adapters.py | core.prompts.route_adapters | 151 | 0 |
+| backend/app/core/runtime_prompt_adapter.py | core.runtime_prompt_adapter | 126 | 0 |
 | backend/app/core/unified_command_router.py | core.unified_command_router | 413 | 0 |
 | backend/app/features/__init__.py | features.__init__ | 1 | 0 |
 | backend/app/features/automation/__init__.py | features.automation.__init__ | 1 | 0 |
@@ -174,6 +190,23 @@ Scanned `backend/app`.
 | backend/app/features/voice/speak.py | features.voice.speak | 1277 | 0 |
 | backend/app/integrations/__init__.py | integrations.__init__ | 1 | 0 |
 | backend/app/integrations/n8n_client.py | integrations.n8n_client | 80 | 0 |
+| backend/app/project_knowledge/__init__.py | project_knowledge.__init__ | 5 | 0 |
+| backend/app/project_knowledge/cache.py | project_knowledge.cache | 213 | 0 |
+| backend/app/project_knowledge/cached_search.py | project_knowledge.cached_search | 96 | 0 |
+| backend/app/project_knowledge/chunker.py | project_knowledge.chunker | 90 | 0 |
+| backend/app/project_knowledge/config.py | project_knowledge.config | 96 | 0 |
+| backend/app/project_knowledge/content_reader.py | project_knowledge.content_reader | 122 | 0 |
+| backend/app/project_knowledge/file_discovery.py | project_knowledge.file_discovery | 63 | 0 |
+| backend/app/project_knowledge/file_filters.py | project_knowledge.file_filters | 51 | 0 |
+| backend/app/project_knowledge/file_metadata.py | project_knowledge.file_metadata | 56 | 0 |
+| backend/app/project_knowledge/lexical_index.py | project_knowledge.lexical_index | 129 | 0 |
+| backend/app/project_knowledge/project_chunks.py | project_knowledge.project_chunks | 57 | 0 |
+| backend/app/project_knowledge/project_context_adapter.py | project_knowledge.project_context_adapter | 61 | 0 |
+| backend/app/project_knowledge/project_context_status.py | project_knowledge.project_context_status | 61 | 0 |
+| backend/app/project_knowledge/project_search.py | project_knowledge.project_search | 31 | 0 |
+| backend/app/project_knowledge/project_snapshot.py | project_knowledge.project_snapshot | 28 | 0 |
+| backend/app/project_knowledge/retrieval_context.py | project_knowledge.retrieval_context | 143 | 0 |
+| backend/app/project_knowledge/tokenizer.py | project_knowledge.tokenizer | 53 | 0 |
 | backend/app/security/__init__.py | security.__init__ | 2 | 0 |
 | backend/app/security/auth_manager.py | security.auth_manager | 416 | 0 |
 | backend/app/security/device_monitor.py | security.device_monitor | 143 | 0 |

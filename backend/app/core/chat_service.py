@@ -21,6 +21,22 @@ from core.prompt_mode_resolver import resolve_prompt_mode
 from core.runtime_prompt_adapter import RUNTIME_PROMPT_ENV, TRUE_VALUES, get_runtime_system_prompt_with_metadata
 
 try:
+    from core.personal_assistant import (
+        clear_personal_assistant_contexts_for_tests,
+        handle_personal_assistant_message,
+        reset_conversation_context,
+    )
+except ImportError:  # pragma: no cover - compatibility with older runtime bundles
+    def clear_personal_assistant_contexts_for_tests() -> None:
+        return None
+
+    def reset_conversation_context(session_id: str | None = None) -> None:
+        return None
+
+    def handle_personal_assistant_message(message: str, *, session_id: str | None = None, include_debug: bool = False) -> dict[str, Any]:
+        return {"handled": False}
+
+try:
     from project_knowledge.project_context_adapter import build_project_context_for_prompt, is_project_context_enabled
 except ImportError:  # pragma: no cover - project knowledge package may be absent in older deployments
     build_project_context_for_prompt = None
@@ -31,6 +47,7 @@ except ImportError:  # pragma: no cover - project knowledge package may be absen
 
 FALLBACK_REPLY = "I couldn't get an answer right now. Please try again."
 MAX_SESSION_MESSAGES = 20
+PERSONAL_ASSISTANT_DEBUG_ENV = "GRANDPA_ASSISTANT_DEBUG"
 logger = logging.getLogger(__name__)
 
 
@@ -56,6 +73,10 @@ def _runtime_prompts_enabled() -> bool:
     return os.getenv(RUNTIME_PROMPT_ENV, "").strip().lower() in TRUE_VALUES
 
 
+def _personal_assistant_debug_enabled() -> bool:
+    return os.getenv(PERSONAL_ASSISTANT_DEBUG_ENV, "").strip().lower() in TRUE_VALUES
+
+
 def _utc_now() -> str:
     return datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
@@ -79,11 +100,14 @@ def get_chat_session(session_id: str | None = None) -> ChatSession:
 
 
 def reset_chat_session(session_id: str | None = None) -> None:
-    _sessions.pop(_normalize_session_id(session_id), None)
+    normalized = _normalize_session_id(session_id)
+    _sessions.pop(normalized, None)
+    reset_conversation_context(normalized)
 
 
 def clear_all_chat_sessions_for_tests() -> None:
     _sessions.clear()
+    clear_personal_assistant_contexts_for_tests()
 
 
 def _trim_session(session: ChatSession) -> None:
@@ -99,6 +123,18 @@ def _append_turn(session: ChatSession, user_message: str, assistant_reply: str) 
 
 def _is_reset_command(message: str) -> bool:
     return compact_text(message).lower() in {"reset chat", "clear conversation", "clear chat"}
+
+
+def _is_screen_read_request(message: str) -> bool:
+    normalized = compact_text(message).lower()
+    return normalized in {
+        "what is on my screen",
+        "what's on my screen",
+        "read this error",
+        "analyze this page",
+        "what does this popup say",
+        "read screen",
+    }
 
 
 def detect_explicit_chat_route(message: str) -> dict[str, Any]:
@@ -275,6 +311,32 @@ def build_chat_reply(
 
     if route == "ui":
         if command_executor is None:
+            if _is_screen_read_request(user_message):
+                session = get_chat_session(normalized_session_id)
+                history = list(session.messages[-MAX_SESSION_MESSAGES:])
+                context_turns = len(history) // 2
+                debug_enabled = _personal_assistant_debug_enabled()
+                assistant_action = handle_personal_assistant_message(user_message, session_id=normalized_session_id, include_debug=debug_enabled)
+                if assistant_action.get("handled"):
+                    reply = _sanitize_reply(assistant_action.get("reply", ""), user_message)
+                    _append_turn(session, user_message, reply)
+                    payload = {
+                        "ok": bool(assistant_action.get("ok", True)),
+                        "reply": reply,
+                        "route": assistant_action.get("route", "personal-assistant"),
+                        "session_id": normalized_session_id,
+                        "provider": "personal-assistant",
+                        "context_turns": context_turns,
+                        "intent": assistant_action.get("intent", ""),
+                        "executed": bool(assistant_action.get("executed", False)),
+                        "requires_confirmation": bool(assistant_action.get("requires_confirmation", False)),
+                        "missing_details": assistant_action.get("missing_details", []),
+                        "missing_adapter": assistant_action.get("missing_adapter", ""),
+                        "messages": list(session.messages),
+                    }
+                    if debug_enabled and isinstance(assistant_action.get("debug"), dict):
+                        payload["debug"] = assistant_action["debug"]
+                    return payload
             reply = "I can analyze the screen from the desktop runtime, but this chat path cannot access UI tools right now."
             return {"ok": False, "reply": reply, "route": route, "session_id": normalized_session_id, "provider": provider_name}
         messages = command_executor(user_message)
@@ -292,6 +354,38 @@ def build_chat_reply(
     session = get_chat_session(normalized_session_id)
     history = list(session.messages[-MAX_SESSION_MESSAGES:])
     context_turns = len(history) // 2
+
+    debug_enabled = _personal_assistant_debug_enabled()
+    assistant_action = handle_personal_assistant_message(user_message, session_id=normalized_session_id, include_debug=debug_enabled)
+    if assistant_action.get("handled"):
+        provider_name = "personal-assistant"
+        reply = _sanitize_reply(assistant_action.get("reply", ""), user_message)
+        _append_turn(session, user_message, reply)
+        logger.info(
+            "chat_service route=%s session_id=%s context_turns=%s provider=%s intent=%s",
+            "personal-assistant",
+            normalized_session_id,
+            context_turns,
+            provider_name,
+            assistant_action.get("intent", ""),
+        )
+        payload = {
+            "ok": bool(assistant_action.get("ok", True)),
+            "reply": reply,
+            "route": assistant_action.get("route", "personal-assistant"),
+            "session_id": normalized_session_id,
+            "provider": provider_name,
+            "context_turns": context_turns,
+            "intent": assistant_action.get("intent", ""),
+            "executed": bool(assistant_action.get("executed", False)),
+            "requires_confirmation": bool(assistant_action.get("requires_confirmation", False)),
+            "missing_details": assistant_action.get("missing_details", []),
+            "missing_adapter": assistant_action.get("missing_adapter", ""),
+            "messages": list(session.messages),
+        }
+        if debug_enabled and isinstance(assistant_action.get("debug"), dict):
+            payload["debug"] = assistant_action["debug"]
+        return payload
 
     local_answer = answer_if_confident(user_message)
     if local_answer:
