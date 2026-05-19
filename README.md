@@ -96,7 +96,7 @@ See `docs\WINDOWS_CONTROL_AUDIT.md`.
 Local contacts make `call <name>` reliable without syncing contact data outside this machine:
 
 ```bat
-add contact Riyaa 9876543210
+add contact Achchuu 9876543210
 phone link status
 ```
 
