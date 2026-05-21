@@ -17,7 +17,7 @@ class BrowserAutomationRequest(BaseModel):
 
 
 def _service():
-    from browser_automation.service import get_browser_automation_service
+    from backend.app.services.browser_automation.service import get_browser_automation_service
 
     return get_browser_automation_service()
 
@@ -45,7 +45,7 @@ def browser_execute(request: BrowserAutomationRequest):
 
 @router.post("/stream")
 def browser_stream(request: BrowserAutomationRequest):
-    from browser_automation.service import sse_events
+    from backend.app.services.browser_automation.service import sse_events
 
     events = _service().stream(
         request.request,
