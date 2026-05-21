@@ -65,6 +65,16 @@ PLANNING_PHRASES = (
     "implementation plan",
     "task decomposition",
     "decompose this",
+    "plan my day",
+    "today agenda",
+    "my agenda",
+    "today plan",
+    "daily plan",
+    "schedule my day",
+    "what should i do now",
+    "what should i do today",
+    "prioritize my day",
+    "day plan",
 )
 
 

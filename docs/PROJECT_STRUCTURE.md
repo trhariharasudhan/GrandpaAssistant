@@ -2,6 +2,9 @@
 
 This is the backend-only orientation map for the active repository.
 
+For the canonical folder map (including removed orphan paths and duplicate ownership), see **`docs/FOLDER_STRUCTURE.md`**.
+For the phased plan to complete partial and missing features, see **`docs/COMPLETION_ROADMAP.md`**.
+
 ## Top-Level Folders
 
 ```text

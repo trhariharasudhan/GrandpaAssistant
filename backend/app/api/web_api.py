@@ -134,6 +134,7 @@ from app_data_store import (
 from api_cors import localhost_cors_origins
 from backend_stability import build_backend_stability_payload
 from startup_diagnostics import collect_startup_diagnostics
+from voice_readiness import collect_voice_readiness
 from productivity.event_module import get_event_data
 from integrations.google_contacts_module import CACHE_PATH as GOOGLE_CONTACTS_CACHE_PATH
 from integrations.google_contacts_module import (
@@ -209,6 +210,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+try:
+    from .jarvis_voice_api import router as jarvis_voice_router
+except ImportError:  # pragma: no cover - direct module import fallback
+    from jarvis_voice_api import router as jarvis_voice_router
+try:
+    from .browser_automation_api import router as browser_automation_router
+except ImportError:  # pragma: no cover - direct module import fallback
+    from browser_automation_api import router as browser_automation_router
+try:
+    from .chat_integrations_api import router as chat_integrations_router
+except ImportError:  # pragma: no cover - direct module import fallback
+    from chat_integrations_api import router as chat_integrations_router
+try:
+    from .autonomous_agent_api import router as autonomous_agent_router
+except ImportError:  # pragma: no cover - direct module import fallback
+    from autonomous_agent_api import router as autonomous_agent_router
+try:
+    from .visual_desktop_api import router as visual_desktop_router
+except ImportError:  # pragma: no cover - direct module import fallback
+    from visual_desktop_api import router as visual_desktop_router
+try:
+    from .local_action_orchestrator_api import router as local_action_orchestrator_router
+except ImportError:  # pragma: no cover - direct module import fallback
+    from local_action_orchestrator_api import router as local_action_orchestrator_router
+
+app.include_router(jarvis_voice_router)
+app.include_router(browser_automation_router)
+app.include_router(chat_integrations_router)
+app.include_router(autonomous_agent_router)
+app.include_router(visual_desktop_router)
+app.include_router(local_action_orchestrator_router)
 
 _server = None
 _server_thread = None
@@ -2673,6 +2705,12 @@ def api_voice_status():
     return {"ok": True, "voice": _voice_status_payload()}
 
 
+@app.get("/api/voice/readiness")
+def api_voice_readiness():
+    readiness = collect_voice_readiness()
+    return {"ok": readiness.get("ok", False), "voice_readiness": readiness}
+
+
 @app.get("/api/settings/startup")
 def api_startup_status():
     return {"ok": True, "startup": _build_ui_state()["startup"]}
@@ -3590,6 +3628,12 @@ def _initialize_web_runtime() -> None:
         start_global_voice_runtime()
     except Exception as error:
         print(f"[voice-runtime] startup skipped: {error}")
+    try:
+        from core.jarvis_voice.manager import get_global_voice_manager
+
+        get_global_voice_manager().start()
+    except Exception as error:
+        print(f"[jarvis-voice] startup skipped: {error}")
 
 
 def _shutdown_web_runtime() -> None:
@@ -3605,6 +3649,12 @@ def _shutdown_web_runtime() -> None:
         stop_global_voice_runtime()
     except Exception as error:
         print(f"[voice-runtime] shutdown skipped: {error}")
+    try:
+        from core.jarvis_voice.manager import get_global_voice_manager
+
+        get_global_voice_manager().stop()
+    except Exception as error:
+        print(f"[jarvis-voice] shutdown skipped: {error}")
     DEVICE_MANAGER.stop()
 
 

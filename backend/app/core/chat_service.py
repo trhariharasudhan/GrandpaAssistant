@@ -16,9 +16,15 @@ except ImportError:  # pragma: no cover - import shape differs in direct scripts
 
 from llm_client import generate_chat_reply
 from local_knowledge import answer_if_confident
+from core.chat_context import (
+    build_chat_memory_context,
+    default_chat_provider,
+    project_context_enabled_for_chat,
+    resolve_chat_prompt_mode,
+    runtime_prompts_enabled_for_chat,
+)
 from core.prompt_memory_context import build_safe_memory_context
-from core.prompt_mode_resolver import resolve_prompt_mode
-from core.runtime_prompt_adapter import RUNTIME_PROMPT_ENV, TRUE_VALUES, get_runtime_system_prompt_with_metadata
+from core.runtime_prompt_adapter import TRUE_VALUES, get_runtime_system_prompt_with_metadata
 
 try:
     from core.personal_assistant import (
@@ -37,12 +43,9 @@ except ImportError:  # pragma: no cover - compatibility with older runtime bundl
         return {"handled": False}
 
 try:
-    from project_knowledge.project_context_adapter import build_project_context_for_prompt, is_project_context_enabled
+    from project_knowledge.project_context_adapter import build_project_context_for_prompt
 except ImportError:  # pragma: no cover - project knowledge package may be absent in older deployments
     build_project_context_for_prompt = None
-
-    def is_project_context_enabled() -> bool:
-        return False
 
 
 FALLBACK_REPLY = "I couldn't get an answer right now. Please try again."
@@ -67,10 +70,6 @@ _sessions: dict[str, ChatSession] = {}
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[3]
-
-
-def _runtime_prompts_enabled() -> bool:
-    return os.getenv(RUNTIME_PROMPT_ENV, "").strip().lower() in TRUE_VALUES
 
 
 def _personal_assistant_debug_enabled() -> bool:
@@ -181,17 +180,17 @@ def resolve_chat_system_prompt(legacy_prompt: str, user_message: str | None = No
 
 def resolve_chat_system_prompt_with_metadata(legacy_prompt: str, user_message: str | None = None, memory_context=None) -> tuple[str, dict]:
     try:
-        mode = resolve_prompt_mode(user_message, default="default")
+        mode = resolve_chat_prompt_mode(user_message)
     except Exception as error:  # pragma: no cover - defensive fallback
         logger.warning("Prompt mode resolution failed: %s", error)
         mode = "default"
-    if mode not in {"default", "coding"}:
+    if mode not in {"default", "coding", "planning"}:
         mode = "default"
     safe_memory_context = build_safe_memory_context(memory_context)
     project_context_text = ""
     project_context_included = False
     project_context_result_count = 0
-    if _runtime_prompts_enabled() and is_project_context_enabled() and build_project_context_for_prompt is not None:
+    if runtime_prompts_enabled_for_chat() and project_context_enabled_for_chat(user_message) and build_project_context_for_prompt is not None:
         try:
             project_context = build_project_context_for_prompt(project_root=_project_root(), user_message=user_message or "", limit=5)
             if project_context.get("enabled") and not project_context.get("error"):
@@ -206,6 +205,7 @@ def resolve_chat_system_prompt_with_metadata(legacy_prompt: str, user_message: s
         fallback_prompt=legacy_prompt,
         memory_context=safe_memory_context or None,
         extra_context=project_context_text or None,
+        use_runtime_prompts=runtime_prompts_enabled_for_chat(),
         project_context_included=project_context_included,
         project_context_result_count=project_context_result_count,
     )
@@ -267,9 +267,16 @@ def _looks_like_stale_replay(user_message: str, reply: str, history: list[dict[s
     return False
 
 
-def _call_provider(provider: Provider, history: list[dict[str, str]], message: str) -> str:
+def _call_provider(
+    provider: Provider,
+    history: list[dict[str, str]],
+    message: str,
+    *,
+    memory_context: str | None = None,
+) -> str:
+    system_prompt = _build_system_prompt(message, memory_context=memory_context or None)
     try:
-        return provider(history, message, system_prompt=_build_system_prompt(message))
+        return provider(history, message, system_prompt=system_prompt)
     except TypeError:
         return provider(history, message)
 
@@ -387,15 +394,17 @@ def build_chat_reply(
             payload["debug"] = assistant_action["debug"]
         return payload
 
+    memory_context = ""
     local_answer = answer_if_confident(user_message)
     if local_answer:
         provider_name = "local-knowledge"
         reply = _sanitize_reply(local_answer, user_message)
     else:
-        active_provider = provider or generate_chat_reply
+        memory_context = build_chat_memory_context(user_message)
+        active_provider = provider or default_chat_provider
         provider_name = getattr(active_provider, "__name__", "chat-provider")
         try:
-            raw_reply = _call_provider(active_provider, history, user_message)
+            raw_reply = _call_provider(active_provider, history, user_message, memory_context=memory_context)
             reply = _sanitize_reply(raw_reply, user_message)
             if reply == FALLBACK_REPLY or _looks_like_stale_replay(user_message, reply, history):
                 reply = FALLBACK_REPLY
@@ -413,7 +422,7 @@ def build_chat_reply(
         context_turns,
         provider_name,
     )
-    return {
+    payload = {
         "ok": reply != FALLBACK_REPLY,
         "reply": reply,
         "route": route,
@@ -422,3 +431,10 @@ def build_chat_reply(
         "context_turns": context_turns,
         "messages": list(session.messages),
     }
+    if debug_enabled:
+        from core.chat_context import chat_enhancement_status
+
+        payload["chat_enhancements"] = chat_enhancement_status()
+        if memory_context:
+            payload["memory_context_included"] = True
+    return payload

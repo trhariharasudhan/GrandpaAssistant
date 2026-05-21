@@ -15,6 +15,7 @@ for path in [APP_DIR, SHARED_DIR]:
 
 
 from core import chat_service
+from core.chat_context import CHAT_ENHANCED_ENV, CHAT_PLANNING_MODE_ENV
 from core.runtime_prompt_adapter import RUNTIME_PROMPT_ENV
 from project_knowledge.project_context_adapter import PROJECT_CONTEXT_ENV
 
@@ -24,6 +25,9 @@ class ChatServiceRuntimePromptTests(unittest.TestCase):
         chat_service.clear_all_chat_sessions_for_tests()
         self.previous_env = os.environ.pop(RUNTIME_PROMPT_ENV, None)
         self.previous_project_env = os.environ.pop(PROJECT_CONTEXT_ENV, None)
+        self.previous_chat_enhanced = os.environ.pop(CHAT_ENHANCED_ENV, None)
+        self.previous_planning_mode = os.environ.pop(CHAT_PLANNING_MODE_ENV, None)
+        os.environ[CHAT_ENHANCED_ENV] = "0"
         self.local_patch = patch.object(chat_service, "answer_if_confident", return_value=None)
         self.local_patch.start()
 
@@ -38,6 +42,14 @@ class ChatServiceRuntimePromptTests(unittest.TestCase):
             os.environ.pop(PROJECT_CONTEXT_ENV, None)
         else:
             os.environ[PROJECT_CONTEXT_ENV] = self.previous_project_env
+        if self.previous_chat_enhanced is None:
+            os.environ.pop(CHAT_ENHANCED_ENV, None)
+        else:
+            os.environ[CHAT_ENHANCED_ENV] = self.previous_chat_enhanced
+        if self.previous_planning_mode is None:
+            os.environ.pop(CHAT_PLANNING_MODE_ENV, None)
+        else:
+            os.environ[CHAT_PLANNING_MODE_ENV] = self.previous_planning_mode
 
     def test_legacy_prompt_used_when_flag_unset(self) -> None:
         os.environ.pop(PROJECT_CONTEXT_ENV, None)
@@ -127,6 +139,7 @@ class ChatServiceRuntimePromptTests(unittest.TestCase):
 
     def test_runtime_on_project_context_off_does_not_include_project_context(self) -> None:
         os.environ[RUNTIME_PROMPT_ENV] = "1"
+        os.environ[CHAT_ENHANCED_ENV] = "0"
         os.environ.pop(PROJECT_CONTEXT_ENV, None)
 
         with patch.object(chat_service, "build_project_context_for_prompt") as builder:
@@ -209,6 +222,22 @@ class ChatServiceRuntimePromptTests(unittest.TestCase):
         self.assertIn("GrandpaAssistant", seen_prompts[0])
         self.assertIn("Default mode:", seen_prompts[0])
 
+    def test_enhanced_mode_auto_includes_project_context_for_coding_message(self) -> None:
+        os.environ[CHAT_ENHANCED_ENV] = "1"
+        os.environ.pop(PROJECT_CONTEXT_ENV, None)
+        fake_context = {
+            "enabled": True,
+            "context_text": "PROJECT KNOWLEDGE CONTEXT\nSnippet:\nPrompt builder lives here.",
+            "summary": {"result_count": 1, "files": ["backend/app/core/prompt_builder.py"], "safe": True},
+            "error": None,
+        }
+
+        with patch.object(chat_service, "build_project_context_for_prompt", return_value=fake_context):
+            prompt, metadata = chat_service._build_system_prompt_with_metadata("fix this python code")
+
+        self.assertIn("PROJECT KNOWLEDGE CONTEXT", prompt)
+        self.assertTrue(metadata["project_context_included"])
+
     def test_runtime_prompt_uses_coding_mode_for_coding_message(self) -> None:
         os.environ[RUNTIME_PROMPT_ENV] = "1"
         seen_prompts = []
@@ -237,15 +266,32 @@ class ChatServiceRuntimePromptTests(unittest.TestCase):
         self.assertIn("Default mode:", seen_prompts[0])
         self.assertNotIn("Coding mode:", seen_prompts[0])
 
-    def test_runtime_prompt_does_not_use_planning_mode_for_planning_like_message(self) -> None:
+    def test_runtime_prompt_uses_planning_mode_when_enhanced(self) -> None:
         os.environ[RUNTIME_PROMPT_ENV] = "1"
+        os.environ[CHAT_ENHANCED_ENV] = "1"
         seen_prompts = []
 
         def provider(_history, _message, **kwargs):
             seen_prompts.append(kwargs.get("system_prompt"))
             return "plan noted"
 
-        chat_service.build_chat_reply("make a plan for my day", session_id="runtime-planning-dormant", provider=provider)
+        chat_service.build_chat_reply("plan my day", session_id="runtime-planning-enabled", provider=provider)
+
+        self.assertEqual(1, len(seen_prompts))
+        self.assertIn("Planning mode:", seen_prompts[0])
+        self.assertNotIn("Default mode:", seen_prompts[0])
+
+    def test_runtime_prompt_keeps_default_mode_when_planning_disabled(self) -> None:
+        os.environ[RUNTIME_PROMPT_ENV] = "1"
+        os.environ[CHAT_ENHANCED_ENV] = "1"
+        os.environ[CHAT_PLANNING_MODE_ENV] = "0"
+        seen_prompts = []
+
+        def provider(_history, _message, **kwargs):
+            seen_prompts.append(kwargs.get("system_prompt"))
+            return "plan noted"
+
+        chat_service.build_chat_reply("plan my day", session_id="runtime-planning-off", provider=provider)
 
         self.assertEqual(1, len(seen_prompts))
         self.assertIn("Default mode:", seen_prompts[0])
@@ -261,7 +307,7 @@ class ChatServiceRuntimePromptTests(unittest.TestCase):
     def test_resolver_failure_falls_back_to_default_mode(self) -> None:
         os.environ[RUNTIME_PROMPT_ENV] = "1"
 
-        with patch.object(chat_service, "resolve_prompt_mode", side_effect=RuntimeError("boom")):
+        with patch.object(chat_service, "resolve_chat_prompt_mode", side_effect=RuntimeError("boom")):
             prompt = chat_service._build_system_prompt("fix this python code")
 
         self.assertIn("Default mode:", prompt)

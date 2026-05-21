@@ -72,6 +72,8 @@ class PromptModeResolverTests(unittest.TestCase):
 
     def test_resolver_returns_planning_only_when_allowed(self) -> None:
         self.assertEqual("planning", resolve_prompt_mode("make a plan for this cleanup", allow_planning=True))
+        self.assertEqual("planning", resolve_prompt_mode("plan my day", allow_planning=True))
+        self.assertEqual("planning", resolve_prompt_mode("what should I do now", allow_planning=True))
 
 
 if __name__ == "__main__":

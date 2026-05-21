@@ -165,6 +165,12 @@ Release candidate checklist:
 docs/RELEASE_CANDIDATE_CHECKLIST.md
 ```
 
+## Project structure and completion plan
+
+- Canonical layout: `docs\FOLDER_STRUCTURE.md`
+- Feature completion phases (partial → 100%): `docs\COMPLETION_ROADMAP.md`
+- Structure audit: `python scripts\dev\repo_structure_audit.py`
+
 ## Notes
 
 - Backend runtime must remain runnable with `python backend\desktop_backend_entry.py`.
