@@ -31,7 +31,6 @@ google-auth-httplib2
 google-auth-oauthlib
 fastapi
 faiss-cpu
-fasttext
 sentence-transformers
 transformers
 python-multipart
