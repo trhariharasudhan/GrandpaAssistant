@@ -234,6 +234,14 @@ try:
     from .local_action_orchestrator_api import router as local_action_orchestrator_router
 except ImportError:  # pragma: no cover - direct module import fallback
     from local_action_orchestrator_api import router as local_action_orchestrator_router
+try:
+    from .routes.health import create_router as create_health_router
+except ImportError:  # pragma: no cover - direct module import fallback
+    from routes.health import create_router as create_health_router
+try:
+    from .routes.chat import create_router as create_chat_router
+except ImportError:  # pragma: no cover - direct module import fallback
+    from routes.chat import create_router as create_chat_router
 
 app.include_router(jarvis_voice_router)
 app.include_router(browser_automation_router)
@@ -2162,41 +2170,7 @@ def _build_ui_state(auth_context: dict | None = None):
     }
 
 
-@app.get("/api/health")
-def api_health():
-    if not ASSISTANT_RUNTIME.status_payload().get("running"):
-        ASSISTANT_RUNTIME.start()
-    return {
-        "ok": True,
-        "service": "grandpa-assistant-api",
-        "runtime": ASSISTANT_RUNTIME.status_payload(),
-        "semantic_memory": semantic_memory_status(prewarm=False),
-        "doctor": collect_startup_diagnostics(),
-    }
-
-
-@app.get("/api/doctor")
-def api_doctor():
-    return {
-        "ok": True,
-        "doctor": collect_startup_diagnostics(use_cache=False),
-    }
-
-
-@app.get("/api/backend/stability")
-def api_backend_stability(request: Request):
-    context = _authenticated_app_context(request, required=False)
-    if not _is_local_request(request) and not _is_admin_context(context):
-        return _restricted_stability_payload()
-    return build_backend_stability_payload(
-        pending_confirmations=_pending_confirmations,
-        api_health={
-            "key": "api_health",
-            "name": "API health",
-            "status": "ok",
-            "detail": "API health is responding through the active backend process.",
-        },
-    )
+app.include_router(create_health_router(globals()))
 
 
 @app.get("/api/knowledge/review-queue")
@@ -3053,47 +3027,7 @@ async def mobile_websocket(websocket: WebSocket):
         MOBILE_COMPANION.note_connection(device_id, False)
 
 
-@app.get("/chat/settings")
-def get_chat_settings(request: Request):
-    _enforce_app_auth(request)
-    return {"ok": True, "settings": {**_chat_settings, "active_model": _active_chat_model(), "llm_status": get_llm_status()}}
-
-
-@app.post("/chat/settings")
-def update_chat_settings(request: ChatSettingsRequest, http_request: Request):
-    _enforce_app_auth(http_request)
-    if request.llm_provider is not None:
-        provider = _compact_text(request.llm_provider).lower()
-        _chat_settings["llm_provider"] = provider if provider in {"auto", "openai", "ollama"} else DEFAULT_LLM_PROVIDER
-    if request.model is not None:
-        _chat_settings["model"] = _compact_text(request.model) or DEFAULT_OPENAI_MODEL
-    if request.ollama_model is not None:
-        _chat_settings["ollama_model"] = _compact_text(request.ollama_model) or DEFAULT_OLLAMA_MODEL
-    if request.system_prompt is not None:
-        _chat_settings["system_prompt"] = request.system_prompt.strip() or SYSTEM_PROMPT
-    if request.tone is not None:
-        _chat_settings["tone"] = _compact_text(request.tone) or "friendly"
-    if request.response_style is not None:
-        _chat_settings["response_style"] = _compact_text(request.response_style) or "balanced"
-    if request.tool_mode is not None:
-        _chat_settings["tool_mode"] = bool(request.tool_mode)
-    _apply_runtime_chat_settings()
-    _save_chat_state()
-    return {"ok": True, "settings": {**_chat_settings, "active_model": _active_chat_model(), "llm_status": get_llm_status()}}
-
-
-@app.get("/chat/sessions")
-def get_sessions(request: Request):
-    _enforce_app_auth(request)
-    return {"ok": True, "sessions": _ordered_sessions()}
-
-
-@app.post("/chat/sessions")
-def create_session(request: SessionRequest, http_request: Request):
-    _enforce_app_auth(http_request)
-    session = _ensure_session(title=_compact_text(request.title) or "New chat", create_new=True)
-    _save_chat_state()
-    return {"ok": True, "session": session, "sessions": _ordered_sessions()}
+app.include_router(create_chat_router(globals()))
 
 
 @app.post("/chat/sessions/rename")
