@@ -22,9 +22,11 @@ class WebApiRouteRegressionTests(unittest.TestCase):
         self.original_sessions = dict(web_api._chat_sessions)
         self.original_order = list(web_api._session_order)
         self.original_confirmations = dict(web_api._pending_confirmations)
+        self.original_cancelled_streams = set(web_api._cancelled_streams)
         web_api._chat_sessions.clear()
         web_api._session_order.clear()
         web_api._pending_confirmations.clear()
+        web_api._cancelled_streams.clear()
 
         self.patches = [
             patch.object(web_api, "_initialize_web_runtime", lambda: None),
@@ -68,6 +70,8 @@ class WebApiRouteRegressionTests(unittest.TestCase):
         web_api._session_order[:] = self.original_order
         web_api._pending_confirmations.clear()
         web_api._pending_confirmations.update(self.original_confirmations)
+        web_api._cancelled_streams.clear()
+        web_api._cancelled_streams.update(self.original_cancelled_streams)
 
     def test_health_route_reports_backend_service(self) -> None:
         response = self.client.get("/api/health")
@@ -194,6 +198,66 @@ class WebApiRouteRegressionTests(unittest.TestCase):
         self.assertEqual(removed.status_code, 200)
         names = [item["name"] for item in removed.json()["documents"]]
         self.assertEqual(names, ["beta.txt"])
+
+    def test_upload_remove_rejects_missing_document(self) -> None:
+        session_id = "session-missing-doc"
+        uploaded = self.client.post(
+            "/chat/upload",
+            data={"session_id": session_id},
+            files={"file": ("alpha.txt", b"alpha content", "text/plain")},
+        )
+        self.assertEqual(uploaded.status_code, 200)
+
+        removed = self.client.post(
+            "/chat/upload/remove",
+            json={"session_id": session_id, "filename": "missing.txt"},
+        )
+
+        self.assertEqual(removed.status_code, 404)
+        self.assertIn("Document not found", removed.text)
+
+    def test_export_chat_preserves_markdown_payload_shape(self) -> None:
+        session = web_api._ensure_session(session_id="session-export", title="Export Me")
+        session["messages"] = [
+            {"role": "user", "content": "hello", "created_at": "2026-05-23T10:00:00"},
+            {"role": "assistant", "content": "hi", "created_at": "2026-05-23T10:00:01"},
+        ]
+
+        response = self.client.get("/chat/export", params={"session_id": "session-export"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["session"], {"id": "session-export", "title": "Export Me"})
+        self.assertEqual(payload["filename"], "export_me.md")
+        self.assertIn("# Export Me", payload["content"])
+        self.assertIn("[2026-05-23T10:00:00] You: hello", payload["content"])
+        self.assertIn("[2026-05-23T10:00:01] Grandpa: hi", payload["content"])
+
+    def test_export_chat_missing_session_returns_404(self) -> None:
+        response = self.client.get("/chat/export", params={"session_id": "missing"})
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("Session not found", response.text)
+
+    def test_chat_reset_clears_messages_and_resets_clean_session(self) -> None:
+        session = web_api._ensure_session(session_id="session-reset", title="Reset")
+        session["messages"] = [{"role": "user", "content": "hello"}]
+
+        with patch.object(web_api, "reset_clean_chat_session") as reset_clean:
+            response = self.client.post("/chat/reset", params={"session_id": "session-reset"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True})
+        self.assertEqual(web_api._chat_sessions["session-reset"]["messages"], [])
+        reset_clean.assert_called_once_with("session-reset")
+
+    def test_chat_cancel_marks_session_stream_cancelled(self) -> None:
+        response = self.client.post("/chat/cancel", json={"session_id": "session-stream"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True})
+        self.assertIn("session-stream", web_api._cancelled_streams)
 
     def test_command_confirmations_are_independent_by_id(self) -> None:
         first = self.client.post("/api/command", json={"command": "delete alpha file"})
