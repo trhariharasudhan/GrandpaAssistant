@@ -116,6 +116,62 @@ class WebApiRouteRegressionTests(unittest.TestCase):
         self.assertIn("could not generate", body.lower())
         self.assertNotIn('"content": "what is python?"', body.lower())
 
+    def test_chat_history_returns_current_session_payload(self) -> None:
+        session = web_api._ensure_session(session_id="session-history", title="History")
+        session["messages"].append({"role": "user", "content": "hello"})
+
+        response = self.client.get("/chat/history", params={"session_id": "session-history"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["session"]["id"], "session-history")
+        self.assertEqual(payload["messages"], [{"role": "user", "content": "hello"}])
+        self.assertEqual(payload["sessions"][0]["id"], "session-history")
+
+    def test_chat_session_rename_preserves_response_shape(self) -> None:
+        web_api._ensure_session(session_id="session-rename", title="Old title")
+
+        response = self.client.post(
+            "/chat/sessions/rename",
+            json={"session_id": "session-rename", "title": "New title"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["session"]["id"], "session-rename")
+        self.assertEqual(payload["session"]["title"], "New title")
+        self.assertEqual(payload["sessions"][0]["title"], "New title")
+
+    def test_chat_session_rename_missing_session_returns_404(self) -> None:
+        response = self.client.post(
+            "/chat/sessions/rename",
+            json={"session_id": "missing", "title": "New title"},
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("Session not found", response.text)
+
+    def test_chat_session_delete_removes_target_and_returns_current_session(self) -> None:
+        web_api._ensure_session(session_id="keep-session", title="Keep")
+        web_api._ensure_session(session_id="delete-session", title="Delete")
+
+        response = self.client.post("/chat/sessions/delete", json={"session_id": "delete-session"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["current_session_id"], "keep-session")
+        self.assertEqual([item["id"] for item in payload["sessions"]], ["keep-session"])
+        self.assertNotIn("delete-session", web_api._chat_sessions)
+
+    def test_chat_session_delete_missing_session_returns_404(self) -> None:
+        response = self.client.post("/chat/sessions/delete", json={"session_id": "missing"})
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("Session not found", response.text)
+
     def test_upload_remove_targets_one_document_at_a_time(self) -> None:
         session_id = "session-docs"
         first = self.client.post(

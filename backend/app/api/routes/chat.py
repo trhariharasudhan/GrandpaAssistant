@@ -1,13 +1,15 @@
 from collections.abc import MutableMapping
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 
 def create_router(web_api_globals: MutableMapping[str, Any]) -> APIRouter:
     router = APIRouter()
     ChatSettingsRequest = web_api_globals["ChatSettingsRequest"]
     SessionRequest = web_api_globals["SessionRequest"]
+    SessionUpdateRequest = web_api_globals["SessionUpdateRequest"]
+    RegenerateRequest = web_api_globals["RegenerateRequest"]
 
     @router.get("/chat/settings")
     def get_chat_settings(request: Request):
@@ -70,8 +72,46 @@ def create_router(web_api_globals: MutableMapping[str, Any]) -> APIRouter:
         web_api_globals["_save_chat_state"]()
         return {"ok": True, "session": session, "sessions": web_api_globals["_ordered_sessions"]()}
 
+    @router.post("/chat/sessions/rename")
+    def rename_session(request: SessionUpdateRequest, http_request: Request):
+        web_api_globals["_enforce_app_auth"](http_request)
+        session = web_api_globals["_chat_sessions"].get(request.session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found.")
+        session["title"] = web_api_globals["_compact_text"](request.title) or session["title"]
+        session["updated_at"] = web_api_globals["_utc_now"]()
+        web_api_globals["_save_chat_state"]()
+        return {"ok": True, "session": session, "sessions": web_api_globals["_ordered_sessions"]()}
+
+    @router.post("/chat/sessions/delete")
+    def delete_session(request: RegenerateRequest, http_request: Request):
+        web_api_globals["_enforce_app_auth"](http_request)
+        deleted = web_api_globals["_delete_session"](request.session_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Session not found.")
+        current = web_api_globals["_ordered_sessions"]()[0]
+        return {
+            "ok": True,
+            "sessions": web_api_globals["_ordered_sessions"](),
+            "current_session_id": current["id"],
+        }
+
+    @router.get("/chat/history")
+    def chat_history(request: Request, session_id: str | None = None):
+        web_api_globals["_enforce_app_auth"](request)
+        session = web_api_globals["_resolve_session"](session_id=session_id)
+        return {
+            "ok": True,
+            "session": session,
+            "messages": session["messages"],
+            "sessions": web_api_globals["_ordered_sessions"](),
+        }
+
     web_api_globals["get_chat_settings"] = get_chat_settings
     web_api_globals["update_chat_settings"] = update_chat_settings
     web_api_globals["get_sessions"] = get_sessions
     web_api_globals["create_session"] = create_session
+    web_api_globals["rename_session"] = rename_session
+    web_api_globals["delete_session"] = delete_session
+    web_api_globals["chat_history"] = chat_history
     return router

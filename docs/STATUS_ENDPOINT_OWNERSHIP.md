@@ -20,6 +20,7 @@ Phase 9 backend-only ownership freeze for provider, model, health, and status ro
 | `/api/auth/bootstrap-status` | GET | `web_api.py` | Active desktop API | WEB_API_PRIMARY | `ok`, auth bootstrap fields | Low | Keep in web API until auth router extraction. |
 | `/api/auth/status` | GET | `web_api.py` | Active desktop API | WEB_API_PRIMARY | `ok`, `auth`, `current` | Low | Keep in web API until auth router extraction. |
 | `/api/memory/status` | GET | `web_api.py` | Active desktop API | WEB_API_PRIMARY | `ok`, `memory` | Low | Keep as active desktop memory status route. |
+| `/api/personal-assistant/status` | GET | `web_api.py` | Active desktop API | WEB_API_PRIMARY | safe read-only personal assistant metadata | Low | Keep as localhost/admin diagnostics; no memory values, transcripts, screenshots, or LLM calls. |
 | `/api/voice/status` | GET | `web_api.py` | Active desktop API | WEB_API_PRIMARY | `ok`, `voice` | Low | Keep as active desktop voice status route. |
 | `/api/settings/startup` | GET | `web_api.py` | Active desktop API | WEB_API_PRIMARY | `ok`, `startup` | Low | Keep; later move to settings router if routers are introduced. |
 | `/api/mobile/status` | GET | `web_api.py` | Active desktop API compatibility | DEPRECATED_COMPAT_KEEP | `ok`, `mobile` | Medium | Keep compatibility route; no active mobile workspace is restored. |

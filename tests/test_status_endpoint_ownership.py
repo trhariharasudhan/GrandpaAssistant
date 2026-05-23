@@ -43,6 +43,7 @@ class StatusEndpointOwnershipTests(unittest.TestCase):
             ("GET", "/api/doctor"),
             ("GET", "/api/backend/stability"),
             ("GET", "/api/memory/status"),
+            ("GET", "/api/personal-assistant/status"),
             ("GET", "/api/voice/status"),
             ("GET", "/chat/settings"),
             ("POST", "/chat/settings"),
@@ -59,6 +60,30 @@ class StatusEndpointOwnershipTests(unittest.TestCase):
         self.assertIn("settings", payload)
         self.assertIn("llm_status", payload["settings"])
         self.assertIn("provider", payload["settings"]["llm_status"])
+
+    def test_personal_assistant_status_route_exposes_safe_metadata_only(self) -> None:
+        response = TestClient(web_api.app).get("/api/personal-assistant/status")
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertTrue(payload["read_only"])
+        self.assertTrue(payload["safe_to_expose"])
+        self.assertFalse(payload["private_memory_values_exposed"])
+        self.assertFalse(payload["raw_transcripts_exposed"])
+        self.assertFalse(payload["screenshots_captured"])
+        self.assertFalse(payload["llm_provider_called"])
+        self.assertIn("tools", payload)
+        self.assertIn("scheduler", payload)
+        self.assertIn("voice_runtime", payload)
+        self.assertIn("memory_manager", payload)
+        self.assertGreater(payload["tools"]["tool_count"], 0)
+
+    def test_personal_assistant_status_rejects_remote_unauthenticated_request(self) -> None:
+        remote_client = TestClient(web_api.app, client=("203.0.113.10", 50000))
+
+        response = remote_client.get("/api/personal-assistant/status")
+
+        self.assertEqual(403, response.status_code)
 
     def test_chat_api_status_routes_import_and_expose_expected_keys(self) -> None:
         keys = _route_keys(chat_api.app)

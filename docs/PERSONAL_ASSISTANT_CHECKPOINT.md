@@ -21,6 +21,7 @@ GrandpaAssistant now has a local personal-assistant layer that can interpret use
 - Structured long-term memory with categories, local persistence, quality scoring, stale/conflict handling, review/cleanup helpers, and natural conflict follow-up resolution.
 - Optional LLM-assisted planner fallback that can only propose registered tools and must pass validation before execution.
 - Safe diagnostics/status CLI for the personal-assistant layer.
+- Localhost/admin-only status API at `GET /api/personal-assistant/status`, exposing the same safe metadata class without private memory values, transcripts, screenshots, or LLM calls.
 - Repeatable mock e2e runner for future regression checks.
 
 ## Architecture Modules
@@ -77,7 +78,7 @@ Docs and snapshots:
 - Screenshot/OCR is explicit-request-only and never runs from the status CLI.
 - Voice runtime and reminder scheduler are environment-gated and disabled by default.
 - Memory is local-first, structured, inspectable, and deletable; sensitive content is blocked by default.
-- The status CLI does not expose memory values, raw voice transcripts, screenshots, prompt bodies, secrets, or user conversations.
+- The status CLI and status API do not expose memory values, raw voice transcripts, screenshots, prompt bodies, secrets, or user conversations.
 
 ## Environment Flags
 
@@ -136,11 +137,10 @@ Developer checks:
 
 ## Next Recommended Phases
 
-1. Add an admin-only design for a future personal-assistant status endpoint, reusing the safe CLI fields.
-2. Add deeper real-device/manual validation for microphone, OCR, and toast notification adapters.
-3. Add a read-only runtime dashboard plan for scheduler, voice runtime, and memory health.
-4. Expand reminder recurrence only after the scheduler remains stable across app restarts.
-5. Add richer memory review UX while keeping deletion/update confirmation explicit.
+1. Add deeper real-device/manual validation for microphone, OCR, and toast notification adapters.
+2. Add a read-only runtime dashboard plan for scheduler, voice runtime, and memory health.
+3. Expand reminder recurrence only after the scheduler remains stable across app restarts.
+4. Add richer memory review UX while keeping deletion/update confirmation explicit.
 
 ## Suggested Commit Message
 

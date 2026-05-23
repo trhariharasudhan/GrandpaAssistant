@@ -1863,6 +1863,152 @@ def _voice_status_payload():
     }
 
 
+def _personal_assistant_status_payload(verbose_safe: bool = False) -> dict[str, Any]:
+    def section_error(error: BaseException) -> dict[str, Any]:
+        return {"ok": False, "available": False, "error": _compact_text(str(error))[:240]}
+
+    try:
+        from core.personal_assistant.tool_registry import list_available_tools
+
+        tools = list_available_tools()
+        tool_names = sorted(str(tool.get("tool_name") or "") for tool in tools if tool.get("tool_name"))
+        tool_status: dict[str, Any] = {
+            "ok": bool(tool_names),
+            "tool_count": len(tool_names),
+            "tool_names": tool_names,
+        }
+        if verbose_safe:
+            risk_counts: dict[str, int] = {}
+            unavailable_tools: list[str] = []
+            for tool in tools:
+                risk = str(tool.get("risk_level") or "unknown")
+                risk_counts[risk] = risk_counts.get(risk, 0) + 1
+                if not tool.get("available"):
+                    unavailable_tools.append(str(tool.get("tool_name") or "unknown"))
+            tool_status["risk_counts"] = risk_counts
+            tool_status["unavailable_tools"] = sorted(unavailable_tools)
+    except Exception as error:
+        tool_status = section_error(error)
+
+    try:
+        from core.personal_assistant import reminder_scheduler
+
+        scheduler_raw = reminder_scheduler.get_reminder_scheduler_status()
+        scheduler_status = {
+            "ok": True,
+            "enabled": bool(scheduler_raw.get("enabled")),
+            "running": bool(scheduler_raw.get("running")),
+            "interval_seconds": scheduler_raw.get("interval_seconds"),
+            "ticks": int(scheduler_raw.get("ticks") or 0),
+            "last_ok": scheduler_raw.get("last_ok"),
+            "last_notification_count": int(scheduler_raw.get("last_notification_count") or 0),
+            "last_due_count": int(scheduler_raw.get("last_due_count") or 0),
+            "last_error": _compact_text(scheduler_raw.get("last_error"))[:240],
+        }
+    except Exception as error:
+        scheduler_status = section_error(error)
+
+    try:
+        from core.personal_assistant import voice_runtime
+
+        voice_raw = voice_runtime.get_voice_runtime_status()
+        stt = voice_raw.get("stt_provider") if isinstance(voice_raw.get("stt_provider"), dict) else {}
+        voice_status: dict[str, Any] = {
+            "ok": True,
+            "enabled": bool(voice_raw.get("enabled")),
+            "running": bool(voice_raw.get("running")),
+            "wake_word_configured": bool(voice_raw.get("wake_word")),
+            "listen_timeout_seconds": voice_raw.get("listen_timeout_seconds"),
+            "idle_sleep_seconds": voice_raw.get("idle_sleep_seconds"),
+            "wake_events": int(voice_raw.get("wake_events") or 0),
+            "commands_handled": int(voice_raw.get("commands_handled") or 0),
+            "last_event": _compact_text(voice_raw.get("last_event"))[:120],
+            "last_error": _compact_text(voice_raw.get("last_error"))[:240],
+            "last_intent": _compact_text(voice_raw.get("last_intent"))[:120],
+            "last_selected_tool": _compact_text(voice_raw.get("last_selected_tool"))[:120],
+            "stt_provider": {
+                "available": bool(stt.get("available")),
+                "resolved_backend": _compact_text(stt.get("resolved_backend"))[:80],
+                "configured_backend": _compact_text(stt.get("configured_backend"))[:80],
+                "last_error_present": bool(stt.get("last_error")),
+                "whisper_load_error_present": bool(stt.get("whisper_load_error")),
+            },
+        }
+        if verbose_safe:
+            voice_status["wake_word"] = _compact_text(voice_raw.get("wake_word"))[:80]
+    except Exception as error:
+        voice_status = section_error(error)
+
+    try:
+        from core.personal_assistant import memory_manager
+
+        memory_raw = memory_manager.memory_status()
+        memory_status = {
+            "ok": bool(memory_raw.get("ok")),
+            "schema_version": memory_raw.get("schema_version"),
+            "memory_count": int(memory_raw.get("memory_count") or 0),
+            "active_count": int(memory_raw.get("active_count") or 0),
+            "archived_count": int(memory_raw.get("archived_count") or 0),
+            "conflict_count": int(memory_raw.get("conflict_count") or 0),
+            "stale_count": int(memory_raw.get("stale_count") or 0),
+            "count_by_category": dict(memory_raw.get("categories") or {}),
+            "local_only": bool(memory_raw.get("local_only")),
+            "cloud_sync": bool(memory_raw.get("cloud_sync")),
+            "private_values_exposed": False,
+        }
+    except Exception as error:
+        memory_status = section_error(error)
+
+    try:
+        from core.personal_assistant import windows_startup_manager
+
+        startup_raw = windows_startup_manager.startup_status()
+        startup_status = {
+            "ok": bool(startup_raw.get("ok")),
+            "enabled": bool(startup_raw.get("enabled")),
+            "startup_method": startup_raw.get("startup_method"),
+            "target_valid": bool(startup_raw.get("target_valid")),
+            "error_count": len(startup_raw.get("errors") or []),
+            "message": _compact_text(startup_raw.get("message"))[:240],
+        }
+    except Exception as error:
+        startup_status = section_error(error)
+
+    warnings = []
+    for name, section in (
+        ("tools", tool_status),
+        ("scheduler", scheduler_status),
+        ("voice_runtime", voice_status),
+        ("memory_manager", memory_status),
+        ("startup_integration", startup_status),
+    ):
+        if not section.get("ok", True):
+            warnings.append(f"{name}_warning")
+    if not voice_status.get("stt_provider", {}).get("available", False):
+        warnings.append("voice_stt_optional_adapter_missing")
+
+    critical_failures = []
+    if not tool_status.get("ok") or int(tool_status.get("tool_count") or 0) == 0:
+        critical_failures.append("tool_registry_unavailable")
+
+    return {
+        "ok": not critical_failures,
+        "safe_to_expose": True,
+        "read_only": True,
+        "private_memory_values_exposed": False,
+        "raw_transcripts_exposed": False,
+        "screenshots_captured": False,
+        "llm_provider_called": False,
+        "tools": tool_status,
+        "scheduler": scheduler_status,
+        "voice_runtime": voice_status,
+        "memory_manager": memory_status,
+        "startup_integration": startup_status,
+        "critical_failures": critical_failures,
+        "warnings": sorted(set(warnings)),
+    }
+
+
 def start_voice_api_mode():
     global _voice_enabled, _voice_state_label
     with _voice_lock:
@@ -2403,6 +2549,14 @@ def api_debug_docs_summary(request: Request):
         ],
         "safety": "Debug docs do not include secrets, screenshots, or runtime audit/session data.",
     }
+
+
+@app.get("/api/personal-assistant/status")
+def api_personal_assistant_status(request: Request, verbose_safe: bool = False):
+    context = _authenticated_app_context(request, required=False)
+    if not _is_local_request(request) and not _is_admin_context(context):
+        raise HTTPException(status_code=403, detail="Personal assistant status is only available from localhost or admin sessions.")
+    return _personal_assistant_status_payload(verbose_safe=verbose_safe)
 
 
 @app.get("/api/windows/controls/audit")
@@ -3028,35 +3182,6 @@ async def mobile_websocket(websocket: WebSocket):
 
 
 app.include_router(create_chat_router(globals()))
-
-
-@app.post("/chat/sessions/rename")
-def rename_session(request: SessionUpdateRequest, http_request: Request):
-    _enforce_app_auth(http_request)
-    session = _chat_sessions.get(request.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found.")
-    session["title"] = _compact_text(request.title) or session["title"]
-    session["updated_at"] = _utc_now()
-    _save_chat_state()
-    return {"ok": True, "session": session, "sessions": _ordered_sessions()}
-
-
-@app.post("/chat/sessions/delete")
-def delete_session(request: RegenerateRequest, http_request: Request):
-    _enforce_app_auth(http_request)
-    deleted = _delete_session(request.session_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Session not found.")
-    current = _ordered_sessions()[0]
-    return {"ok": True, "sessions": _ordered_sessions(), "current_session_id": current["id"]}
-
-
-@app.get("/chat/history")
-def chat_history(request: Request, session_id: str | None = None):
-    _enforce_app_auth(request)
-    session = _resolve_session(session_id=session_id)
-    return {"ok": True, "session": session, "messages": session["messages"], "sessions": _ordered_sessions()}
 
 
 @app.post("/chat/upload")

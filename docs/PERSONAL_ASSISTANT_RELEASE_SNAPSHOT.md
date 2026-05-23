@@ -208,13 +208,13 @@ Current checkpoint validation passed:
 - Memory cleanup is suggestion-first, not automatic deletion.
 - Calendar/email/message/payment actions are not active personal-assistant tools.
 - LLM planner is not a replacement for deterministic safety checks.
-- No admin dashboard for personal-assistant status yet.
+- Safe personal-assistant status is available through the CLI and localhost/admin API, but there is no full dashboard UI yet.
 
 ## Recommended Next Phase
 
-Recommended next phase: personal-assistant status/diagnostics CLI or admin-read-only design.
+Recommended next phase: a read-only runtime dashboard design for personal-assistant status.
 
-That phase should expose safe metadata only:
+The dashboard should reuse safe metadata only:
 
 - registered tools
 - enabled feature flags
