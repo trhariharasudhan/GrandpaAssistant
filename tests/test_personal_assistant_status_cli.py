@@ -10,10 +10,13 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "dev" / "personal_assistant_status.py"
-PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
 SCRIPT_DIR = ROOT / "scripts" / "dev"
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
+
+from conftest import resolve_test_python
+
+PYTHON = resolve_test_python(ROOT)
 
 import personal_assistant_status
 
