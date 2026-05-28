@@ -47,6 +47,20 @@ GET /api/backend/stability
 
 The response includes `overall_ok`, `checks`, `warnings`, `timestamp`, and `next_actions`. Optional hardware and local AI readiness issues, such as missing camera, microphone, OCR, or Ollama, are reported as warnings instead of route failures.
 
+Daily-use readiness is exposed as safe metadata on:
+
+```text
+GET /api/doctor
+```
+
+The optional `daily_use_readiness` field summarizes voice, OCR/Tesseract, and browser/Playwright readiness. It is read-only: it does not open browser windows, access the microphone or camera, or run OCR on files. Missing optional tools are warnings, not backend blockers.
+
+The personal assistant status CLI includes the same safe summary:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\dev\personal_assistant_status.py --check
+```
+
 ## What Each Check Means
 
 `unittest discover` runs backend regression tests. These cover chat behavior, command confirmation IDs, CORS safety, optional dependency guards, startup diagnostics, security classification, IoT control, and productivity storage.
@@ -58,6 +72,21 @@ The response includes `overall_ok`, `checks`, `warnings`, `timestamp`, and `next
 `core backend import check` imports key backend modules including API entrypoints, command routing, voice, vision, security, memory, and LLM clients. This catches missing imports and startup-time crashes.
 
 `optional dependency readiness summary` uses startup diagnostics. Missing microphone, camera, OCR, Piper, Ollama, and model dependencies are warnings unless they prevent core backend startup.
+
+`daily_use_readiness` checks daily-use adapters without touching hardware. Voice readiness reports whether `speech_recognition` and `pyttsx3` are installed and whether `GRANDPA_VOICE_RUNTIME_ENABLED` is enabled. OCR readiness reports whether `pytesseract` is installed and whether a Tesseract executable is detectable through `TESSERACT_PATH`, the common Windows install path, or `PATH`. Browser readiness reports whether the Playwright Python package is installed, the safely detectable Playwright version, and whether Chromium, Firefox, and WebKit runtime executables exist.
+
+Common setup hints:
+
+```powershell
+pip install pytesseract
+python -m playwright install chromium
+```
+
+Install Tesseract OCR separately, then set `TESSERACT_PATH` or add `tesseract.exe` to `PATH`. Enable background voice only when needed:
+
+```powershell
+$env:GRANDPA_VOICE_RUNTIME_ENABLED = "1"
+```
 
 ## Debug Common Failures
 

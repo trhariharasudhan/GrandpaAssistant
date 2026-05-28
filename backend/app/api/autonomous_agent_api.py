@@ -20,10 +20,23 @@ class TaskPayload(BaseModel):
     approved: bool = False
 
 
+class ExecutePayload(BaseModel):
+    plan_id: str | None = None
+    plan_payload: dict | None = None
+    confirmed: bool = False
+    confirmation_token: str | None = None
+
+
 def _manager():
     from autonomous_agent.manager import get_autonomous_agent_manager
 
     return get_autonomous_agent_manager()
+
+
+def _agent_v1():
+    from core.autonomous_agent import AgentExecutorBridge, AgentStateStore, create_plan
+
+    return create_plan, AgentStateStore(), AgentExecutorBridge()
 
 
 def _sse(events):
@@ -38,7 +51,22 @@ def agent_status():
 
 @router.post("/plan")
 def plan_goal(payload: GoalPayload):
-    return _manager().plan_goal(payload.goal)
+    legacy = _manager().plan_goal(payload.goal)
+    create_plan, state_store, _bridge = _agent_v1()
+    v1_plan = create_plan(payload.goal)
+    v1_payload = state_store.save_plan(v1_plan)
+    return {**legacy, **v1_payload}
+
+
+@router.post("/execute")
+def execute_plan(payload: ExecutePayload):
+    _create_plan, _state_store, bridge = _agent_v1()
+    return bridge.execute(
+        plan_id=payload.plan_id or "",
+        plan_payload=payload.plan_payload,
+        confirmed=bool(payload.confirmed),
+        confirmation_token=payload.confirmation_token or "",
+    )
 
 
 @router.post("/tasks/step")

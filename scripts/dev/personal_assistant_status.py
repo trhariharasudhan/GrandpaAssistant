@@ -234,6 +234,15 @@ def _notification_status() -> dict[str, Any]:
         return _status_error(error)
 
 
+def _daily_use_readiness_status() -> dict[str, Any]:
+    try:
+        from daily_use_readiness import collect_daily_use_readiness
+
+        return collect_daily_use_readiness()
+    except Exception as error:
+        return _status_error(error)
+
+
 def _e2e_status() -> dict[str, Any]:
     script = ROOT / "scripts" / "dev" / "personal_assistant_e2e.py"
     docs = ROOT / "docs" / "PERSONAL_ASSISTANT_E2E_TEST_PACK.md"
@@ -263,6 +272,7 @@ def build_personal_assistant_status(*, verbose_safe: bool = False) -> dict[str, 
     startup = _startup_status()
     screen = _screen_status()
     notifications = _notification_status()
+    daily_use = _daily_use_readiness_status()
     e2e = _e2e_status()
 
     critical_failures = []
@@ -279,10 +289,13 @@ def build_personal_assistant_status(*, verbose_safe: bool = False) -> dict[str, 
         ("startup_integration", startup),
         ("screen_ocr", screen),
         ("notifications", notifications),
+        ("daily_use_readiness", daily_use),
         ("e2e_pack", e2e),
     ):
         if not section.get("ok", True):
             warnings.append(f"{name}_warning")
+    if daily_use.get("status") == "warning":
+        warnings.append("daily_use_readiness_warning")
     if not notifications.get("windows_toast_available", False):
         warnings.append("windows_toast_optional_adapter_missing")
     if not screen.get("screen_awareness_importable", False):
@@ -315,6 +328,7 @@ def build_personal_assistant_status(*, verbose_safe: bool = False) -> dict[str, 
         "startup_integration": startup,
         "screen_ocr": screen,
         "notifications": notifications,
+        "daily_use_readiness": daily_use,
         "e2e_test_pack": e2e,
         "critical_failures": critical_failures,
         "warnings": sorted(set(warnings)),
@@ -334,6 +348,7 @@ def _print_text(status: dict[str, Any]) -> None:
     tools = status.get("tools", {})
     scheduler = status.get("scheduler", {})
     voice = status.get("voice_runtime", {})
+    daily_use = status.get("daily_use_readiness", {})
     memory = status.get("memory_manager", {})
     llm = status.get("llm_planner", {})
     print("GrandpaAssistant Personal Assistant Status")
@@ -362,6 +377,14 @@ def _print_text(status: dict[str, Any]) -> None:
         )
     )
     print(f"  Notifications: toast={status.get('notifications', {}).get('windows_toast_available')} fallback={status.get('notifications', {}).get('fallback_channel')}")
+    print(
+        "  Daily-use readiness: status={status} ready={ready}/{total} warnings={warnings}".format(
+            status=daily_use.get("status"),
+            ready=daily_use.get("ready_count", 0),
+            total=daily_use.get("section_count", 0),
+            warnings=daily_use.get("warnings_count", 0),
+        )
+    )
     print(f"  E2E pack: {status.get('e2e_test_pack', {}).get('script_exists')}")
     print(f"  Warnings: {', '.join(status.get('warnings') or []) or 'none'}")
     print(f"  Overall OK: {status.get('ok')}")

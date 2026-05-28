@@ -57,6 +57,7 @@ class PersonalAssistantStatusCliTests(unittest.TestCase):
         self.assertIn("voice_runtime", status)
         self.assertIn("memory_manager", status)
         self.assertIn("screen_ocr", status)
+        self.assertIn("daily_use_readiness", status)
         self.assertGreater(status["tools"]["tool_count"], 0)
 
     def test_no_private_memory_values_are_exposed(self) -> None:
@@ -104,6 +105,7 @@ class PersonalAssistantStatusCliTests(unittest.TestCase):
         status = json.loads(result.stdout)
         self.assertTrue(status["ok"])
         self.assertEqual([], status["critical_failures"])
+        self.assertIn("daily_use_readiness", status)
 
     def test_missing_optional_adapters_are_warnings_not_hard_failures(self) -> None:
         with patch.object(personal_assistant_status, "_tool_status", return_value={"ok": True, "tool_count": 1, "tool_names": ["volume_control"]}), patch.object(
